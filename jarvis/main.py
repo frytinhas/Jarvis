@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -14,19 +15,42 @@ from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
 from jarvis.security.policy import Decision, PolicyEngine, Risk
-from jarvis.settings import MessageMode, project_root
+from jarvis.settings import DisplayLogLevel, MessageMode, project_root
 from jarvis.tools.registry import build_registry
 from jarvis.tools import system
 from jarvis.ui.terminal import TerminalUI
+from jarvis.ui.activity import ActivityPanel, maintain_runtime_logs
 from jarvis.ui.waiting import WaitingIndicator, load_waiting_messages
 
 
-def parse_initial_message(arguments: list[str] | None = None, prog: str = "jarvis") -> str | None:
+REASONING_BUDGETS = {0: 0, 1: 512, 2: 1024, 3: 2048, 4: -1}
+
+
+@dataclass(frozen=True)
+class Invocation:
+    message: str | None
+    reasoning_level: int
+
+
+def parse_invocation(
+    arguments: list[str] | None = None,
+    prog: str = "jarvis",
+    default_reasoning_level: int = 2,
+) -> Invocation:
     parser = argparse.ArgumentParser(prog=prog, description="Assistente local")
+    parser.add_argument(
+        "--r", "--reasoning", type=int, choices=range(-1, 5), default=-1,
+        metavar="N", help="reasoning: -1 padrão, 0 off, 1 low, 2 medium, 3 high, 4 max",
+    )
     parser.add_argument("message", nargs="*", help="mensagem inicial para o Jarvis")
     parsed = parser.parse_args(arguments)
     message = " ".join(parsed.message).strip()
-    return message or None
+    level = default_reasoning_level if parsed.r == -1 else parsed.r
+    return Invocation(message or None, level)
+
+
+def parse_initial_message(arguments: list[str] | None = None, prog: str = "jarvis") -> str | None:
+    return parse_invocation(arguments, prog).message
 
 
 def main(arguments: list[str] | None = None) -> None:
@@ -34,7 +58,29 @@ def main(arguments: list[str] | None = None) -> None:
     config = load_config()
     user_settings = config.settings
     advanced = config.advanced
-    logging.basicConfig(level=advanced.log_level)
+    invocation = parse_invocation(
+        arguments, user_settings.command_name, user_settings.default_reasoning_level
+    )
+    maintain_runtime_logs(
+        Path.home() / ".local/state/jarvis/logs/runtime",
+        user_settings.log_max_size_mb,
+        user_settings.log_retention_days,
+    )
+    activity = ActivityPanel(user_settings.display_log_level)
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if activity.log_path is not None:
+        handlers.append(logging.FileHandler(activity.log_path, encoding="utf-8"))
+    logging.basicConfig(
+        level=(
+            logging.DEBUG
+            if user_settings.display_log_level is DisplayLogLevel.FULL
+            else logging.CRITICAL
+        ),
+        handlers=handlers,
+        force=True,
+    )
+    # Mantém diagnóstico HTTP útil sem expor headers sensíveis do transporte.
+    logging.getLogger("httpcore").setLevel(logging.INFO)
     audit = AuditLog(advanced.audit_db_path)
     confirmations = ConfirmationManager(advanced.confirmation_timeout)
     policy_engine = PolicyEngine(user_settings.permissions)
@@ -54,6 +100,7 @@ def main(arguments: list[str] | None = None) -> None:
         audit,
         path_policy,
         memory_store,
+        activity,
     )
     user_directories: dict[str, object] = {}
     directory_context_read = path_policy.decide(
@@ -96,15 +143,18 @@ def main(arguments: list[str] | None = None) -> None:
         advanced.llm_base_url,
         advanced.llm_model,
         advanced.llm_api_key,
-        timeout=user_settings.request_timeout_seconds,
+        timeout=user_settings.llm_request_timeout_seconds,
+        thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
     ) as llm:
         orchestrator = Orchestrator(
             llm,
             registry,
-            request_timeout_seconds=user_settings.request_timeout_seconds,
+            max_tool_rounds=user_settings.max_tool_rounds,
+            interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
+            llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
             system_prompt=system_prompt,
         )
-        initial_message = parse_initial_message(arguments, user_settings.command_name)
+        initial_message = invocation.message
         warning = (
             f"Blacklist.txt inválido: {path_policy.error}. Tools de arquivos foram bloqueadas; "
             "corrija o arquivo e abra um novo chat."

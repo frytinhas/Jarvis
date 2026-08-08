@@ -96,6 +96,19 @@ def test_tool_calls_are_audited(registry: ToolRegistry, tmp_path: Path) -> None:
     assert row == ("read_file", "ALLOW", 0, 1)
 
 
+def test_activity_observer_cannot_break_tool_execution(registry: ToolRegistry, tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("ok", encoding="utf-8")
+
+    def broken_observer(event) -> None:  # type: ignore[no-untyped-def]
+        raise RuntimeError("painel falhou")
+
+    registry.activity_observer = broken_observer
+    result = registry.request("read_file", {"path": str(source)})
+
+    assert result.status == "ok"
+
+
 def test_denied_category_is_hidden_and_rejected(tmp_path: Path) -> None:
     restricted = build_registry(
         PolicyEngine({Risk.READ: Decision.DENY}),

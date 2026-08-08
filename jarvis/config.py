@@ -8,10 +8,10 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import UserSettings, default_settings, project_root
+from jarvis.settings import DisplayLogLevel, UserSettings, default_settings, project_root
 
 
-CONFIG_VERSION = 5
+CONFIG_VERSION = 6
 
 
 class ConfigFileError(ValueError):
@@ -30,7 +30,6 @@ class AdvancedConfig(BaseModel):
     audit_db_path: Path = Field(
         default_factory=lambda: Path("~/.local/state/jarvis/audit.db").expanduser()
     )
-    log_level: str = "CRITICAL"
 
 
 class JarvisConfig(BaseModel):
@@ -81,8 +80,9 @@ def save_config(config: JarvisConfig, path: Path | None = None) -> None:
         raise ConfigFileError(target, "PRIVILEGED deve permanecer DENY")
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_file():
-        tree = _parse_tree(target)
-        _config_from_root(tree.getroot(), target)
+        existing = _parse_tree(target)
+        _config_from_root(existing.getroot(), target)
+        tree = existing if existing.getroot().attrib.get("version") == str(CONFIG_VERSION) else _new_tree()
     else:
         tree = _new_tree()
     root = tree.getroot()
@@ -161,23 +161,26 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version != CONFIG_VERSION:
-        raise ConfigFileError(path, f"versão {version} não suportada; esperada {CONFIG_VERSION}")
+    if version not in {5, CONFIG_VERSION}:
+        raise ConfigFileError(path, f"versão {version} não suportada; esperada 5 ou {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
     _validate_children(root, sections, path)
     expected = {
         "model": {"directory", "path"},
         "identity": {"assistant_name", "command_name"},
-        "behavior": {
-            "autostart",
-            "keep_llm_running",
-            "message_mode",
-            "request_timeout_seconds",
-        },
+        "behavior": ({
+            "autostart", "keep_llm_running", "message_mode", "request_timeout_seconds"
+        } if version == 5 else {
+            "autostart", "keep_llm_running", "message_mode", "max_tool_rounds",
+            "interaction_timeout_seconds", "llm_request_timeout_seconds",
+            "default_reasoning_level",
+        }),
         "permissions": {risk.value for risk in Risk},
         "llm": {"base_url", "model", "api_key", "confirmation_timeout"},
-        "logs": {"max_size_mb", "retention_days", "audit_db_path", "level"},
+        "logs": ({"max_size_mb", "retention_days", "audit_db_path", "level"}
+                 if version == 5 else
+                 {"max_size_mb", "retention_days", "audit_db_path", "display_level"}),
         "paths": {"persona"},
     }
     for name, children in expected.items():
@@ -216,6 +219,10 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         }
         if permissions[Risk.PRIVILEGED] is not Decision.DENY:
             raise ConfigFileError(path, "<PRIVILEGED> deve permanecer DENY")
+        legacy_timeout = (
+            _integer(_text(behavior, "request_timeout_seconds"), "request_timeout_seconds", path)
+            if version == 5 else None
+        )
         settings = UserSettings(
             version=CONFIG_VERSION,
             model_directory=_optional_path(_text(model, "directory")),
@@ -228,9 +235,21 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                 _text(behavior, "keep_llm_running"), "keep_llm_running", path
             ),
             message_mode=_text(behavior, "message_mode"),
-            request_timeout_seconds=_integer(
-                _text(behavior, "request_timeout_seconds"), "request_timeout_seconds", path
-            ),
+            max_tool_rounds=(128 if version == 5 else _integer(
+                _text(behavior, "max_tool_rounds"), "max_tool_rounds", path
+            )),
+            interaction_timeout_seconds=(max(600, legacy_timeout or 0) if version == 5 else _integer(
+                _text(behavior, "interaction_timeout_seconds"), "interaction_timeout_seconds", path
+            )),
+            llm_request_timeout_seconds=(120 if version == 5 else _integer(
+                _text(behavior, "llm_request_timeout_seconds"), "llm_request_timeout_seconds", path
+            )),
+            default_reasoning_level=(2 if version == 5 else _integer(
+                _text(behavior, "default_reasoning_level"), "default_reasoning_level", path
+            )),
+            display_log_level=(DisplayLogLevel.ESSENTIAL if version == 5 else DisplayLogLevel(
+                _text(logs, "display_level")
+            )),
             log_max_size_mb=_integer(_text(logs, "max_size_mb"), "max_size_mb", path),
             log_retention_days=_integer(_text(logs, "retention_days"), "retention_days", path),
             persona_path=Path(persona).expanduser(),
@@ -243,11 +262,8 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                 _text(llm, "confirmation_timeout"), "confirmation_timeout", path
             ),
             audit_db_path=Path(_text(logs, "audit_db_path")).expanduser(),
-            log_level=_text(logs, "level"),
         )
-        if advanced.log_level.upper() not in {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}:
-            raise ConfigFileError(path, "<level> possui um nível de log inválido")
-        return JarvisConfig(version=version, settings=settings, advanced=advanced)
+        return JarvisConfig(version=CONFIG_VERSION, settings=settings, advanced=advanced)
     except ConfigFileError:
         raise
     except (ValidationError, ValueError) as error:
@@ -264,10 +280,10 @@ def _new_tree() -> ET.ElementTree:
     definitions = (
         ("model", "Modelo GGUF local selecionado pelo Jarvis.", "Local GGUF model selected by Jarvis.", ("directory", "path")),
         ("identity", "Nome exibido e comando público do assistente.", "Assistant display name and public command.", ("assistant_name", "command_name")),
-        ("behavior", "Use true/false; message_mode aceita interactive ou one_shot.", "Use true/false; message_mode accepts interactive or one_shot.", ("autostart", "keep_llm_running", "message_mode", "request_timeout_seconds")),
+        ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
-        ("logs", "Limites <= 0 desativam tamanho ou retenção das conversas.", "Limits <= 0 disable conversation size or retention limits.", ("max_size_mb", "retention_days", "audit_db_path", "level")),
+        ("logs", "Nível visual: Full, Server-Essential, Essential, Minimal-Essential ou None.", "Display level: Full, Server-Essential, Essential, Minimal-Essential, or None.", ("max_size_mb", "retention_days", "audit_db_path", "display_level")),
         ("paths", "Caminhos podem usar ~ e são expandidos pelo Jarvis.", "Paths may use ~ and are expanded by Jarvis.", ("persona",)),
     )
     for name, pt_br, en, children in definitions:
@@ -303,7 +319,10 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(behavior, "autostart", settings.autostart)
     _set(behavior, "keep_llm_running", settings.keep_llm_running)
     _set(behavior, "message_mode", settings.message_mode.value)
-    _set(behavior, "request_timeout_seconds", settings.request_timeout_seconds)
+    _set(behavior, "max_tool_rounds", settings.max_tool_rounds)
+    _set(behavior, "interaction_timeout_seconds", settings.interaction_timeout_seconds)
+    _set(behavior, "llm_request_timeout_seconds", settings.llm_request_timeout_seconds)
+    _set(behavior, "default_reasoning_level", settings.default_reasoning_level)
     permissions = _section(root, "permissions")
     for risk in Risk:
         _set(permissions, risk.value, settings.permissions.get(risk, Decision.DENY).value)
@@ -316,7 +335,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(logs, "max_size_mb", settings.log_max_size_mb)
     _set(logs, "retention_days", settings.log_retention_days)
     _set(logs, "audit_db_path", advanced.audit_db_path)
-    _set(logs, "level", advanced.log_level)
+    _set(logs, "display_level", settings.display_log_level.value)
     _set(_section(root, "paths"), "persona", settings.persona_path)
 
 
@@ -355,7 +374,6 @@ def _load_legacy_config(target: Path) -> JarvisConfig:
             llm_api_key=env.get("LLM_API_KEY", ""),
             confirmation_timeout=int(env.get("CONFIRMATION_TIMEOUT", "30")),
             audit_db_path=Path(env.get("AUDIT_DB_PATH", "~/.local/state/jarvis/audit.db")).expanduser(),
-            log_level=env.get("LOG_LEVEL", "CRITICAL"),
         )
     except (ValueError, ValidationError) as error:
         raise ConfigFileError(project_root() / ".env", str(error)) from error

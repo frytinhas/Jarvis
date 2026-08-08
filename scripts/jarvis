@@ -15,6 +15,8 @@ PID_FILE="$STATE_DIR/llama-server.pid"
 RESTART_MARKER="$STATE_DIR/restart-required"
 SESSION_DIR="$STATE_DIR/sessions"
 UNIT_NAME="jarvis-llm.service"
+RUNTIME_LOG_DIR="$STATE_DIR/logs/runtime"
+SERVER_LOG="$RUNTIME_LOG_DIR/llama-server.log"
 
 if [[ "${1:-}" == "--remove" || "${1:-}" == "--purge" ]]; then
     if (($# != 1)); then
@@ -46,6 +48,7 @@ KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
 SERVER_URL="http://$SERVER_HOST:$SERVER_PORT"
 server_start_requested=false
 session_registered=false
+log_tail_pid=""
 
 server_healthy() {
     curl --silent --fail --max-time 2 "$SERVER_URL/health" >/dev/null 2>&1
@@ -112,6 +115,11 @@ has_active_sessions() {
 }
 
 cleanup_session() {
+    if [[ -n "$log_tail_pid" ]]; then
+        kill "$log_tail_pid" 2>/dev/null || true
+        wait "$log_tail_pid" 2>/dev/null || true
+        log_tail_pid=""
+    fi
     [[ "$session_registered" == true ]] || return
     rm -f "$SESSION_DIR/$$"
     session_registered=false
@@ -129,6 +137,50 @@ register_session() {
 
 run_client() {
     "$JARVIS_BIN" "$@"
+}
+
+server_message() {
+    if [[ "${DISPLAY_LOG_LEVEL:-Essential}" == "Full" || "${DISPLAY_LOG_LEVEL:-Essential}" == "Server-Essential" ]]; then
+        echo "$*"
+    fi
+}
+
+ask_log_preferences() {
+    local save_logs=false show_server=false answer timestamp
+    unset JARVIS_SESSION_LOG_PATH
+    [[ "${DISPLAY_LOG_LEVEL:-Essential}" == "Full" || "${DISPLAY_LOG_LEVEL:-Essential}" == "Server-Essential" ]] || return
+    if [[ -t 0 && -t 1 ]]; then
+        read -r -p "Salvar os logs desta sessão? Eles podem conter comandos e conteúdo alterado. [y/N] " answer
+        [[ "${answer,,}" == "y" || "${answer,,}" == "yes" || "${answer,,}" == "s" || "${answer,,}" == "sim" ]] && save_logs=true
+        if [[ "$DISPLAY_LOG_LEVEL" == "Server-Essential" ]]; then
+            read -r -p "Mostrar também os logs do servidor no terminal? [y/N] " answer
+            [[ "${answer,,}" == "y" || "${answer,,}" == "yes" || "${answer,,}" == "s" || "${answer,,}" == "sim" ]] && show_server=true
+        else
+            show_server=true
+        fi
+    elif [[ "$DISPLAY_LOG_LEVEL" == "Full" ]]; then
+        show_server=true
+    fi
+    mkdir -p "$RUNTIME_LOG_DIR"
+    chmod 700 "$RUNTIME_LOG_DIR"
+    touch "$SERVER_LOG"
+    chmod 600 "$SERVER_LOG"
+    if [[ "$save_logs" == true ]]; then
+        timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        export JARVIS_SESSION_LOG_PATH="$RUNTIME_LOG_DIR/session-$timestamp-$$.log"
+        touch "$JARVIS_SESSION_LOG_PATH"
+        chmod 600 "$JARVIS_SESSION_LOG_PATH"
+    fi
+    if [[ "$show_server" == true && "$save_logs" == true ]]; then
+        tail -n 0 -F "$SERVER_LOG" 2>/dev/null | tee -a "$JARVIS_SESSION_LOG_PATH" &
+        log_tail_pid=$!
+    elif [[ "$show_server" == true ]]; then
+        tail -n 0 -F "$SERVER_LOG" 2>/dev/null &
+        log_tail_pid=$!
+    elif [[ "$save_logs" == true ]]; then
+        tail -n 0 -F "$SERVER_LOG" >>"$JARVIS_SESSION_LOG_PATH" 2>/dev/null &
+        log_tail_pid=$!
+    fi
 }
 
 start_with_fallback() {
@@ -153,6 +205,7 @@ if [[ "${1:-}" == "--full-stop" ]]; then
 fi
 
 register_session
+ask_log_preferences
 
 if user_systemd_available; then
     if [[ "$AUTOSTART" == true ]]; then
@@ -189,7 +242,7 @@ elif server_healthy; then
 fi
 
 if ! correct_model_loaded && [[ "$server_start_requested" == false ]]; then
-    echo "Iniciando o modelo configurado..."
+    server_message "Iniciando o modelo configurado..."
     if user_systemd_available; then
         systemctl --user start "$UNIT_NAME"
         server_start_requested=true
@@ -202,7 +255,7 @@ fi
 for _ in $(seq 1 180); do
     if correct_model_loaded; then
         rm -f "$RESTART_MARKER"
-        echo "Modelo pronto. Abrindo o Jarvis..."
+        server_message "Modelo pronto. Abrindo o Jarvis..."
         run_client "$@"
         exit $?
     fi

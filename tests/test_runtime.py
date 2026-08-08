@@ -40,6 +40,7 @@ def test_manual_model_edit_regenerates_runtime_and_marks_restart(
 
     content = runtime.read_text(encoding="utf-8")
     assert "MODEL_PATH='/tmp/new model.gguf'" in content
+    assert "DISPLAY_LOG_LEVEL=Essential" in content
     assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
 
 

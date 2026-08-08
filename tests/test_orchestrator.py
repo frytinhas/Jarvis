@@ -114,9 +114,12 @@ def test_orchestrator_passes_remaining_interaction_time_to_each_model_call(
             self.timeouts.append(timeout)
             return super().chat(messages, tools, timeout)
 
-    times = iter([0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 2.0])
+    times = iter([0.0, 1.0, 1.0, 2.0, 2.0, 2.0])
     llm = TimedLLM()
-    agent = Orchestrator(llm, registry, request_timeout_seconds=10, clock=lambda: next(times))
+    agent = Orchestrator(
+        llm, registry, interaction_timeout_seconds=10,
+        llm_request_timeout_seconds=120, clock=lambda: next(times),
+    )
 
     reply = agent.handle("Consulte")
 
@@ -130,12 +133,13 @@ def test_orchestrator_does_not_start_tool_after_deadline(registry: ToolRegistry)
         function=ToolFunctionCall(name="get_current_directory", arguments="{}"),
     )
     llm = SequencedLLM([AssistantMessage(tool_calls=[call])])
-    times = iter([0.0, 0.0, 61.0])
-    agent = Orchestrator(llm, registry, request_timeout_seconds=60, clock=lambda: next(times))
+    times = iter([0.0, 61.0])
+    agent = Orchestrator(llm, registry, interaction_timeout_seconds=60, clock=lambda: next(times))
 
     reply = agent.handle("Onde estou?")
 
-    assert "Tempo limite de 60 segundos" in reply.text
+    assert "Timeout total do Jarvis" in reply.text
+    assert "60 segundos" in reply.text
     assert not any(message["role"] == "tool" for message in agent.messages)
 
 
@@ -144,8 +148,65 @@ def test_orchestrator_turns_llm_timeout_into_clear_reply(registry: ToolRegistry)
         def chat(self, messages, tools, timeout=None):  # type: ignore[no-untyped-def]
             raise LLMTimeoutError
 
-    agent = Orchestrator(TimedOutLLM(), registry, request_timeout_seconds=30)
+    agent = Orchestrator(TimedOutLLM(), registry, llm_request_timeout_seconds=30)
 
     reply = agent.handle("Oi")
 
-    assert reply.text == "Tempo limite de 30 segundos atingido enquanto aguardava o llama-server."
+    assert "Timeout do Jarvis por chamada ao LLM" in reply.text
+    assert "30 segundos" in reply.text
+
+
+def test_orchestrator_allows_128_tools_then_a_final_answer(registry: ToolRegistry) -> None:
+    calls = [
+        AssistantMessage(tool_calls=[ToolCall(
+            id=f"call-{index}",
+            function=ToolFunctionCall(name="get_current_directory", arguments="{}"),
+        )])
+        for index in range(128)
+    ]
+    llm = SequencedLLM([*calls, AssistantMessage(content="concluído")])
+    agent = Orchestrator(llm, registry, max_tool_rounds=128)
+
+    assert agent.handle("faça uma tarefa longa").text == "concluído"
+
+
+def test_confirmation_wait_does_not_consume_total_timeout(
+    registry: ToolRegistry, tmp_path: Path
+) -> None:
+    call = ToolCall(
+        id="write",
+        function=ToolFunctionCall(
+            name="write_file",
+            arguments=json.dumps({"path": str(tmp_path / "file.txt"), "content": "ok"}),
+        ),
+    )
+    (tmp_path / "file.txt").write_text("old", encoding="utf-8")
+    llm = SequencedLLM([AssistantMessage(tool_calls=[call]), AssistantMessage(content="feito")])
+    now = [0.0]
+    agent = Orchestrator(
+        llm, registry, interaction_timeout_seconds=10, clock=lambda: now[0]
+    )
+
+    pending = agent.handle("altere")
+    assert pending.pending is not None
+    now[0] = 10_000.0
+    reply = agent.confirm(pending.pending.id)
+
+    assert reply.text == "feito"
+
+
+def test_tool_limit_keeps_history_valid_for_the_next_user_turn(registry: ToolRegistry) -> None:
+    tool_messages = [
+        AssistantMessage(tool_calls=[ToolCall(
+            id=f"call-{index}",
+            function=ToolFunctionCall(name="get_current_directory", arguments="{}"),
+        )])
+        for index in range(3)
+    ]
+    llm = SequencedLLM([*tool_messages, AssistantMessage(content="nova resposta")])
+    agent = Orchestrator(llm, registry, max_tool_rounds=2)
+
+    limited = agent.handle("loop")
+    assert "2 ciclos" in limited.text
+    assert len([message for message in agent.messages if message["role"] == "assistant"]) == 2
+    assert agent.handle("continue").text == "nova resposta"

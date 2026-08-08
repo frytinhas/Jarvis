@@ -11,6 +11,7 @@ from jarvis.configurator import (
     _choose_identity,
     _inspect_command,
     ask_integer,
+    ask_choice,
     ask_positive_integer,
     commit,
     discover_models,
@@ -226,3 +227,9 @@ def test_timeout_requires_positive_integer(monkeypatch) -> None:  # type: ignore
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
     assert ask_positive_integer("Timeout", 60) == 60
+
+
+def test_menu_choice_keeps_default_and_rejects_invalid_values(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    answers = iter(["x", "9", ""])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+    assert ask_choice("Seção", ["a", "b", "c"], default=2) == 2

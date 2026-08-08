@@ -241,6 +241,7 @@ def summarize_conversation(llm: LLM, transcript: list[dict[str, str]]) -> str:
             {"role": "user", "content": encoded},
         ],
         [],
+        thinking_budget_tokens=0,
     )
     return (response.content or "").strip()
 

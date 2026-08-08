@@ -13,6 +13,7 @@ class LLM(Protocol):
         messages: list[Message],
         tools: list[dict[str, Any]],
         timeout: float | None = None,
+        thinking_budget_tokens: int | None = None,
     ) -> AssistantMessage: ...
 
 
@@ -27,10 +28,12 @@ class LlamaClient:
         model: str,
         api_key: str = "",
         timeout: float = 120.0,
+        thinking_budget_tokens: int = 1024,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.model = model
         self.timeout = timeout
+        self.thinking_budget_tokens = thinking_budget_tokens
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.Client(
             base_url=f"{base_url.rstrip('/')}/", headers=headers, timeout=timeout, transport=transport
@@ -41,8 +44,14 @@ class LlamaClient:
         messages: list[Message],
         tools: list[dict[str, Any]],
         timeout: float | None = None,
+        thinking_budget_tokens: int | None = None,
     ) -> AssistantMessage:
         payload: dict[str, Any] = {"model": self.model, "messages": messages}
+        payload["thinking_budget_tokens"] = (
+            self.thinking_budget_tokens
+            if thinking_budget_tokens is None
+            else thinking_budget_tokens
+        )
         if tools:
             payload.update({"tools": tools, "tool_choice": "auto"})
         try:

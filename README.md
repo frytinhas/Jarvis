@@ -20,20 +20,7 @@ The setup only installs Jarvis, its Python environment, the llama server and the
 
 The automatic installer is officially supported on Debian, Ubuntu and their derivatives. Jarvis may work on other Linux distributions, but that setup path has not been tested and system dependencies may need to be installed manually.
 
-The wizard asks, in order, for:
-
-1. The folder containing your local GGUF models and which model to use.
-2. Which permission categories are available.
-3. Which enabled categories may run without confirmation.
-4. Whether to keep or restore `Persona.md` and `Context.md`.
-5. Whether to use a custom assistant name and terminal command.
-6. Whether the model server starts automatically with your user session.
-7. Whether the model server stays on after the last chat closes.
-8. Whether a command-line message starts a continuing chat or answers once and exits.
-9. The maximum duration of each interaction.
-10. The maximum conversation-log size and retention period.
-
-Nothing is saved until the final summary is confirmed.
+The configurator uses a calm section menu: Model, Identity, Behavior and timeouts, Permissions, Logs and panel, and Persona and context. You can change only what you need, review the summary, and save; leaving the menu does not write changes.
 
 ### Advanced configuration
 
@@ -78,7 +65,10 @@ With the default name:
 ```bash
 jarvis
 jarvis "what are my computer specifications?"
+jarvis --r 3 "analyze this project"
 ```
+
+`--r` controls reasoning for that chat only: `-1` uses the configured default, `0` disables it, `1` is Low, `2` Medium, `3` High, and `4` Max. The initial default is Medium and can be changed with `jarvis-config`.
 
 If you choose a custom name such as Bob, use:
 
@@ -153,9 +143,11 @@ Conversations are stored in a local SQLite database. The five newest summaries a
 
 By default, logs are kept for 30 days and the folder is limited to 100 MB. Run `jarvis-config` to change either value. A value less than or equal to zero means unlimited. Expired and oldest logs are removed locally when needed. The database is private to your user account but is not encrypted, so conversations should not be treated as a password vault.
 
+The activity panel has five levels. `Essential`, the default, shows tools, commands, paths, and changed content; reads show only their target and metadata. `Minimal-Essential` shows only tools and states. `Server-Essential` adds server logs, `Full` includes complete technical diagnostics, and `None` keeps only the conversation and waiting messages. In `Full` and `Server-Essential`, Jarvis asks at session startup whether logs should be saved under `~/.local/state/jarvis/logs/runtime/`.
+
 Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. On startup, Jarvis randomly selects a non-empty line and then advances through the list in circular order every 5–10 seconds. In interactive terminals, each message replaces the previous one on the same line. Leave the file empty to disable them.
 
-Each interaction has a total 60-second limit by default, shared by model calls and tool rounds. Run `jarvis-config` to change it. When the limit is reached, Jarvis does not start another tool and displays an explicit timeout message.
+Each interaction allows up to 128 tool cycles, 600 seconds of total active processing, and 120 seconds per model request. Time spent waiting for human confirmation does not consume the total. Change these values under `jarvis-config → Behavior`; timeout messages identify which limit was reached and where to adjust it.
 
 ## Personality
 

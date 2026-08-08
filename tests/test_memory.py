@@ -136,9 +136,10 @@ def test_llm_summary_treats_transcript_as_untrusted() -> None:
         def __init__(self) -> None:
             self.messages = []
 
-        def chat(self, messages, tools, timeout=None):  # type: ignore[no-untyped-def]
+        def chat(self, messages, tools, timeout=None, thinking_budget_tokens=None):  # type: ignore[no-untyped-def]
             self.messages = messages
             assert tools == []
+            assert thinking_budget_tokens == 0
             return AssistantMessage(content="Resumo seguro")
 
     llm = SummaryLLM()

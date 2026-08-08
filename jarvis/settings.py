@@ -23,10 +23,18 @@ class MessageMode(StrEnum):
     ONE_SHOT = "one_shot"
 
 
+class DisplayLogLevel(StrEnum):
+    FULL = "Full"
+    SERVER_ESSENTIAL = "Server-Essential"
+    ESSENTIAL = "Essential"
+    MINIMAL_ESSENTIAL = "Minimal-Essential"
+    NONE = "None"
+
+
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 5
+    version: int = 6
     model_directory: Path | None = None
     model_path: Path | None = None
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
@@ -35,7 +43,11 @@ class UserSettings(BaseModel):
     autostart: bool = True
     keep_llm_running: bool = False
     message_mode: MessageMode = MessageMode.INTERACTIVE
-    request_timeout_seconds: int = Field(default=60, gt=0)
+    max_tool_rounds: int = Field(default=128, gt=0)
+    interaction_timeout_seconds: int = Field(default=600, gt=0)
+    llm_request_timeout_seconds: int = Field(default=120, gt=0)
+    default_reasoning_level: int = Field(default=2, ge=0, le=4)
+    display_log_level: DisplayLogLevel = DisplayLogLevel.ESSENTIAL
     log_max_size_mb: int = 100
     log_retention_days: int = 30
     persona_path: Path

@@ -25,77 +25,100 @@ class Orchestrator:
         self,
         llm: LLM,
         registry: ToolRegistry,
-        max_tool_rounds: int = 8,
-        request_timeout_seconds: float = 60.0,
+        max_tool_rounds: int = 128,
+        interaction_timeout_seconds: float = 600.0,
+        llm_request_timeout_seconds: float = 120.0,
         system_prompt: str = SYSTEM_PROMPT,
         clock: Callable[[], float] | None = None,
     ) -> None:
-        if request_timeout_seconds <= 0:
-            raise ValueError("request_timeout_seconds deve ser positivo")
+        if interaction_timeout_seconds <= 0 or llm_request_timeout_seconds <= 0:
+            raise ValueError("timeouts devem ser positivos")
+        if max_tool_rounds <= 0:
+            raise ValueError("max_tool_rounds deve ser positivo")
         self.llm = llm
         self.registry = registry
         self.max_tool_rounds = max_tool_rounds
-        self.request_timeout_seconds = request_timeout_seconds
+        self.interaction_timeout_seconds = interaction_timeout_seconds
+        self.llm_request_timeout_seconds = llm_request_timeout_seconds
         self.clock = clock or time.monotonic
         self.messages: list[Message] = [{"role": "system", "content": system_prompt}]
         self.transcript: list[dict[str, str]] = []
         self.started_at = datetime.now(timezone.utc)
         self._pending_calls: dict[str, tuple[str, PendingAction]] = {}
+        self._active_seconds = 0.0
+        self._tool_rounds = 0
 
     def handle(self, user_text: str) -> AgentReply:
         if self._pending_calls:
             return self._reply("Há uma ação aguardando confirmação.", self._current_pending())
         self.transcript.append({"role": "user", "content": user_text})
         self.messages.append({"role": "user", "content": user_text})
-        return self._run(self._deadline())
+        self._active_seconds = 0.0
+        self._tool_rounds = 0
+        return self._run()
 
     def confirm(self, action_id: str) -> AgentReply:
-        deadline = self._deadline()
         pending_call = self._pending_calls.pop(action_id, None)
         if pending_call is None:
             return self._reply("Ação pendente inexistente ou diferente.")
         self.transcript.append({"role": "user", "content": "[Ação confirmada pelo usuário]"})
         call_id, _ = pending_call
+        started = self.clock()
         try:
             result = self.registry.confirm(action_id)
         except (ConfirmationError, ValueError) as error:
             result = ToolResult("error", {"error": str(error)})
+        self._active_seconds += max(0.0, self.clock() - started)
         self._append_tool_result(call_id, result)
-        if self.clock() >= deadline:
+        if self._active_seconds >= self.interaction_timeout_seconds:
             return self._tool_completed_after_timeout()
-        return self._run(deadline)
+        return self._run()
 
     def cancel(self, action_id: str) -> AgentReply:
-        deadline = self._deadline()
         pending_call = self._pending_calls.pop(action_id, None)
         if pending_call is None:
             return self._reply("Ação pendente inexistente ou diferente.")
         self.transcript.append({"role": "user", "content": "[Ação cancelada pelo usuário]"})
         call_id, _ = pending_call
+        started = self.clock()
         result = self.registry.cancel(action_id)
+        self._active_seconds += max(0.0, self.clock() - started)
         self._append_tool_result(call_id, result)
-        if self.clock() >= deadline:
-            return self._tool_completed_after_timeout()
-        return self._run(deadline)
+        if self._active_seconds >= self.interaction_timeout_seconds:
+            return self._total_timeout_reply()
+        return self._run()
 
-    def _run(self, deadline: float) -> AgentReply:
-        for _ in range(self.max_tool_rounds):
-            remaining = deadline - self.clock()
+    def _run(self) -> AgentReply:
+        while True:
+            remaining = self.interaction_timeout_seconds - self._active_seconds
             if remaining <= 0:
-                return self._timeout_reply()
+                return self._total_timeout_reply()
+            request_timeout = min(remaining, self.llm_request_timeout_seconds)
+            started = self.clock()
             try:
                 assistant = self.llm.chat(
                     self.messages,
                     self.registry.schemas(),
-                    timeout=remaining,
+                    timeout=request_timeout,
                 )
             except LLMTimeoutError:
-                return self._timeout_reply()
-            if self.clock() >= deadline:
-                return self._timeout_reply()
-            self.messages.append(self._assistant_dict(assistant))
+                self._active_seconds += max(0.0, self.clock() - started)
+                if remaining <= self.llm_request_timeout_seconds:
+                    return self._total_timeout_reply()
+                return self._llm_timeout_reply()
+            self._active_seconds += max(0.0, self.clock() - started)
+            if self._active_seconds >= self.interaction_timeout_seconds:
+                return self._total_timeout_reply()
             if not assistant.tool_calls:
-                return self._reply(assistant.content or "")
+                self.messages.append(self._assistant_dict(assistant))
+                return self._complete_reply(assistant.content or "")
+            if self._tool_rounds >= self.max_tool_rounds:
+                return self._complete_reply(
+                    f"Limite do Jarvis de {self.max_tool_rounds} ciclos de tools atingido. "
+                    "Altere em jarvis-config → Comportamento."
+                )
+            self._tool_rounds += 1
+            self.messages.append(self._assistant_dict(assistant))
             if len(assistant.tool_calls) != 1:
                 for call in assistant.tool_calls:
                     self._append_tool_result(
@@ -104,31 +127,42 @@ class Orchestrator:
                     )
                 continue
             call = assistant.tool_calls[0]
-            if self.clock() >= deadline:
-                return self._timeout_reply()
+            started = self.clock()
             result = self.registry.request(call.function.name, call.function.arguments)
+            self._active_seconds += max(0.0, self.clock() - started)
             if result.pending:
                 self._pending_calls[result.pending.id] = (call.id, result.pending)
                 return self._reply(self._confirmation_message(result.pending), result.pending)
             self._append_tool_result(call.id, result)
-            if self.clock() >= deadline:
+            if self._active_seconds >= self.interaction_timeout_seconds:
                 return self._tool_completed_after_timeout()
-        return self._reply("Limite de chamadas de tools atingido; operação interrompida com segurança.")
 
-    def _deadline(self) -> float:
-        return self.clock() + self.request_timeout_seconds
+    def _llm_timeout_reply(self) -> AgentReply:
+        seconds = f"{self.llm_request_timeout_seconds:g}"
+        return self._complete_reply(
+            f"Timeout do Jarvis por chamada ao LLM atingido ({seconds} segundos). "
+            "Altere em jarvis-config → Comportamento."
+        )
 
-    def _timeout_reply(self) -> AgentReply:
-        seconds = f"{self.request_timeout_seconds:g}"
-        return self._reply(
-            f"Tempo limite de {seconds} segundos atingido enquanto aguardava o llama-server."
+    def _total_timeout_reply(self) -> AgentReply:
+        seconds = f"{self.interaction_timeout_seconds:g}"
+        return self._complete_reply(
+            f"Timeout total do Jarvis atingido ({seconds} segundos de processamento ativo). "
+            "Altere em jarvis-config → Comportamento."
         )
 
     def _tool_completed_after_timeout(self) -> AgentReply:
-        return self._reply(
+        return self._complete_reply(
             "A tool foi concluída, mas o limite de tempo da interação foi atingido "
-            "antes da resposta final."
+            f"({self.interaction_timeout_seconds:g} segundos). "
+            "Altere em jarvis-config → Comportamento."
         )
+
+    def _complete_reply(self, text: str) -> AgentReply:
+        reply = self._reply(text)
+        self._active_seconds = 0.0
+        self._tool_rounds = 0
+        return reply
 
     def _reply(self, text: str, pending: PendingAction | None = None) -> AgentReply:
         if text:

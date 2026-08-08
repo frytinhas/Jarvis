@@ -9,7 +9,7 @@ import shlex
 from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import MessageMode, UserSettings, project_root
+from jarvis.settings import DisplayLogLevel, MessageMode, UserSettings, project_root
 
 
 CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
@@ -99,6 +99,18 @@ def ask_positive_integer(prompt: str, default: int) -> int:
         if value > 0:
             return value
         print("Informe um número inteiro maior que zero.")
+
+
+def ask_choice(prompt: str, choices: list[str], default: int = 1) -> int:
+    while True:
+        raw = input(f"{prompt} [{default}]: ").strip()
+        try:
+            selected = int(raw) if raw else default
+            if 1 <= selected <= len(choices):
+                return selected
+        except ValueError:
+            pass
+        print(f"Escolha um número entre 1 e {len(choices)}.")
 
 
 def _legacy_model() -> Path | None:
@@ -267,7 +279,11 @@ def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -
     print(f"  Ao fechar o chat: o servidor {server_state}")
     message_state = "continuar no chat" if settings.message_mode is MessageMode.INTERACTIVE else "responder e sair"
     print(f"  Mensagem no comando: {message_state}")
-    print(f"  Tempo máximo por interação: {settings.request_timeout_seconds} segundos")
+    print(f"  Ciclos máximos de tools: {settings.max_tool_rounds}")
+    print(f"  Timeout total ativo: {settings.interaction_timeout_seconds} segundos")
+    print(f"  Timeout por chamada ao LLM: {settings.llm_request_timeout_seconds} segundos")
+    print(f"  Reasoning padrão: nível {settings.default_reasoning_level}")
+    print(f"  Painel de atividade: {settings.display_log_level.value}")
     size = "sem limite" if settings.log_max_size_mb <= 0 else f"{settings.log_max_size_mb} MB"
     retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
     print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
@@ -275,7 +291,7 @@ def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
 
-def run_wizard() -> ConfigurationResult:
+def run_wizard() -> ConfigurationResult | None:
     persona = project_root() / "Persona.md"
     context = project_root() / "Context.md"
     if not persona.is_file():
@@ -291,67 +307,97 @@ def run_wizard() -> ConfigurationResult:
                 update={"model_directory": legacy.parent, "model_path": legacy}
             )
     draft = persisted
-    while True:
-        print("\n=== Configuração do Jarvis ===")
+    reset_default = False
+    reset_context = False
+    command_replacement: CommandReplacement | None = None
+    if draft.model_path is None:
+        print("\nVamos começar escolhendo o modelo local. Depois você poderá revisar o restante com calma.")
         model_directory, model_path = _choose_model(draft)
-        permissions = _choose_permissions(draft)
-        print(f"\nPersona editável: {persona}")
-        print("Edite esse arquivo para personalizar o comportamento do assistente.")
-        reset_default = False
-        if not _persona_is_default(persona):
-            reset_default = ask_yes_no("Restaurar a personalidade padrão?", False)
-        print(f"\nContexto editável: {context}")
-        print("Edite esse arquivo para ensinar preferências e referências ao assistente.")
-        reset_context = False
-        if not _context_is_default(context):
-            reset_context = ask_yes_no("Restaurar o contexto padrão?", False)
-        assistant_name, command_name, command_replacement = _choose_identity(draft)
-        autostart = ask_yes_no("Iniciar o servidor automaticamente ao entrar no usuário?", draft.autostart)
-        keep_llm_running = ask_yes_no(
-            "Manter o servidor da IA ligado depois que o chat for fechado?",
-            draft.keep_llm_running,
-        )
-        continue_after_message = ask_yes_no(
-            "Ao chamar o assistente com uma mensagem, continuar no chat após a resposta?",
-            draft.message_mode is MessageMode.INTERACTIVE,
-        )
-        request_timeout_seconds = ask_positive_integer(
-            "Tempo máximo de cada interação em segundos",
-            draft.request_timeout_seconds,
-        )
-        log_max_size_mb = ask_integer(
-            "Tamanho máximo da pasta de logs em MB (<= 0 significa sem limite)",
-            draft.log_max_size_mb,
-        )
-        log_retention_days = ask_integer(
-            "Tempo de retenção dos logs em dias (<= 0 significa sem limite)",
-            draft.log_retention_days,
-        )
-        candidate = UserSettings(
-            model_directory=model_directory,
-            model_path=model_path,
-            permissions=permissions,
-            assistant_name=assistant_name,
-            command_name=command_name,
-            autostart=autostart,
-            keep_llm_running=keep_llm_running,
-            message_mode=(MessageMode.INTERACTIVE if continue_after_message else MessageMode.ONE_SHOT),
-            request_timeout_seconds=request_timeout_seconds,
-            log_max_size_mb=log_max_size_mb,
-            log_retention_days=log_retention_days,
-            persona_path=persona,
-        )
-        _summary(candidate, reset_default, reset_context)
-        if ask_yes_no("Confirmar e salvar essa configuração?", True):
-            return ConfigurationResult(
-                persisted_config.model_copy(update={"settings": candidate}),
-                persisted.command_name,
-                reset_default,
-                reset_context,
-                command_replacement,
+        draft = draft.model_copy(update={"model_directory": model_directory, "model_path": model_path})
+    while True:
+        print("\n=== Jarvis · Configuração ===")
+        print(f"Modelo: {draft.model_path.name if draft.model_path else 'não selecionado'}")
+        print(f"Reasoning: nível {draft.default_reasoning_level} · Painel: {draft.display_log_level.value}")
+        print("\n  1) Modelo")
+        print("  2) Identidade")
+        print("  3) Comportamento e timeouts")
+        print("  4) Permissões")
+        print("  5) Logs e painel")
+        print("  6) Persona e contexto")
+        print("  7) Revisar e salvar")
+        print("  8) Sair sem salvar")
+        choice = ask_choice("Escolha uma seção", [str(index) for index in range(1, 9)], 7)
+        if choice == 1:
+            directory, model = _choose_model(draft)
+            draft = draft.model_copy(update={"model_directory": directory, "model_path": model})
+        elif choice == 2:
+            name, command, command_replacement = _choose_identity(draft)
+            draft = draft.model_copy(update={"assistant_name": name, "command_name": command})
+        elif choice == 3:
+            autostart = ask_yes_no("Iniciar o servidor junto com o usuário?", draft.autostart)
+            keep_running = ask_yes_no("Manter o modelo pronto após fechar o chat?", draft.keep_llm_running)
+            interactive = ask_yes_no(
+                "Continuar no chat após uma mensagem passada no comando?",
+                draft.message_mode is MessageMode.INTERACTIVE,
             )
-        print("Nada foi salvo. O assistente de configuração será reiniciado.")
-        draft = candidate
+            rounds = ask_positive_integer("Máximo de ciclos de tools", draft.max_tool_rounds)
+            total_timeout = ask_positive_integer(
+                "Timeout total de processamento ativo em segundos", draft.interaction_timeout_seconds
+            )
+            llm_timeout = ask_positive_integer(
+                "Timeout de cada chamada ao LLM em segundos", draft.llm_request_timeout_seconds
+            )
+            reasoning = ask_choice(
+                "Reasoning padrão: 1) Off  2) Low  3) Medium  4) High  5) Max",
+                ["Off", "Low", "Medium", "High", "Max"],
+                draft.default_reasoning_level + 1,
+            ) - 1
+            draft = draft.model_copy(update={
+                "autostart": autostart,
+                "keep_llm_running": keep_running,
+                "message_mode": MessageMode.INTERACTIVE if interactive else MessageMode.ONE_SHOT,
+                "max_tool_rounds": rounds,
+                "interaction_timeout_seconds": total_timeout,
+                "llm_request_timeout_seconds": llm_timeout,
+                "default_reasoning_level": reasoning,
+            })
+        elif choice == 4:
+            draft = draft.model_copy(update={"permissions": _choose_permissions(draft)})
+        elif choice == 5:
+            levels = list(DisplayLogLevel)
+            print("\nNíveis do painel:")
+            for index, level in enumerate(levels, 1):
+                print(f"  {index}) {level.value}")
+            default_level = levels.index(draft.display_log_level) + 1
+            level = levels[ask_choice("Nível", [item.value for item in levels], default_level) - 1]
+            size = ask_integer("Tamanho máximo dos logs em MB (<= 0 sem limite)", draft.log_max_size_mb)
+            retention = ask_integer("Retenção dos logs em dias (<= 0 sem limite)", draft.log_retention_days)
+            draft = draft.model_copy(update={
+                "display_log_level": level,
+                "log_max_size_mb": size,
+                "log_retention_days": retention,
+            })
+        elif choice == 6:
+            print(f"\nPersona: {persona}")
+            if not _persona_is_default(persona):
+                reset_default = ask_yes_no("Restaurar a personalidade padrão ao salvar?", reset_default)
+            print(f"Contexto: {context}")
+            if not _context_is_default(context):
+                reset_context = ask_yes_no("Restaurar o contexto padrão ao salvar?", reset_context)
+        elif choice == 7:
+            _summary(draft, reset_default, reset_context)
+            if ask_yes_no("Salvar esta configuração?", True):
+                return ConfigurationResult(
+                    persisted_config.model_copy(update={"settings": draft}),
+                    persisted.command_name,
+                    reset_default,
+                    reset_context,
+                    command_replacement,
+                )
+            print("Tudo bem; nenhuma alteração foi salva ainda.")
+        else:
+            print("Nenhuma alteração foi salva.")
+            return None
 
 
 def _write_runtime(config: JarvisConfig) -> None:
@@ -366,6 +412,7 @@ def _write_runtime(config: JarvisConfig) -> None:
             f"AUTOSTART={'true' if settings.autostart else 'false'}",
             f"KEEP_LLM_RUNNING={'true' if settings.keep_llm_running else 'false'}",
             f"MESSAGE_MODE={shlex.quote(settings.message_mode.value)}",
+            f"DISPLAY_LOG_LEVEL={shlex.quote(settings.display_log_level.value)}",
         )
     ) + "\n"
     temporary = runtime.with_suffix(".tmp")
@@ -453,6 +500,8 @@ def commit(result: ConfigurationResult) -> None:
 def main() -> None:
     try:
         result = run_wizard()
+        if result is None:
+            return
         commit(result)
     except ConfigFileError as error:
         print(error)

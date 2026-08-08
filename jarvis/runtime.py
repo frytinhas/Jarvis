@@ -4,7 +4,7 @@ from pathlib import Path
 import shlex
 import sys
 
-from jarvis.config import ConfigFileError, load_config
+from jarvis.config import CONFIG_VERSION, ConfigFileError, config_path, load_config, save_config
 from jarvis.configurator import (
     _apply_command,
     _apply_desktop_entry,
@@ -33,6 +33,9 @@ def _read_runtime(path: Path) -> dict[str, str]:
 
 def sync_runtime() -> None:
     config = load_config()
+    source = config_path()
+    if source.is_file() and f'version="{CONFIG_VERSION}"' not in source.read_text(encoding="utf-8", errors="ignore")[:200]:
+        save_config(config, source)
     settings = config.settings
     normalize_command_name(settings.command_name)
     runtime_path = project_root() / ".runtime"
@@ -49,8 +52,11 @@ def sync_runtime() -> None:
         previous.get("MODEL_PATH") != str(settings.model_path)
         or previous.get("MODEL_ALIAS") != config.advanced.llm_model
     )
+    server_logging_changed = bool(previous) and (
+        previous.get("DISPLAY_LOG_LEVEL") != settings.display_log_level.value
+    )
     _write_runtime(config)
-    if model_changed:
+    if model_changed or server_logging_changed:
         marker = Path.home() / ".local/state/jarvis/restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()

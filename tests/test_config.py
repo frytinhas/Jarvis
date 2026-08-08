@@ -19,7 +19,7 @@ def test_xml_config_round_trip_with_comments_and_private_mode(tmp_path: Path) ->
             "assistant_name": "João & Jarvis",
             "command_name": "jarvis",
             "autostart": False,
-            "request_timeout_seconds": 45,
+            "llm_request_timeout_seconds": 45,
         }
     )
     config = original.model_copy(update={"settings": settings})
@@ -101,7 +101,7 @@ def test_legacy_files_are_only_loaded_when_explicitly_allowed(
     migrated = load_config(config_path, allow_legacy=True)
 
     assert migrated.settings.assistant_name == "Bob"
-    assert migrated.settings.version == 5
+    assert migrated.settings.version == 6
     assert migrated.advanced.llm_base_url == "http://legacy.test/v1"
     assert not config_path.exists()
 
@@ -118,5 +118,38 @@ def test_new_lifecycle_defaults() -> None:
     settings = default_config().settings
     assert settings.keep_llm_running is False
     assert settings.message_mode is MessageMode.INTERACTIVE
-    assert settings.request_timeout_seconds == 60
+    assert settings.max_tool_rounds == 128
+    assert settings.interaction_timeout_seconds == 600
+    assert settings.llm_request_timeout_seconds == 120
+    assert settings.default_reasoning_level == 2
+    assert settings.display_log_level.value == "Essential"
     assert settings.permissions[Risk.PRIVILEGED] is Decision.DENY
+
+
+def test_v5_xml_is_loaded_with_safe_v6_defaults_and_upgraded_on_save(tmp_path: Path) -> None:
+    path = tmp_path / "config.xml"
+    save_config(default_config(), path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace('<jarvis version="6">', '<jarvis version="5">')
+    start = content.index("  <behavior>")
+    end = content.index("  </behavior>") + len("  </behavior>")
+    content = content[:start] + """  <behavior>
+    <autostart>true</autostart>
+    <keep_llm_running>false</keep_llm_running>
+    <message_mode>interactive</message_mode>
+    <request_timeout_seconds>240</request_timeout_seconds>
+  </behavior>""" + content[end:]
+    content = content.replace("<display_level>Essential</display_level>", "<level>DEBUG</level>")
+    path.write_text(content, encoding="utf-8")
+
+    migrated = load_config(path)
+    assert migrated.version == 6
+    assert migrated.settings.max_tool_rounds == 128
+    assert migrated.settings.interaction_timeout_seconds == 600
+    assert migrated.settings.llm_request_timeout_seconds == 120
+    assert migrated.settings.display_log_level.value == "Essential"
+
+    save_config(migrated, path)
+    upgraded = path.read_text(encoding="utf-8")
+    assert '<jarvis version="6">' in upgraded
+    assert "<display_level>Essential</display_level>" in upgraded

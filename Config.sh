@@ -33,6 +33,11 @@ fi
 cd "$PROJECT_DIR"
 "$PYTHON_BIN" -m jarvis.configurator
 
+if [[ ! -f "$PROJECT_DIR/.runtime" ]]; then
+    echo "Configuração não alterada."
+    exit 0
+fi
+
 # Gerado pelo configurador após a confirmação final.
 source "$PROJECT_DIR/.runtime"
 

@@ -7,6 +7,8 @@ PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 INSTALL_FILE="$PROJECT_DIR/.install"
 RUNTIME_FILE="$PROJECT_DIR/.runtime"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
+STATE_DIR="$HOME/.local/state/jarvis"
+SERVER_LOG="$STATE_DIR/logs/runtime/llama-server.log"
 
 if [[ ! -f "$INSTALL_FILE" || ! -x "$PYTHON_BIN" ]]; then
     echo "Configuração do Jarvis não encontrada. Execute: $PROJECT_DIR/Setup.sh" >&2
@@ -39,6 +41,19 @@ else
     server_command=("$LLAMA_BIN")
 fi
 
+server_log_args=(--log-disable)
+if [[ "${DISPLAY_LOG_LEVEL:-Essential}" == "Full" || "${DISPLAY_LOG_LEVEL:-Essential}" == "Server-Essential" ]]; then
+    mkdir -p "$(dirname "$SERVER_LOG")"
+    touch "$SERVER_LOG"
+    chmod 600 "$SERVER_LOG"
+    server_log_args=(--log-file "$SERVER_LOG")
+    if [[ "$DISPLAY_LOG_LEVEL" == "Full" ]]; then
+        server_log_args+=(--verbose)
+    else
+        server_log_args+=(--log-verbosity 3)
+    fi
+fi
+
 exec "${server_command[@]}" \
     --model "$MODEL_PATH" \
     --alias "$MODEL_ALIAS" \
@@ -46,4 +61,4 @@ exec "${server_command[@]}" \
     --port "$SERVER_PORT" \
     --jinja \
     --n-gpu-layers auto \
-    --log-disable
+    "${server_log_args[@]}"
