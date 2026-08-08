@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -u
+
+PROJECT_DIR="/home/gabri/Public/Jarvis"
+PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
+JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
+LLAMA_BIN="/home/gabri/.local/bin/llama"
+MODEL_PATH="/home/gabri/.lmstudio/models/lmstudio-community/gemma-4-12B-it-GGUF/gemma-4-12B-it-Q4_K_M.gguf"
+MODEL_ALIAS="jarvis-gemma-4-12b"
+SERVER_URL="http://127.0.0.1:8080"
+STATE_DIR="/home/gabri/.local/state/jarvis"
+PID_FILE="$STATE_DIR/llama-server.pid"
+
+cd "$PROJECT_DIR" || {
+    echo "Não foi possível acessar o projeto em $PROJECT_DIR."
+    exit 1
+}
+
+server_healthy() {
+    curl --silent --fail --max-time 2 "$SERVER_URL/health" >/dev/null 2>&1
+}
+
+correct_model_loaded() {
+    server_healthy && curl --silent --fail --max-time 2 "$SERVER_URL/v1/models" \
+        | grep --fixed-strings --quiet "\"id\":\"$MODEL_ALIAS\""
+}
+
+if [[ ! -x "$PYTHON_BIN" || ! -x "$JARVIS_BIN" ]]; then
+    echo "Jarvis não está instalado. Consulte a seção 'Primeira instalação' do README."
+    exit 1
+fi
+
+if [[ ! -x "$LLAMA_BIN" ]]; then
+    echo "O executável llama não foi encontrado em $LLAMA_BIN."
+    exit 1
+fi
+
+if [[ ! -f "$MODEL_PATH" ]]; then
+    echo "O modelo Gemma não foi encontrado em: $MODEL_PATH"
+    exit 1
+fi
+
+if correct_model_loaded; then
+    exec "$JARVIS_BIN"
+fi
+
+if server_healthy; then
+    echo "A porta 8080 está sendo usada por outro modelo ou servidor."
+    echo "Encerre esse processo e tente novamente."
+    exit 1
+fi
+
+mkdir -p "$STATE_DIR"
+echo "Iniciando o Gemma 4 12B em background..."
+nohup "$LLAMA_BIN" serve \
+    --model "$MODEL_PATH" \
+    --alias "$MODEL_ALIAS" \
+    --host 127.0.0.1 \
+    --port 8080 \
+    --jinja \
+    --n-gpu-layers auto \
+    --log-disable \
+    </dev/null >/dev/null 2>&1 &
+
+server_pid=$!
+printf '%s\n' "$server_pid" >"$PID_FILE"
+
+for _ in $(seq 1 180); do
+    if correct_model_loaded; then
+        echo "Modelo pronto. Abrindo o Jarvis..."
+        exec "$JARVIS_BIN"
+    fi
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+        echo "O servidor do modelo encerrou durante a inicialização."
+        exit 1
+    fi
+    sleep 1
+done
+
+echo "O modelo não ficou pronto dentro de 3 minutos."
+exit 1
