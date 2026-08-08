@@ -24,7 +24,9 @@ A configuração administrativa começa como uma cópia independente da configur
 
 Executar como root amplia o alcance das tools. O Tool Router, as confirmações, a blacklist, os paths críticos e a proibição de ações `PRIVILEGED` continuam ativos, mas use esse comando somente quando o acesso administrativo for necessário.
 
-O configurador apresenta um menu calmo por seções: Modelo, Identidade, Comportamento e timeouts, Permissões, Logs e painel, e Persona e contexto. Você pode alterar somente o necessário, revisar o resumo e salvar; sair do menu não grava mudanças.
+O configurador possui nove entradas: Modelo e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Persona e contexto, Salvar e sair, e Sair sem salvar. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
+
+Ao usar `jarvis-config`, a revisão mostra somente os campos modificados, sempre como `valor anterior → valor novo`. Durante o `Setup.sh`, a revisão mostra o resumo completo da configuração inicial. Sair sem salvar não grava nenhuma mudança.
 
 ### Configuração avançada
 
@@ -154,7 +156,7 @@ O painel de atividade possui cinco níveis. `Essential`, o padrão, mostra tools
 
 Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Em terminais interativos, a mensagem atual substitui a anterior na mesma linha. Deixe o arquivo vazio para desativá-las.
 
-Cada interação permite até 128 ciclos de tools, possui 600 segundos de processamento ativo total e 120 segundos para cada chamada ao modelo. O tempo aguardando uma confirmação humana não consome o limite total. Esses valores podem ser alterados em `jarvis-config → Comportamento`; mensagens de timeout identificam o limite atingido e onde ajustá-lo.
+Cada interação permite até 128 ciclos de tools, possui 600 segundos de processamento ativo total e 120 segundos para cada chamada ao modelo. O tempo aguardando uma confirmação humana não consome o limite total. Os ciclos podem ser alterados em `jarvis-config → Comportamento`, e os limites de tempo em `jarvis-config → Timeouts`; mensagens de timeout identificam o limite atingido e onde ajustá-lo.
 
 ## Personalidade
 

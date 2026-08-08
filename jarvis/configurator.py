@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import DisplayLogLevel, MessageMode, UserSettings, project_root, runtime_path
+from jarvis.ui.selector import select_option, supports_arrow_selection
 
 
 CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
@@ -21,6 +23,18 @@ CATEGORY_LABELS = {
     Risk.EXECUTE: "Execução de aplicações/processos futuros",
 }
 COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+REASONING_LABELS = ("Off", "Low", "Medium", "High", "Max")
+MENU_OPTIONS = (
+    "Modelo e reasoning",
+    "Identidade",
+    "Comportamento",
+    "Timeouts",
+    "Permissões",
+    "Logs e painel",
+    "Persona e contexto",
+    "Salvar e sair",
+    "Sair sem salvar",
+)
 
 
 @dataclass(frozen=True)
@@ -70,6 +84,9 @@ def normalize_command_name(display_name: str) -> str:
 
 
 def ask_yes_no(prompt: str, default: bool) -> bool:
+    if supports_arrow_selection():
+        default_choice = 1 if default else 2
+        return select_option(prompt, ("Sim", "Não"), default_choice) == 1
     suffix = "[Y/n]" if default else "[y/N]"
     while True:
         answer = input(f"{prompt} {suffix} ").strip().lower()
@@ -102,8 +119,13 @@ def ask_positive_integer(prompt: str, default: int) -> int:
 
 
 def ask_choice(prompt: str, choices: list[str], default: int = 1) -> int:
+    if supports_arrow_selection():
+        return select_option(prompt, choices, default)
+    print(f"\n{prompt}:")
+    for index, label in enumerate(choices, 1):
+        print(f"  {index}) {label}")
     while True:
-        raw = input(f"{prompt} [{default}]: ").strip()
+        raw = input(f"Escolha [{default}]: ").strip()
         try:
             selected = int(raw) if raw else default
             if 1 <= selected <= len(choices):
@@ -149,20 +171,15 @@ def _choose_model(current: UserSettings) -> tuple[Path, Path]:
         if not models:
             print("Nenhum modelo GGUF foi encontrado nessa pasta.")
             continue
-        print("\nModelos encontrados:")
         default_index = 1
+        labels: list[str] = []
         for index, model in enumerate(models, 1):
             if current.model_path and model == current.model_path:
                 default_index = index
             size_gib = model.stat().st_size / (1024**3)
-            print(f"  {index}) {model.name} ({size_gib:.1f} GiB)")
-        while True:
-            raw_choice = input(f"Escolha o modelo [{default_index}]: ").strip()
-            try:
-                choice = int(raw_choice) if raw_choice else default_index
-                return directory, models[choice - 1]
-            except (ValueError, IndexError):
-                print("Escolha um número válido.")
+            labels.append(f"{model.name} ({size_gib:.1f} GiB)")
+        choice = ask_choice("Modelos encontrados", labels, default_index)
+        return directory, models[choice - 1]
 
 
 def _choose_permissions(current: UserSettings) -> dict[Risk, Decision]:
@@ -261,10 +278,15 @@ def _context_is_default(context: Path) -> bool:
         return False
 
 
-def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -> None:
+def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -> None:
     print("\nResumo da configuração")
     print(f"  Pasta de modelos: {settings.model_directory}")
     print(f"  Modelo: {settings.model_path}")
+    print(
+        "  Reasoning padrão: "
+        f"{REASONING_LABELS[settings.default_reasoning_level]} "
+        f"(nível {settings.default_reasoning_level})"
+    )
     print("  Permissões:")
     for risk in CATEGORIES:
         print(f"    {risk}: {settings.permissions.get(risk, Decision.DENY)}")
@@ -282,7 +304,6 @@ def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -
     print(f"  Ciclos máximos de tools: {settings.max_tool_rounds}")
     print(f"  Timeout total ativo: {settings.interaction_timeout_seconds} segundos")
     print(f"  Timeout por chamada ao LLM: {settings.llm_request_timeout_seconds} segundos")
-    print(f"  Reasoning padrão: nível {settings.default_reasoning_level}")
     print(f"  Painel de atividade: {settings.display_log_level.value}")
     size = "sem limite" if settings.log_max_size_mb <= 0 else f"{settings.log_max_size_mb} MB"
     retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
@@ -291,7 +312,86 @@ def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
 
-def run_wizard() -> ConfigurationResult | None:
+def _boolean_label(value: bool) -> str:
+    return "ativado" if value else "desativado"
+
+
+def _reasoning_label(value: int) -> str:
+    return f"{REASONING_LABELS[value]} (nível {value})"
+
+
+def _message_mode_label(value: MessageMode) -> str:
+    return "continuar no chat" if value is MessageMode.INTERACTIVE else "responder e sair"
+
+
+def _log_size_label(value: int) -> str:
+    return "sem limite" if value <= 0 else f"{value} MB"
+
+
+def _retention_label(value: int) -> str:
+    return "sem limite" if value <= 0 else f"{value} dias"
+
+
+def _print_change(label: str, previous: object, current: object) -> None:
+    print(f"  {label}: {previous} → {current}")
+
+
+def _changes_summary(
+    previous: UserSettings,
+    current: UserSettings,
+    reset_persona: bool,
+    reset_context: bool,
+    command_replacement: CommandReplacement | None,
+) -> bool:
+    print("\nAlterações da configuração")
+    changed = False
+    fields: tuple[tuple[str, str, object], ...] = (
+        ("Pasta de modelos", "model_directory", str),
+        ("Modelo", "model_path", str),
+        ("Reasoning padrão", "default_reasoning_level", _reasoning_label),
+        ("Nome", "assistant_name", str),
+        ("Comando", "command_name", str),
+        ("Início automático", "autostart", _boolean_label),
+        ("Manter modelo ativo", "keep_llm_running", _boolean_label),
+        ("Modo da mensagem inicial", "message_mode", _message_mode_label),
+        ("Ciclos máximos de tools", "max_tool_rounds", str),
+        ("Timeout total", "interaction_timeout_seconds", lambda value: f"{value} segundos"),
+        ("Timeout do LLM", "llm_request_timeout_seconds", lambda value: f"{value} segundos"),
+        ("Painel de atividade", "display_log_level", lambda value: value.value),
+        ("Limite dos logs", "log_max_size_mb", _log_size_label),
+        ("Retenção dos logs", "log_retention_days", _retention_label),
+    )
+    for label, attribute, formatter in fields:
+        old_value = getattr(previous, attribute)
+        new_value = getattr(current, attribute)
+        if old_value != new_value:
+            _print_change(label, formatter(old_value), formatter(new_value))
+            changed = True
+    for risk in CATEGORIES:
+        old_decision = previous.permissions.get(risk, Decision.DENY)
+        new_decision = current.permissions.get(risk, Decision.DENY)
+        if old_decision != new_decision:
+            _print_change(f"Permissão {risk.value}", old_decision.value, new_decision.value)
+            changed = True
+    if reset_persona:
+        _print_change("Persona", "personalizada", "padrão restaurada")
+        changed = True
+    if reset_context:
+        _print_change("Contexto", "personalizado", "padrão restaurado")
+        changed = True
+    if command_replacement is not None:
+        _print_change(
+            "Launcher",
+            command_replacement.link_target,
+            str(_launcher_path()),
+        )
+        changed = True
+    if not changed:
+        print("  Nenhuma configuração foi modificada.")
+    return changed
+
+
+def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
     persona = project_root() / "Persona.md"
     context = project_root() / "Context.md"
     if not persona.is_file():
@@ -318,18 +418,19 @@ def run_wizard() -> ConfigurationResult | None:
         print("\n=== Jarvis · Configuração ===")
         print(f"Modelo: {draft.model_path.name if draft.model_path else 'não selecionado'}")
         print(f"Reasoning: nível {draft.default_reasoning_level} · Painel: {draft.display_log_level.value}")
-        print("\n  1) Modelo")
-        print("  2) Identidade")
-        print("  3) Comportamento e timeouts")
-        print("  4) Permissões")
-        print("  5) Logs e painel")
-        print("  6) Persona e contexto")
-        print("  7) Revisar e salvar")
-        print("  8) Sair sem salvar")
-        choice = ask_choice("Escolha uma seção", [str(index) for index in range(1, 9)], 7)
+        choice = ask_choice("Categorias", list(MENU_OPTIONS), 8)
         if choice == 1:
             directory, model = _choose_model(draft)
-            draft = draft.model_copy(update={"model_directory": directory, "model_path": model})
+            reasoning = ask_choice(
+                "Reasoning padrão",
+                list(REASONING_LABELS),
+                draft.default_reasoning_level + 1,
+            ) - 1
+            draft = draft.model_copy(update={
+                "model_directory": directory,
+                "model_path": model,
+                "default_reasoning_level": reasoning,
+            })
         elif choice == 2:
             name, command, command_replacement = _choose_identity(draft)
             draft = draft.model_copy(update={"assistant_name": name, "command_name": command})
@@ -341,35 +442,31 @@ def run_wizard() -> ConfigurationResult | None:
                 draft.message_mode is MessageMode.INTERACTIVE,
             )
             rounds = ask_positive_integer("Máximo de ciclos de tools", draft.max_tool_rounds)
+            draft = draft.model_copy(update={
+                "autostart": autostart,
+                "keep_llm_running": keep_running,
+                "message_mode": MessageMode.INTERACTIVE if interactive else MessageMode.ONE_SHOT,
+                "max_tool_rounds": rounds,
+            })
+        elif choice == 4:
             total_timeout = ask_positive_integer(
                 "Timeout total de processamento ativo em segundos", draft.interaction_timeout_seconds
             )
             llm_timeout = ask_positive_integer(
                 "Timeout de cada chamada ao LLM em segundos", draft.llm_request_timeout_seconds
             )
-            reasoning = ask_choice(
-                "Reasoning padrão: 1) Off  2) Low  3) Medium  4) High  5) Max",
-                ["Off", "Low", "Medium", "High", "Max"],
-                draft.default_reasoning_level + 1,
-            ) - 1
             draft = draft.model_copy(update={
-                "autostart": autostart,
-                "keep_llm_running": keep_running,
-                "message_mode": MessageMode.INTERACTIVE if interactive else MessageMode.ONE_SHOT,
-                "max_tool_rounds": rounds,
                 "interaction_timeout_seconds": total_timeout,
                 "llm_request_timeout_seconds": llm_timeout,
-                "default_reasoning_level": reasoning,
             })
-        elif choice == 4:
-            draft = draft.model_copy(update={"permissions": _choose_permissions(draft)})
         elif choice == 5:
+            draft = draft.model_copy(update={"permissions": _choose_permissions(draft)})
+        elif choice == 6:
             levels = list(DisplayLogLevel)
-            print("\nNíveis do painel:")
-            for index, level in enumerate(levels, 1):
-                print(f"  {index}) {level.value}")
             default_level = levels.index(draft.display_log_level) + 1
-            level = levels[ask_choice("Nível", [item.value for item in levels], default_level) - 1]
+            level = levels[
+                ask_choice("Níveis do painel", [item.value for item in levels], default_level) - 1
+            ]
             size = ask_integer("Tamanho máximo dos logs em MB (<= 0 sem limite)", draft.log_max_size_mb)
             retention = ask_integer("Retenção dos logs em dias (<= 0 sem limite)", draft.log_retention_days)
             draft = draft.model_copy(update={
@@ -377,15 +474,24 @@ def run_wizard() -> ConfigurationResult | None:
                 "log_max_size_mb": size,
                 "log_retention_days": retention,
             })
-        elif choice == 6:
+        elif choice == 7:
             print(f"\nPersona: {persona}")
             if not _persona_is_default(persona):
                 reset_default = ask_yes_no("Restaurar a personalidade padrão ao salvar?", reset_default)
             print(f"Contexto: {context}")
             if not _context_is_default(context):
                 reset_context = ask_yes_no("Restaurar o contexto padrão ao salvar?", reset_context)
-        elif choice == 7:
-            _summary(draft, reset_default, reset_context)
+        elif choice == 8:
+            if full_summary:
+                _full_summary(draft, reset_default, reset_context)
+            else:
+                _changes_summary(
+                    persisted,
+                    draft,
+                    reset_default,
+                    reset_context,
+                    command_replacement,
+                )
             if ask_yes_no("Salvar esta configuração?", True):
                 return ConfigurationResult(
                     persisted_config.model_copy(update={"settings": draft}),
@@ -395,7 +501,7 @@ def run_wizard() -> ConfigurationResult | None:
                     command_replacement,
                 )
             print("Tudo bem; nenhuma alteração foi salva ainda.")
-        else:
+        elif choice == 9:
             print("Nenhuma alteração foi salva.")
             return None
 
@@ -499,9 +605,12 @@ def commit(result: ConfigurationResult) -> None:
         marker.touch()
 
 
-def main() -> None:
+def main(arguments: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Configuração interativa do Jarvis")
+    parser.add_argument("--setup", action="store_true", help=argparse.SUPPRESS)
+    options = parser.parse_args(arguments)
     try:
-        result = run_wizard()
+        result = run_wizard(full_summary=options.setup)
         if result is None:
             return
         commit(result)

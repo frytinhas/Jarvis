@@ -184,7 +184,7 @@ if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
 fi
 
 info "Instalação concluída. Iniciando a configuração"
-"$PROJECT_DIR/Config.sh"
+"$PROJECT_DIR/Config.sh" --setup
 
 user_config="$("$VENV_DIR/bin/python" -c 'from jarvis.config import config_path; print(config_path())')"
 [[ -f "$user_config" ]] \

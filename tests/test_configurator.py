@@ -4,8 +4,11 @@ import pytest
 
 from jarvis.config import AdvancedConfig, JarvisConfig, load_config, save_config
 from jarvis.configurator import (
+    MENU_OPTIONS,
     CommandReplacement,
     ConfigurationResult,
+    _changes_summary,
+    _full_summary,
     _apply_command,
     _apply_desktop_entry,
     _choose_identity,
@@ -15,7 +18,9 @@ from jarvis.configurator import (
     ask_positive_integer,
     commit,
     discover_models,
+    main as configurator_main,
     normalize_command_name,
+    run_wizard,
 )
 from jarvis.settings import UserSettings
 
@@ -233,3 +238,99 @@ def test_menu_choice_keeps_default_and_rejects_invalid_values(monkeypatch) -> No
     answers = iter(["x", "9", ""])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
     assert ask_choice("Seção", ["a", "b", "c"], default=2) == 2
+
+
+def test_menu_has_nine_categories_with_separate_timeouts() -> None:
+    assert MENU_OPTIONS == (
+        "Modelo e reasoning",
+        "Identidade",
+        "Comportamento",
+        "Timeouts",
+        "Permissões",
+        "Logs e painel",
+        "Persona e contexto",
+        "Salvar e sair",
+        "Sair sem salvar",
+    )
+
+
+def test_yes_no_uses_arrow_selector_when_available(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr("jarvis.configurator.supports_arrow_selection", lambda: True)
+    monkeypatch.setattr("jarvis.configurator.select_option", lambda *args: 2)
+
+    from jarvis.configurator import ask_yes_no
+
+    assert ask_yes_no("Salvar?", True) is False
+
+
+def test_change_summary_only_prints_modified_values(capsys) -> None:  # type: ignore[no-untyped-def]
+    previous = UserSettings(persona_path=Path("/tmp/Persona.md"))
+    current = previous.model_copy(update={
+        "default_reasoning_level": 3,
+        "interaction_timeout_seconds": 900,
+    })
+
+    assert _changes_summary(previous, current, False, False, None)
+
+    output = capsys.readouterr().out
+    assert "Reasoning padrão: Medium (nível 2) → High (nível 3)" in output
+    assert "Timeout total: 600 segundos → 900 segundos" in output
+    assert "Nome:" not in output
+    assert "Permissão READ" not in output
+
+
+def test_change_summary_reports_when_nothing_changed(capsys) -> None:  # type: ignore[no-untyped-def]
+    settings = UserSettings(persona_path=Path("/tmp/Persona.md"))
+
+    assert not _changes_summary(settings, settings, False, False, None)
+    assert "Nenhuma configuração foi modificada" in capsys.readouterr().out
+
+
+def test_full_summary_includes_unchanged_configuration(capsys) -> None:  # type: ignore[no-untyped-def]
+    settings = UserSettings(persona_path=Path("/tmp/Persona.md"))
+
+    _full_summary(settings, False, False)
+
+    output = capsys.readouterr().out
+    assert "Nome: Jarvis" in output
+    assert "Reasoning padrão: Medium (nível 2)" in output
+    assert "Permissões:" in output
+
+
+def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"model")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "Persona.md").write_text("persona", encoding="utf-8")
+    (project / "Context.md").write_text("context", encoding="utf-8")
+    settings = UserSettings(
+        model_directory=tmp_path,
+        model_path=model,
+        persona_path=project / "Persona.md",
+    )
+    config = JarvisConfig(settings=settings)
+    choices = iter([1, 4, 8])
+    monkeypatch.setattr("jarvis.configurator.project_root", lambda: project)
+    monkeypatch.setattr("jarvis.configurator.load_config", lambda **kwargs: config)
+    monkeypatch.setattr("jarvis.configurator._choose_model", lambda current: (tmp_path, model))
+    monkeypatch.setattr("jarvis.configurator.ask_choice", lambda *args, **kwargs: next(choices))
+    monkeypatch.setattr("jarvis.configurator.ask_yes_no", lambda *args, **kwargs: True)
+
+    result = run_wizard()
+
+    assert result is not None
+    assert result.settings.default_reasoning_level == 3
+    assert result.settings.interaction_timeout_seconds == settings.interaction_timeout_seconds
+
+
+def test_setup_mode_requests_full_summary(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "jarvis.configurator.run_wizard",
+        lambda *, full_summary=False: calls.append(full_summary),
+    )
+
+    configurator_main(["--setup"])
+
+    assert calls == [True]

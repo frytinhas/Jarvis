@@ -45,3 +45,36 @@ def test_advanced_flag_opens_config_xml_in_nano(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "nano-target").read_text(encoding="utf-8") == str(config)
+
+
+def test_setup_flag_is_forwarded_to_configurator(tmp_path: Path) -> None:
+    source_root = Path(__file__).resolve().parent.parent
+    project = tmp_path / "project"
+    binary = project / ".venv/bin"
+    scripts = project / "scripts"
+    binary.mkdir(parents=True)
+    scripts.mkdir()
+    shutil.copy2(source_root / "Config.sh", project / "Config.sh")
+    shutil.copy2(source_root / "scripts/jarvis-env", scripts / "jarvis-env")
+    (project / ".install").write_text("installed\n", encoding="utf-8")
+    python = binary / "python"
+    python.write_text(
+        '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$HOME/python-arguments"\n',
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+
+    result = subprocess.run(
+        [str(project / "Config.sh"), "--setup"],
+        env={**os.environ, "HOME": str(tmp_path)},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "python-arguments").read_text(encoding="utf-8").splitlines() == [
+        "-m",
+        "jarvis.configurator",
+        "--setup",
+    ]

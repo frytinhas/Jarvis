@@ -26,7 +26,9 @@ The administrative configuration starts as an independent copy of the Setup conf
 
 Running as root increases the reach of tools. The Tool Router, confirmations, blacklist, critical-path protections, and `PRIVILEGED` denial remain active, but use this command only when administrative access is required.
 
-The configurator uses a calm section menu: Model, Identity, Behavior and timeouts, Permissions, Logs and panel, and Persona and context. You can change only what you need, review the summary, and save; leaving the menu does not write changes.
+The configurator has nine entries: Model and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Persona and context, Save and exit, and Exit without saving. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
+
+When using `jarvis-config`, the review shows only modified fields as `previous value → new value`. During `Setup.sh`, it shows the complete initial configuration summary. Exiting without saving writes nothing.
 
 ### Advanced configuration
 
@@ -154,7 +156,7 @@ The activity panel has five levels. `Essential`, the default, shows tools, comma
 
 Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. On startup, Jarvis randomly selects a non-empty line and then advances through the list in circular order every 5–10 seconds. In interactive terminals, each message replaces the previous one on the same line. Leave the file empty to disable them.
 
-Each interaction allows up to 128 tool cycles, 600 seconds of total active processing, and 120 seconds per model request. Time spent waiting for human confirmation does not consume the total. Change these values under `jarvis-config → Behavior`; timeout messages identify which limit was reached and where to adjust it.
+Each interaction allows up to 128 tool cycles, 600 seconds of total active processing, and 120 seconds per model request. Time spent waiting for human confirmation does not consume the total. Change tool cycles under `jarvis-config → Behavior` and time limits under `jarvis-config → Timeouts`; timeout messages identify which limit was reached and where to adjust it.
 
 ## Personality
 
