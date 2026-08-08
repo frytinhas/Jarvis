@@ -181,6 +181,14 @@ Larger alternatives such as Qwen3 8B or Gemma 4 12B generally require more memor
 
 Never start the model with `--tools all`; Jarvis must remain the only layer allowed to execute protected tools.
 
+## License
+
+Copyright (C) 2026 Jose Nunes.
+
+Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. The interactive terminal displays the required legal notice at startup; type `/license` to read the complete bundled license.
+
+Distributions must retain the copyright and license notices, include the GPL, and make the corresponding source available as required by the license. Modified distributions must prominently identify their changes and the relevant dates. Models, `llama.cpp`, Python dependencies and other separately obtained third-party components remain governed by their own licenses.
+
 ## Disclaimer
 
 This is a vibe-coded experimental project provided without warranties. Use it entirely at your own risk. Neither the project author nor the AI that assisted in producing it accepts responsibility for data loss, system damage or any other consequence caused by its use.

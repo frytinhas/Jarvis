@@ -181,6 +181,14 @@ Qwen3 8B e Gemma 4 12B são alternativas para máquinas com mais memória. A qua
 
 Nunca inicie o modelo com `--tools all`; somente o Jarvis deve executar as tools protegidas.
 
+## Licença
+
+Copyright (C) 2026 Jose Nunes.
+
+O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. O terminal interativo exibe o aviso legal exigido na inicialização; digite `/license` para ler a cópia integral incluída na distribuição. `/licenca` e `/licença` permanecem disponíveis como aliases em português.
+
+Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
+
 ## Aviso e isenção de responsabilidade
 
 Este é um projeto experimental produzido por vibe coding e fornecido sem garantias. Use inteiramente por sua conta e risco. Nem o autor do projeto nem a IA que auxiliou em sua produção assumem responsabilidade por perda de dados, danos ao sistema ou qualquer outra consequência causada pelo uso.

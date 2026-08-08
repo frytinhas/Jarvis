@@ -4,11 +4,13 @@ import re
 import sys
 
 from jarvis.agent.orchestrator import AgentReply, Orchestrator
+from jarvis.legal import COPYRIGHT_NOTICE, STARTUP_LICENSE_NOTICE, license_text
 from jarvis.ui.waiting import WaitingIndicator
 
 
 POSITIVE = {"s", "sim", "y", "yes", "pode", "confirmo", "execute", "faça", "faca"}
 NEGATIVE = {"n", "não", "nao", "no", "cancela", "cancelar", "deixa"}
+LICENSE_COMMANDS = {"/licenca", "/licença", "/license"}
 
 
 def confirmation_intent(text: str) -> bool | None:
@@ -38,10 +40,13 @@ class TerminalUI:
     def run(self, initial_message: str | None = None, continue_after_initial: bool = True) -> None:
         mark = "\033[38;5;208m◉\033[0m" if sys.stdout.isatty() else "◉"
         print(f"{mark} {self.assistant_name} local. Digite /sair para encerrar.")
+        print(COPYRIGHT_NOTICE)
+        print(STARTUP_LICENSE_NOTICE)
         if self.startup_warning:
             print(f"AVISO: {self.startup_warning}")
         if initial_message:
-            self._handle(initial_message)
+            if not self._handle_local_command(initial_message):
+                self._handle(initial_message)
             if not continue_after_initial:
                 return
         while True:
@@ -54,7 +59,16 @@ class TerminalUI:
                 return
             if not user_text:
                 continue
+            if self._handle_local_command(user_text):
+                continue
             self._handle(user_text)
+
+    @staticmethod
+    def _handle_local_command(user_text: str) -> bool:
+        if user_text.strip().lower() not in LICENSE_COMMANDS:
+            return False
+        print(f"\n{license_text()}")
+        return True
 
     def _handle(self, user_text: str) -> None:
         try:

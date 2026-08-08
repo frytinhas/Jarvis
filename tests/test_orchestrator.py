@@ -82,6 +82,26 @@ def test_terminal_one_shot_does_not_request_another_message(monkeypatch) -> None
     assert orchestrator.received == ["mensagem inicial"]
 
 
+def test_terminal_displays_legal_notice_and_handles_license_locally(capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.received: list[str] = []
+
+        def handle(self, message: str):  # type: ignore[no-untyped-def]
+            self.received.append(message)
+            raise AssertionError("the license command must not be sent to the model")
+
+    orchestrator = FakeOrchestrator()
+
+    TerminalUI(orchestrator, "Jarvis").run("/license", continue_after_initial=False)  # type: ignore[arg-type]
+
+    output = capsys.readouterr().out
+    assert orchestrator.received == []
+    assert "Copyright (C) 2026  Jose Nunes" in output
+    assert "ABSOLUTELY NO WARRANTY" in output
+    assert "GNU GENERAL PUBLIC LICENSE" in output
+
+
 def test_orchestrator_keeps_visible_transcript(registry: ToolRegistry) -> None:
     llm = SequencedLLM([AssistantMessage(content="Resposta lembrável")])
     agent = Orchestrator(llm, registry)
