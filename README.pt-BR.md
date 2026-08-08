@@ -6,6 +6,8 @@
 
 Jarvis é um assistente local para Linux que usa um modelo GGUF executado pelo `llama.cpp`. O modelo apenas planeja solicitações: todo acesso a arquivos e ao sistema passa pelas tools validadas e pela política de permissões da aplicação.
 
+> **Está começando?** Consulte o [guia simples em português](README.simple.pt-BR.md), feito para iniciantes e para quem precisa apenas das instruções de instalação e do uso básico. Também há um [guia simples em inglês](README.simple.md).
+
 ## Instalação
 
 Clone o projeto e execute:

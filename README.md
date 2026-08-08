@@ -8,6 +8,8 @@ Jarvis is a local Linux assistant powered by a GGUF model running through `llama
 
 Portuguese documentation: [README.pt-BR.md](README.pt-BR.md)
 
+> **New to Jarvis?** See the [simple English guide](README.simple.md), written for beginners and anyone who only needs the installation steps and basic usage. A [simple Portuguese guide](README.simple.pt-BR.md) is also available.
+
 ## Install
 
 Clone the project and run:
