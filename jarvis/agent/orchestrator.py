@@ -8,9 +8,11 @@ import time
 from typing import Any
 
 from jarvis.agent.prompts import SYSTEM_PROMPT
+from jarvis.agent.tool_routing import ToolRoute, route_user_request
 from jarvis.llm.client import LLM, LLMTimeoutError
 from jarvis.llm.schemas import AssistantMessage, Message
 from jarvis.security.confirmation import ConfirmationError, PendingAction
+from jarvis.security.policy import Risk
 from jarvis.tools.registry import ToolRegistry, ToolResult
 
 
@@ -47,6 +49,9 @@ class Orchestrator:
         self._pending_calls: dict[str, tuple[str, PendingAction]] = {}
         self._active_seconds = 0.0
         self._tool_rounds = 0
+        self._route = ToolRoute()
+        self._route_requirement_satisfied = True
+        self._route_retry_used = False
 
     def handle(self, user_text: str) -> AgentReply:
         if self._pending_calls:
@@ -55,7 +60,16 @@ class Orchestrator:
         self.messages.append({"role": "user", "content": user_text})
         self._active_seconds = 0.0
         self._tool_rounds = 0
-        return self._run()
+        self._route = route_user_request(user_text)
+        self._route_requirement_satisfied = not self._route.require_tool
+        self._route_retry_used = False
+        unavailable = self._route_unavailable_reply()
+        if unavailable is not None:
+            return unavailable
+        try:
+            return self._run()
+        except KeyboardInterrupt:
+            return self._cancelled_reply()
 
     def confirm(self, action_id: str) -> AgentReply:
         pending_call = self._pending_calls.pop(action_id, None)
@@ -66,13 +80,22 @@ class Orchestrator:
         started = self.clock()
         try:
             result = self.registry.confirm(action_id)
+        except KeyboardInterrupt:
+            self._append_tool_result(
+                call_id,
+                ToolResult("cancelled", {"cancelled": True, "error": "Execução cancelada pelo usuário."}),
+            )
+            return self._cancelled_reply()
         except (ConfirmationError, ValueError) as error:
             result = ToolResult("error", {"error": str(error)})
         self._active_seconds += max(0.0, self.clock() - started)
         self._append_tool_result(call_id, result)
         if self._active_seconds >= self.interaction_timeout_seconds:
             return self._tool_completed_after_timeout()
-        return self._run()
+        try:
+            return self._run()
+        except KeyboardInterrupt:
+            return self._cancelled_reply()
 
     def cancel(self, action_id: str) -> AgentReply:
         pending_call = self._pending_calls.pop(action_id, None)
@@ -86,7 +109,10 @@ class Orchestrator:
         self._append_tool_result(call_id, result)
         if self._active_seconds >= self.interaction_timeout_seconds:
             return self._total_timeout_reply()
-        return self._run()
+        try:
+            return self._run()
+        except KeyboardInterrupt:
+            return self._cancelled_reply()
 
     def _run(self) -> AgentReply:
         while True:
@@ -94,13 +120,33 @@ class Orchestrator:
             if remaining <= 0:
                 return self._total_timeout_reply()
             request_timeout = min(remaining, self.llm_request_timeout_seconds)
+            restricted = not self._route_requirement_satisfied and self._route.tool_names is not None
+            schemas = self.registry.schemas(
+                set(self._route.tool_names) if restricted and self._route.tool_names is not None else None
+            )
+            request_messages = self.messages
+            if restricted and self._route_retry_used:
+                request_messages = [
+                    *self.messages,
+                    {
+                        "role": "system",
+                        "content": (
+                            "A solicitação atual exige uma tool. Não responda com fatos, perguntas "
+                            "de permissão ou suposições: chame exatamente uma das tools fornecidas."
+                        ),
+                    },
+                ]
             started = self.clock()
             try:
-                assistant = self.llm.chat(
-                    self.messages,
-                    self.registry.schemas(),
-                    timeout=request_timeout,
-                )
+                if restricted:
+                    assistant = self.llm.chat(
+                        request_messages,
+                        schemas,
+                        timeout=request_timeout,
+                        tool_choice="required",
+                    )
+                else:
+                    assistant = self.llm.chat(self.messages, schemas, timeout=request_timeout)
             except LLMTimeoutError:
                 self._active_seconds += max(0.0, self.clock() - started)
                 if remaining <= self.llm_request_timeout_seconds:
@@ -110,6 +156,11 @@ class Orchestrator:
             if self._active_seconds >= self.interaction_timeout_seconds:
                 return self._total_timeout_reply()
             if not assistant.tool_calls:
+                if not self._route_requirement_satisfied:
+                    if not self._route_retry_used:
+                        self._route_retry_used = True
+                        continue
+                    return self._strict_tool_failure_reply()
                 self.messages.append(self._assistant_dict(assistant))
                 return self._complete_reply(assistant.content or "")
             if self._tool_rounds >= self.max_tool_rounds:
@@ -127,8 +178,27 @@ class Orchestrator:
                     )
                 continue
             call = assistant.tool_calls[0]
+            self._route_requirement_satisfied = True
+            if (
+                self.registry.risk_for(call.function.name) is Risk.EXECUTE
+                and not self._route.execution_authorized
+            ):
+                result = self.registry.reject(
+                    call.function.name,
+                    call.function.arguments,
+                    "Execução rejeitada: o pedido original do usuário não autorizou execução.",
+                )
+                self._append_tool_result(call.id, result)
+                continue
             started = self.clock()
-            result = self.registry.request(call.function.name, call.function.arguments)
+            try:
+                result = self.registry.request(call.function.name, call.function.arguments)
+            except KeyboardInterrupt:
+                self._append_tool_result(
+                    call.id,
+                    ToolResult("cancelled", {"cancelled": True, "error": "Execução cancelada pelo usuário."}),
+                )
+                raise
             self._active_seconds += max(0.0, self.clock() - started)
             if result.pending:
                 self._pending_calls[result.pending.id] = (call.id, result.pending)
@@ -141,22 +211,54 @@ class Orchestrator:
         seconds = f"{self.llm_request_timeout_seconds:g}"
         return self._complete_reply(
             f"Timeout do Jarvis por chamada ao LLM atingido ({seconds} segundos). "
-            "Altere em jarvis-config → Comportamento."
+            "Altere em jarvis-config → Timeouts."
         )
 
     def _total_timeout_reply(self) -> AgentReply:
         seconds = f"{self.interaction_timeout_seconds:g}"
         return self._complete_reply(
             f"Timeout total do Jarvis atingido ({seconds} segundos de processamento ativo). "
-            "Altere em jarvis-config → Comportamento."
+            "Altere em jarvis-config → Timeouts."
         )
 
     def _tool_completed_after_timeout(self) -> AgentReply:
         return self._complete_reply(
             "A tool foi concluída, mas o limite de tempo da interação foi atingido "
             f"({self.interaction_timeout_seconds:g} segundos). "
-            "Altere em jarvis-config → Comportamento."
+            "Altere em jarvis-config → Timeouts."
         )
+
+    def _route_unavailable_reply(self) -> AgentReply | None:
+        if not self._route.require_tool or self._route.tool_names is None:
+            return None
+        available = {
+            schema["function"]["name"]
+            for schema in self.registry.schemas(set(self._route.tool_names))
+        }
+        required = {"execute_file"} if self._route.label == "execute" else set(self._route.tool_names)
+        if available & required:
+            return None
+        text = (
+            "Não posso atender essa solicitação porque a tool necessária está indisponível "
+            "pela política ou pela configuração de paths atual."
+        )
+        self.messages.append({"role": "assistant", "content": text})
+        return self._complete_reply(text)
+
+    def _strict_tool_failure_reply(self) -> AgentReply:
+        text = (
+            "Não consegui consultar a tool obrigatória para responder com dados reais. "
+            "Nenhuma informação foi presumida."
+        )
+        self.messages.append({"role": "assistant", "content": text})
+        return self._complete_reply(text)
+
+    def _cancelled_reply(self) -> AgentReply:
+        text = "Operação cancelada com Ctrl+C. O chat continua disponível."
+        self.messages.append({"role": "assistant", "content": text})
+        self._active_seconds = 0.0
+        self._tool_rounds = 0
+        return self._reply(text)
 
     def _complete_reply(self, text: str) -> AgentReply:
         reply = self._reply(text)

@@ -131,3 +131,69 @@ def test_search_files_is_case_insensitive_by_default(registry: ToolRegistry, tmp
     )
 
     assert str(vault) in result.result["matches"]
+
+
+def test_large_file_can_be_read_in_bounded_chunks(registry: ToolRegistry, tmp_path: Path) -> None:
+    source = tmp_path / "large.txt"
+    source.write_text("abcdefghij", encoding="utf-8")
+
+    first = registry.request("read_file", {"path": str(source), "max_bytes": 4})
+    second = registry.request(
+        "read_file",
+        {"path": str(source), "offset_bytes": first.result["next_offset_bytes"], "max_bytes": 4},
+    )
+
+    assert first.result["content"] == "abcd"
+    assert first.result["truncated"] is True
+    assert second.result["content"] == "efgh"
+
+
+def test_execute_file_requires_exact_confirmation_by_default(
+    registry: ToolRegistry, tmp_path: Path
+) -> None:
+    script = tmp_path / "hello.sh"
+    script.write_text("#!/bin/sh\nprintf 'hello %s' \"$1\"\n", encoding="utf-8")
+
+    requested = registry.request(
+        "execute_file",
+        {"path": str(script), "arguments": ["Jarvis"]},
+    )
+
+    assert requested.status == "confirmation_required"
+    assert requested.pending is not None
+    completed = registry.confirm(requested.pending.id)
+    assert completed.status == "ok"
+    assert completed.result["stdout"] == "hello Jarvis"
+    assert completed.result["exit_code"] == 0
+
+
+def test_execute_allow_runs_without_model_authored_confirmation(tmp_path: Path) -> None:
+    script = tmp_path / "allowed.sh"
+    script.write_text("#!/bin/sh\nprintf allowed\n", encoding="utf-8")
+    allowed = build_registry(
+        PolicyEngine({Risk.EXECUTE: Decision.ALLOW}),
+        ConfirmationManager(),
+        AuditLog(tmp_path / "execute-allow.db"),
+    )
+
+    result = allowed.request("execute_file", {"path": str(script)})
+
+    assert result.status == "ok"
+    assert result.pending is None
+    assert result.result["stdout"] == "allowed"
+
+
+def test_execute_file_blocks_inline_shell_code(tmp_path: Path) -> None:
+    allowed = build_registry(
+        PolicyEngine({Risk.EXECUTE: Decision.ALLOW}),
+        ConfirmationManager(),
+        AuditLog(tmp_path / "execute-block.db"),
+    )
+
+    result = allowed.request(
+        "execute_file",
+        {"path": "/bin/bash", "arguments": ["-c", "touch /tmp/should-not-run"]},
+    )
+
+    assert result.status == "error"
+    assert "inline" in result.result["error"]

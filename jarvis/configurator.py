@@ -20,7 +20,7 @@ CATEGORY_LABELS = {
     Risk.CREATE: "Criação de arquivos e diretórios",
     Risk.MODIFY: "Alteração, movimentação e renomeação",
     Risk.DELETE: "Exclusão",
-    Risk.EXECUTE: "Execução de aplicações/processos futuros",
+    Risk.EXECUTE: "Execução de scripts e binários por path",
 }
 COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 REASONING_LABELS = ("Off", "Low", "Medium", "High", "Max")

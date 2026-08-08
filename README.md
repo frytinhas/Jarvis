@@ -119,9 +119,15 @@ Permissions are configured by category:
 - `CREATE`: create files and directories.
 - `MODIFY`: write, append, move and rename.
 - `DELETE`: remove files and empty directories.
-- `EXECUTE`: reserved for future process/application tools.
+- `EXECUTE`: run an explicit `.sh` script or binary path, without a generic shell.
 
 The first-run defaults allow `READ` and `CREATE` without confirmation. `MODIFY`, `DELETE` and `EXECUTE` require confirmation. Critical paths and privileged actions remain blocked regardless of these choices.
+
+Jarvis does not ask in prose for permission to use a tool. Allowed `READ` tools run directly; actions configured as `CONFIRM` produce an exact-arguments confirmation through the Policy Engine. Local specification questions require real hardware inspection and no component is guessed if inspection fails. Large files can be read in bounded chunks.
+
+`execute_file` accepts only an explicit file, separate arguments, an optional working directory, timeout, and background mode. It uses `shell=False`, blocks known privilege frontends and inline interpreter code. With `EXECUTE=ALLOW`, it runs without confirmation—including under `sudo jarvis`, where the child process has root privileges. This combination is extremely powerful; keep `CONFIRM` as the default and restrict paths in `Blacklist.txt`.
+
+During foreground generation or execution, `Ctrl+C` cancels only the current operation and keeps the chat open.
 
 ### Permissions by file or folder
 

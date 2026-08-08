@@ -46,6 +46,27 @@ def test_client_omits_tool_choice_when_no_tools_are_available() -> None:
     assert "tool_choice" not in observed
 
 
+def test_client_can_require_a_tool_call() -> None:
+    observed: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.update(json.loads(request.read()))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    tool = {
+        "type": "function",
+        "function": {"name": "get_system_info", "description": "specs", "parameters": {}},
+    }
+    with LlamaClient(
+        "http://127.0.0.1:8080/v1",
+        "local-model",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        client.chat([{"role": "user", "content": "specs"}], [tool], tool_choice="required")
+
+    assert observed["tool_choice"] == "required"
+
+
 def test_client_uses_remaining_interaction_timeout() -> None:
     observed: dict[str, object] = {}
 

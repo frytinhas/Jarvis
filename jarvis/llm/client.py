@@ -14,6 +14,7 @@ class LLM(Protocol):
         tools: list[dict[str, Any]],
         timeout: float | None = None,
         thinking_budget_tokens: int | None = None,
+        tool_choice: str | dict[str, Any] = "auto",
     ) -> AssistantMessage: ...
 
 
@@ -45,6 +46,7 @@ class LlamaClient:
         tools: list[dict[str, Any]],
         timeout: float | None = None,
         thinking_budget_tokens: int | None = None,
+        tool_choice: str | dict[str, Any] = "auto",
     ) -> AssistantMessage:
         payload: dict[str, Any] = {"model": self.model, "messages": messages}
         payload["thinking_budget_tokens"] = (
@@ -53,7 +55,7 @@ class LlamaClient:
             else thinking_budget_tokens
         )
         if tools:
-            payload.update({"tools": tools, "tool_choice": "auto"})
+            payload.update({"tools": tools, "tool_choice": tool_choice})
         try:
             response = self._client.post(
                 "chat/completions",

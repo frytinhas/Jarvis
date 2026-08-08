@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,6 +40,11 @@ class PathInput(BaseModel):
     path: str
 
 
+class ReadFileInput(PathInput):
+    offset_bytes: int = Field(default=0, ge=0)
+    max_bytes: int = Field(default=65_536, ge=1, le=1_000_000)
+
+
 class ListDirectoryInput(PathInput):
     recursive: bool = False
 
@@ -72,6 +77,16 @@ class RenameInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str
     new_name: str = Field(min_length=1, max_length=255)
+
+
+class ExecuteFileInput(PathInput):
+    arguments: list[Annotated[str, Field(max_length=4096)]] = Field(
+        default_factory=list,
+        max_length=64,
+    )
+    working_directory: str | None = None
+    background: bool = False
+    timeout_seconds: int = Field(default=60, ge=1, le=300)
 
 
 Message = dict[str, Any]

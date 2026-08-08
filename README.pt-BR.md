@@ -119,9 +119,15 @@ A mensagem inicial pode continuar no chat depois da primeira resposta, que é o 
 - `CREATE`: criar arquivos e diretórios.
 - `MODIFY`: escrever, adicionar conteúdo, mover e renomear.
 - `DELETE`: apagar arquivos e diretórios vazios.
-- `EXECUTE`: reservado para futuras tools de aplicações e processos.
+- `EXECUTE`: executar um script `.sh` ou binário informado por path, sem shell genérico.
 
 Por padrão, `READ` e `CREATE` não pedem confirmação. `MODIFY`, `DELETE` e `EXECUTE` pedem. Paths críticos e ações privilegiadas permanecem bloqueados independentemente da configuração.
+
+O Jarvis não deve perguntar em texto se pode usar uma tool. Tools `READ` permitidas são chamadas diretamente; ações configuradas como `CONFIRM` produzem a confirmação vinculada aos argumentos exatos pelo Policy Engine. Pedidos de especificações locais obrigam a consulta de hardware real e, se ela falhar, nenhum componente é presumido. Arquivos grandes podem ser lidos em partes.
+
+`execute_file` aceita apenas um arquivo explícito, argumentos separados, diretório de trabalho opcional, timeout e modo background. Ela usa `shell=False`, bloqueia executáveis privilegiados conhecidos e código inline em interpretadores. Com `EXECUTE=ALLOW`, a execução ocorre sem confirmação — inclusive quando o programa foi iniciado como `sudo jarvis`, caso em que o processo filho possui privilégios de root. Essa combinação é extremamente poderosa; use `CONFIRM` como padrão e restrinja paths no `Blacklist.txt`.
+
+Durante uma geração ou execução em primeiro plano, `Ctrl+C` cancela somente a operação atual e mantém o chat aberto.
 
 ### Permissões por arquivo ou pasta
 
