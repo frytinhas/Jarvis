@@ -90,8 +90,19 @@ def main(arguments: list[str] | None = None) -> None:
         recent_memories=recent_memories,
     )
     waiting_messages = load_waiting_messages(project_root() / "WaitingMessages.txt")
-    with LlamaClient(config.llm_base_url, config.llm_model, config.llm_api_key) as llm:
-        orchestrator = Orchestrator(llm, registry, system_prompt=system_prompt)
+    waiting_indicator = WaitingIndicator(waiting_messages)
+    with LlamaClient(
+        config.llm_base_url,
+        config.llm_model,
+        config.llm_api_key,
+        timeout=user_settings.request_timeout_seconds,
+    ) as llm:
+        orchestrator = Orchestrator(
+            llm,
+            registry,
+            request_timeout_seconds=user_settings.request_timeout_seconds,
+            system_prompt=system_prompt,
+        )
         initial_message = parse_initial_message(arguments, user_settings.command_name)
         warning = (
             f"Blacklist.txt inválido: {path_policy.error}. Tools de arquivos foram bloqueadas; "
@@ -99,7 +110,12 @@ def main(arguments: list[str] | None = None) -> None:
             if path_policy.error
             else None
         )
-        TerminalUI(orchestrator, user_settings.assistant_name, warning, waiting_messages).run(
+        TerminalUI(
+            orchestrator,
+            user_settings.assistant_name,
+            warning,
+            waiting_indicator=waiting_indicator,
+        ).run(
             initial_message,
             continue_after_initial=(
                 initial_message is None or user_settings.message_mode is MessageMode.INTERACTIVE
@@ -112,7 +128,7 @@ def main(arguments: list[str] | None = None) -> None:
         )
         if log_path is not None:
             try:
-                with WaitingIndicator(waiting_messages).active():
+                with waiting_indicator.active():
                     summary = summarize_conversation(llm, orchestrator.transcript)
                 memory_store.update_summary(log_path, summary)
             except Exception:

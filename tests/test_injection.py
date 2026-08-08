@@ -13,7 +13,7 @@ class InjectionFakeLLM:
         self.malicious_file = malicious_file
         self.target = target
 
-    def chat(self, messages, tools):  # type: ignore[no-untyped-def]
+    def chat(self, messages, tools, timeout=None):  # type: ignore[no-untyped-def]
         self.calls += 1
         if self.calls == 1:
             return _tool_call("read", "read_file", {"path": str(self.malicious_file)})
@@ -40,4 +40,3 @@ def test_prompt_injection_cannot_bypass_policy(registry: ToolRegistry, tmp_path:
     assert reply.pending is not None
     assert reply.pending.tool_name == "delete_file"
     assert target.exists()
-

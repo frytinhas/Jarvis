@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from jarvis.agent.orchestrator import Orchestrator
+from jarvis.llm.client import LLMTimeoutError
 from jarvis.llm.schemas import AssistantMessage, ToolCall, ToolFunctionCall
 from jarvis.tools.registry import ToolRegistry
 from jarvis.ui.terminal import confirmation_intent
@@ -14,7 +15,7 @@ class SequencedLLM:
     def __init__(self, responses: list[AssistantMessage]) -> None:
         self.responses = iter(responses)
 
-    def chat(self, messages, tools):  # type: ignore[no-untyped-def]
+    def chat(self, messages, tools, timeout=None):  # type: ignore[no-untyped-def]
         return next(self.responses)
 
 
@@ -91,3 +92,60 @@ def test_orchestrator_keeps_visible_transcript(registry: ToolRegistry) -> None:
         {"role": "user", "content": "Pergunta lembrável"},
         {"role": "assistant", "content": "Resposta lembrável"},
     ]
+
+
+def test_orchestrator_passes_remaining_interaction_time_to_each_model_call(
+    registry: ToolRegistry, tmp_path: Path
+) -> None:
+    call = ToolCall(
+        id="one",
+        function=ToolFunctionCall(
+            name="file_info",
+            arguments=json.dumps({"path": str(tmp_path)}),
+        ),
+    )
+
+    class TimedLLM(SequencedLLM):
+        def __init__(self) -> None:
+            super().__init__([AssistantMessage(tool_calls=[call]), AssistantMessage(content="ok")])
+            self.timeouts: list[float] = []
+
+        def chat(self, messages, tools, timeout=None):  # type: ignore[no-untyped-def]
+            self.timeouts.append(timeout)
+            return super().chat(messages, tools, timeout)
+
+    times = iter([0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 2.0])
+    llm = TimedLLM()
+    agent = Orchestrator(llm, registry, request_timeout_seconds=10, clock=lambda: next(times))
+
+    reply = agent.handle("Consulte")
+
+    assert reply.text == "ok"
+    assert llm.timeouts == [10.0, 8.0]
+
+
+def test_orchestrator_does_not_start_tool_after_deadline(registry: ToolRegistry) -> None:
+    call = ToolCall(
+        id="one",
+        function=ToolFunctionCall(name="get_current_directory", arguments="{}"),
+    )
+    llm = SequencedLLM([AssistantMessage(tool_calls=[call])])
+    times = iter([0.0, 0.0, 61.0])
+    agent = Orchestrator(llm, registry, request_timeout_seconds=60, clock=lambda: next(times))
+
+    reply = agent.handle("Onde estou?")
+
+    assert "Tempo limite de 60 segundos" in reply.text
+    assert not any(message["role"] == "tool" for message in agent.messages)
+
+
+def test_orchestrator_turns_llm_timeout_into_clear_reply(registry: ToolRegistry) -> None:
+    class TimedOutLLM:
+        def chat(self, messages, tools, timeout=None):  # type: ignore[no-untyped-def]
+            raise LLMTimeoutError
+
+    agent = Orchestrator(TimedOutLLM(), registry, request_timeout_seconds=30)
+
+    reply = agent.handle("Oi")
+
+    assert reply.text == "Tempo limite de 30 segundos atingido enquanto aguardava o llama-server."

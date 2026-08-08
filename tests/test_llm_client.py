@@ -42,3 +42,22 @@ def test_client_omits_tool_choice_when_no_tools_are_available() -> None:
 
     assert "tools" not in observed
     assert "tool_choice" not in observed
+
+
+def test_client_uses_remaining_interaction_timeout() -> None:
+    observed: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.update(request.extensions["timeout"])
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    with LlamaClient(
+        "http://127.0.0.1:8080/v1",
+        "local-model",
+        timeout=120,
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        client.chat([{"role": "user", "content": "oi"}], [], timeout=12.5)
+
+    assert observed["read"] == 12.5
+    assert observed["write"] == 12.5

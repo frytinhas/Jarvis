@@ -88,6 +88,14 @@ def ask_integer(prompt: str, default: int) -> int:
             print("Informe somente um número inteiro.")
 
 
+def ask_positive_integer(prompt: str, default: int) -> int:
+    while True:
+        value = ask_integer(prompt, default)
+        if value > 0:
+            return value
+        print("Informe um número inteiro maior que zero.")
+
+
 def _legacy_model() -> Path | None:
     runtime = project_root() / ".runtime"
     if not runtime.is_file():
@@ -254,6 +262,7 @@ def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -
     print(f"  Ao fechar o chat: o servidor {server_state}")
     message_state = "continuar no chat" if settings.message_mode is MessageMode.INTERACTIVE else "responder e sair"
     print(f"  Mensagem no comando: {message_state}")
+    print(f"  Tempo máximo por interação: {settings.request_timeout_seconds} segundos")
     size = "sem limite" if settings.log_max_size_mb <= 0 else f"{settings.log_max_size_mb} MB"
     retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
     print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
@@ -300,6 +309,10 @@ def run_wizard() -> ConfigurationResult:
             "Ao chamar o assistente com uma mensagem, continuar no chat após a resposta?",
             draft.message_mode is MessageMode.INTERACTIVE,
         )
+        request_timeout_seconds = ask_positive_integer(
+            "Tempo máximo de cada interação em segundos",
+            draft.request_timeout_seconds,
+        )
         log_max_size_mb = ask_integer(
             "Tamanho máximo da pasta de logs em MB (<= 0 significa sem limite)",
             draft.log_max_size_mb,
@@ -317,6 +330,7 @@ def run_wizard() -> ConfigurationResult:
             autostart=autostart,
             keep_llm_running=keep_llm_running,
             message_mode=(MessageMode.INTERACTIVE if continue_after_message else MessageMode.ONE_SHOT),
+            request_timeout_seconds=request_timeout_seconds,
             log_max_size_mb=log_max_size_mb,
             log_retention_days=log_retention_days,
             persona_path=persona,

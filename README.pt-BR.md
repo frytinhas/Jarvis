@@ -116,7 +116,9 @@ As conversas ficam em um banco SQLite local. Os cinco resumos mais recentes fica
 
 Por padrão, os logs são mantidos por 30 dias e a pasta possui limite de 100 MB. Use `jarvis-config` para alterar os dois valores. Um número menor ou igual a zero significa sem limite. Logs vencidos e os mais antigos são removidos localmente quando necessário. O banco é privado para o usuário local, mas não é criptografado; portanto, as conversas não devem ser tratadas como um cofre de senhas.
 
-Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. A cada intervalo de 5–10 segundos, o Jarvis escolhe aleatoriamente uma linha não vazia sem repeti-la imediatamente. Deixe o arquivo vazio para desativá-las.
+Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Em terminais interativos, a mensagem atual substitui a anterior na mesma linha. Deixe o arquivo vazio para desativá-las.
+
+Cada interação possui um limite total de 60 segundos por padrão, compartilhado entre as chamadas ao modelo e as rodadas de tools. Esse valor pode ser alterado executando `jarvis-config`. Se o limite for atingido, nenhuma nova tool será iniciada e o terminal mostrará um erro explícito.
 
 ## Personalidade
 

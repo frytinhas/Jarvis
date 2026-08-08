@@ -13,6 +13,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         assistant_name="Bob",
         command_name="bob",
         autostart=False,
+        request_timeout_seconds=45,
         persona_path=tmp_path / "Persona.md",
     )
     save_settings(settings, path)
@@ -24,6 +25,7 @@ def test_new_lifecycle_defaults() -> None:
     settings = default_settings()
     assert settings.keep_llm_running is False
     assert settings.message_mode is MessageMode.INTERACTIVE
+    assert settings.request_timeout_seconds == 60
 
 
 def test_version_one_settings_are_migrated(tmp_path: Path) -> None:
@@ -36,8 +38,9 @@ def test_version_one_settings_are_migrated(tmp_path: Path) -> None:
 
     settings = load_settings(path)
 
-    assert settings.version == 3
+    assert settings.version == 4
     assert settings.keep_llm_running is False
     assert settings.message_mode is MessageMode.INTERACTIVE
     assert settings.log_max_size_mb == 100
     assert settings.log_retention_days == 30
+    assert settings.request_timeout_seconds == 60

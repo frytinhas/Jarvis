@@ -10,6 +10,7 @@ from jarvis.configurator import (
     _choose_identity,
     _inspect_command,
     ask_integer,
+    ask_positive_integer,
     commit,
     discover_models,
     normalize_command_name,
@@ -186,3 +187,10 @@ def test_log_limit_accepts_negative_integer(monkeypatch) -> None:  # type: ignor
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
     assert ask_integer("Limite", 100) == -1
+
+
+def test_timeout_requires_positive_integer(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    answers = iter(["0", "-1", "60"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    assert ask_positive_integer("Timeout", 60) == 60

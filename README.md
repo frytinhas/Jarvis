@@ -116,7 +116,9 @@ Conversations are stored in a local SQLite database. The five newest summaries a
 
 By default, logs are kept for 30 days and the folder is limited to 100 MB. Run `jarvis-config` to change either value. A value less than or equal to zero means unlimited. Expired and oldest logs are removed locally when needed. The database is private to your user account but is not encrypted, so conversations should not be treated as a password vault.
 
-Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. Every 5–10 seconds, Jarvis randomly selects a non-empty line without immediately repeating it. Leave the file empty to disable them.
+Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. On startup, Jarvis randomly selects a non-empty line and then advances through the list in circular order every 5–10 seconds. In interactive terminals, each message replaces the previous one on the same line. Leave the file empty to disable them.
+
+Each interaction has a total 60-second limit by default, shared by model calls and tool rounds. Run `jarvis-config` to change it. When the limit is reached, Jarvis does not start another tool and displays an explicit timeout message.
 
 ## Personality
 

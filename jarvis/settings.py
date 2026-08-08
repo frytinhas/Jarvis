@@ -28,7 +28,7 @@ class MessageMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 3
+    version: int = 4
     model_directory: Path | None = None
     model_path: Path | None = None
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
@@ -37,6 +37,7 @@ class UserSettings(BaseModel):
     autostart: bool = True
     keep_llm_running: bool = False
     message_mode: MessageMode = MessageMode.INTERACTIVE
+    request_timeout_seconds: int = Field(default=60, gt=0)
     log_max_size_mb: int = 100
     log_retention_days: int = 30
     persona_path: Path
@@ -60,8 +61,8 @@ def load_settings(path: Path | None = None) -> UserSettings:
     if not target.is_file():
         return default_settings()
     settings = UserSettings.model_validate_json(target.read_text(encoding="utf-8"))
-    if settings.version < 3:
-        settings = settings.model_copy(update={"version": 3})
+    if settings.version < 4:
+        settings = settings.model_copy(update={"version": 4})
     return settings
 
 
