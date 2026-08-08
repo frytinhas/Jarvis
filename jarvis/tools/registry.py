@@ -76,7 +76,11 @@ class ToolRegistry:
         self._tools[tool.name] = tool
 
     def schemas(self) -> list[dict[str, Any]]:
-        return [tool.openai_schema() for tool in self._tools.values()]
+        return [
+            tool.openai_schema()
+            for tool in self._tools.values()
+            if self.policy.decide(tool.risk) is not Decision.DENY
+        ]
 
     def request(self, name: str, raw_arguments: str | dict[str, Any]) -> ToolResult:
         tool = self._tools.get(name)

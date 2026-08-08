@@ -4,6 +4,7 @@ set -u
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+INSTALL_FILE="$PROJECT_DIR/.install"
 RUNTIME_FILE="$PROJECT_DIR/.runtime"
 JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
 SERVER_SCRIPT="$PROJECT_DIR/scripts/jarvis-server"
@@ -17,17 +18,15 @@ cd "$PROJECT_DIR" || {
     exit 1
 }
 
-if [[ ! -f "$RUNTIME_FILE" || ! -x "$JARVIS_BIN" ]]; then
+if [[ ! -f "$INSTALL_FILE" || ! -f "$RUNTIME_FILE" || ! -x "$JARVIS_BIN" ]]; then
     echo "A instalação do Jarvis não está completa."
     echo "Execute: bash $PROJECT_DIR/Setup.sh"
     exit 1
 fi
 
 # Arquivo local gerado exclusivamente por Setup.sh ou Config.sh.
+source "$INSTALL_FILE"
 source "$RUNTIME_FILE"
-: "${MODEL_ALIAS:=jarvis-model}"
-: "${SERVER_HOST:=127.0.0.1}"
-: "${SERVER_PORT:=8080}"
 SERVER_URL="http://$SERVER_HOST:$SERVER_PORT"
 server_start_requested=false
 
@@ -85,6 +84,7 @@ if [[ -f "$RESTART_MARKER" ]]; then
         server_start_requested=true
     fi
 elif correct_model_loaded; then
+    rm -f "$RESTART_MARKER"
     exec "$JARVIS_BIN" "$@"
 elif server_healthy; then
     if ! stop_owned_legacy_server; then
@@ -107,6 +107,7 @@ fi
 
 for _ in $(seq 1 180); do
     if correct_model_loaded; then
+        rm -f "$RESTART_MARKER"
         echo "Modelo pronto. Abrindo o Jarvis..."
         exec "$JARVIS_BIN" "$@"
     fi

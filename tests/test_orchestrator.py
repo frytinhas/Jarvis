@@ -37,7 +37,7 @@ def test_voice_style_confirmation_only_authorizes_pending_clause() -> None:
     assert confirmation_intent("talvez") is None
 
 
-def test_terminal_sends_initial_message_and_stays_interactive(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_terminal_sends_initial_message_and_stays_interactive(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     class FakeOrchestrator:
         def __init__(self) -> None:
             self.received: list[str] = []
@@ -52,6 +52,7 @@ def test_terminal_sends_initial_message_and_stays_interactive(monkeypatch) -> No
     answers = iter(["segunda mensagem", "/sair"])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
-    TerminalUI(orchestrator).run("mensagem inicial")  # type: ignore[arg-type]
+    TerminalUI(orchestrator, "Bob").run("mensagem inicial")  # type: ignore[arg-type]
 
     assert orchestrator.received == ["mensagem inicial", "segunda mensagem"]
+    assert "Bob local" in capsys.readouterr().out

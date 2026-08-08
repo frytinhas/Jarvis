@@ -20,11 +20,12 @@ def confirmation_intent(text: str) -> bool | None:
 
 
 class TerminalUI:
-    def __init__(self, orchestrator: Orchestrator) -> None:
+    def __init__(self, orchestrator: Orchestrator, assistant_name: str = "Jarvis") -> None:
         self.orchestrator = orchestrator
+        self.assistant_name = assistant_name
 
     def run(self, initial_message: str | None = None) -> None:
-        print("Jarvis local. Digite /sair para encerrar.")
+        print(f"{self.assistant_name} local. Digite /sair para encerrar.")
         if initial_message:
             self._handle(initial_message)
         while True:
@@ -44,10 +45,10 @@ class TerminalUI:
             reply = self.orchestrator.handle(user_text)
             self._show(reply)
         except Exception as error:
-            print(f"Jarvis: erro de comunicação: {error}")
+            print(f"{self.assistant_name}: erro de comunicação: {error}")
 
     def _show(self, reply: AgentReply) -> None:
-        print(f"\nJarvis:\n{reply.text}")
+        print(f"\n{self.assistant_name}:\n{reply.text}")
         if reply.pending is None:
             return
         while True:

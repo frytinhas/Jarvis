@@ -1,75 +1,74 @@
 # Jarvis Local
 
-Jarvis é um assistente para Ubuntu que conversa pelo terminal usando uma IA executada no próprio computador. A aplicação não escolhe nem baixa a IA: o usuário informa o caminho de qualquer modelo GGUF compatível com `llama.cpp`.
+Jarvis is a local Ubuntu assistant powered by a GGUF model running through `llama.cpp`. The language model only plans requests: file and system access always goes through the application's validated tools and permission policy.
 
-## Instalação
+Portuguese documentation: [README.pt-BR.md](README.pt-BR.md)
 
-Tenha um modelo `.gguf` salvo no computador. Depois, abra um terminal dentro da pasta do projeto e execute:
+## Install
+
+Clone the project and run:
 
 ```bash
 bash Setup.sh
 ```
 
-O instalador pedirá o caminho completo do modelo, preparará o Jarvis e perguntará se o servidor deve iniciar automaticamente ao entrar no usuário. A opção padrão é ativar.
+The setup only installs Jarvis, its Python environment, the llama server and the configuration command. When installation finishes, it automatically starts the configuration wizard.
 
-Se o Jarvis já estiver instalado, executar o Setup novamente permite informar outro modelo. O arquivo anterior não é apagado.
+The wizard asks, in order, for:
 
-## Como usar
+1. The folder containing your local GGUF models and which model to use.
+2. Which permission categories are available.
+3. Which enabled categories may run without confirmation.
+4. Whether to keep or restore `Persona.md`.
+5. Whether to use a custom assistant name and terminal command.
+6. Whether the model server starts automatically with your user session.
 
-Para abrir uma conversa:
+Nothing is saved until the final summary is confirmed.
+
+## Use
+
+With the default name:
 
 ```bash
 jarvis
+jarvis "what are my computer specifications?"
 ```
 
-Também é possível começar com uma pergunta diretamente pelo comando:
+If you choose a custom name such as Bob, use:
 
 ```bash
-jarvis "quais são as especificações do meu computador?"
+bob
+bob "list the files in my Downloads folder"
 ```
 
-Depois da primeira resposta, a conversa continua normalmente. Para encerrar, digite `/sair`.
+The custom name changes the public command, terminal labels and assistant identity. Internal project files and services remain named Jarvis. Run `jarvis-config` at any time to reconfigure it.
 
-Leituras são feitas automaticamente. Criações, alterações e exclusões mostram a ação exata e aguardam confirmação.
+## Permissions
 
-## Alterar configurações
+Permissions are configured by category:
 
-Depois da instalação, execute:
+- `READ`: inspect files and system information.
+- `CREATE`: create files and directories.
+- `MODIFY`: write, append, move and rename.
+- `DELETE`: remove files and empty directories.
+- `EXECUTE`: reserved for future process/application tools.
 
-```bash
-jarvis-config
-```
+The first-run defaults allow `READ` and `CREATE` without confirmation. `MODIFY`, `DELETE` and `EXECUTE` require confirmation. Critical paths and privileged actions remain blocked regardless of these choices.
 
-O menu permite trocar o caminho do modelo e ativar ou desativar o início automático. Uma troca de modelo não interrompe o servidor atual: ela é aplicada no próximo uso do Jarvis ou no próximo login.
+## Personality
 
-Também é possível abrir o configurador dentro da pasta do projeto:
+Edit [Persona.md](Persona.md) to change tone and behavior. It is written in English by default, but may contain instructions in any language. The name selected in `jarvis-config` always overrides names written in the persona. The wizard can restore the original persona after confirmation.
 
-```bash
-bash Config.sh
-```
+## Model suggestions
 
-## Modelos recomendados
+Use an instruct/chat GGUF model, preferably a `Q4_K_M` quantization. Lightweight options include:
 
-Prefira versões instruct/chat em formato GGUF e quantização `Q4_K_M`. Modelos menores usam menos memória e respondem mais rápido; modelos maiores geralmente entregam respostas melhores.
+- [Qwen3 4B GGUF](https://huggingface.co/Qwen/Qwen3-4B-GGUF)
+- [Phi-4 Mini 3.8B GGUF](https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF)
+- [Llama 3.2 3B Instruct GGUF](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF)
+- [Gemma 3 4B Instruct GGUF](https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF)
 
-Opções leves:
+Larger alternatives such as Qwen3 8B or Gemma 4 12B generally require more memory. Tool-calling quality depends on the selected model and its chat template.
 
-- [Qwen3 4B GGUF](https://huggingface.co/Qwen/Qwen3-4B-GGUF) — boa opção geral e multilíngue.
-- [Phi-4 Mini 3.8B GGUF](https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF) — compacto e voltado a instruções.
-- [Llama 3.2 3B Instruct GGUF](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) — leve para computadores modestos.
-- [Gemma 3 4B Instruct GGUF](https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF) — alternativa leve da família Gemma.
-
-Opções para máquinas com mais memória:
-
-- Qwen3 8B Instruct GGUF.
-- Gemma 4 12B Instruct GGUF.
-
-O Jarvis aceita outros modelos GGUF, mas a capacidade de usar ferramentas depende do modelo e do chat template incluído nele.
-
-## Observações
-
-- O servidor fica disponível somente em `127.0.0.1:8080`.
-- Os logs técnicos ficam desligados, mas o histórico de segurança permanece ativo.
-- Sem uma instalação do `llama` com GPU, o Setup compila uma versão para CPU, que será mais lenta.
-- Nunca inicie o modelo com `--tools all`; somente as ferramentas protegidas do Jarvis devem acessar o computador.
+Never start the model with `--tools all`; Jarvis must remain the only layer allowed to execute protected tools.
 

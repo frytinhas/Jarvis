@@ -19,15 +19,20 @@ class Decision(StrEnum):
 
 
 class PolicyEngine:
-    _POLICY = {
+    _DEFAULT_POLICY = {
         Risk.READ: Decision.ALLOW,
-        Risk.CREATE: Decision.CONFIRM,
+        Risk.CREATE: Decision.ALLOW,
         Risk.MODIFY: Decision.CONFIRM,
         Risk.DELETE: Decision.CONFIRM,
         Risk.EXECUTE: Decision.CONFIRM,
         Risk.PRIVILEGED: Decision.DENY,
     }
 
-    def decide(self, risk: Risk) -> Decision:
-        return self._POLICY[risk]
+    def __init__(self, decisions: dict[Risk, Decision] | None = None) -> None:
+        self._policy = dict(self._DEFAULT_POLICY)
+        if decisions:
+            self._policy.update(decisions)
+        self._policy[Risk.PRIVILEGED] = Decision.DENY
 
+    def decide(self, risk: Risk) -> Decision:
+        return self._policy[risk]

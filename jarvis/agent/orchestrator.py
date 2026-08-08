@@ -18,11 +18,17 @@ class AgentReply:
 
 
 class Orchestrator:
-    def __init__(self, llm: LLM, registry: ToolRegistry, max_tool_rounds: int = 8) -> None:
+    def __init__(
+        self,
+        llm: LLM,
+        registry: ToolRegistry,
+        max_tool_rounds: int = 8,
+        system_prompt: str = SYSTEM_PROMPT,
+    ) -> None:
         self.llm = llm
         self.registry = registry
         self.max_tool_rounds = max_tool_rounds
-        self.messages: list[Message] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.messages: list[Message] = [{"role": "system", "content": system_prompt}]
         self._pending_calls: dict[str, tuple[str, PendingAction]] = {}
 
     def handle(self, user_text: str) -> AgentReply:

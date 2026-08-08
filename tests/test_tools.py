@@ -6,6 +6,10 @@ import sqlite3
 import pytest
 
 from jarvis.security.validator import PathValidationError, resolve_path, validate_write_path
+from jarvis.security.audit import AuditLog
+from jarvis.security.confirmation import ConfirmationManager
+from jarvis.security.policy import Decision, PolicyEngine, Risk
+from jarvis.tools.registry import build_registry
 from jarvis.tools.registry import ToolRegistry
 
 
@@ -16,6 +20,13 @@ def test_read_executes_without_confirmation(registry: ToolRegistry, tmp_path: Pa
     assert result.status == "ok"
     assert result.result["content"] == "olá"
     assert result.result["security"].startswith("UNTRUSTED_DATA")
+
+
+def test_create_executes_without_confirmation_by_default(registry: ToolRegistry, tmp_path: Path) -> None:
+    target = tmp_path / "created.txt"
+    result = registry.request("create_file", {"path": str(target)})
+    assert result.status == "ok"
+    assert target.is_file()
 
 
 @pytest.mark.parametrize("tool", ["write_file", "delete_file"])
@@ -83,3 +94,15 @@ def test_tool_calls_are_audited(registry: ToolRegistry, tmp_path: Path) -> None:
             "SELECT tool, policy_result, confirmed, executed FROM tool_audit ORDER BY id DESC LIMIT 1"
         ).fetchone()
     assert row == ("read_file", "ALLOW", 0, 1)
+
+
+def test_denied_category_is_hidden_and_rejected(tmp_path: Path) -> None:
+    restricted = build_registry(
+        PolicyEngine({Risk.READ: Decision.DENY}),
+        ConfirmationManager(),
+        AuditLog(tmp_path / "restricted.db"),
+    )
+    schema_names = {schema["function"]["name"] for schema in restricted.schemas()}
+    assert "read_file" not in schema_names
+    result = restricted.request("read_file", {"path": str(tmp_path)})
+    assert result.status == "denied"
