@@ -23,11 +23,12 @@ O Config solicita, em sequência:
 1. A pasta dos modelos GGUF locais e qual modelo será usado.
 2. Quais categorias de permissões ficam disponíveis.
 3. Quais categorias habilitadas podem agir sem confirmação.
-4. Se o `Persona.md` será mantido ou restaurado.
+4. Se o `Persona.md` e o `Context.md` serão mantidos ou restaurados.
 5. Se o assistente terá nome e comando personalizados.
 6. Se o servidor iniciará automaticamente junto da sessão do usuário.
 7. Se o servidor continuará ligado depois que o último chat fechar.
 8. Se uma mensagem enviada junto do comando abre uma conversa ou responde uma vez e encerra.
+9. O tamanho máximo e o período de retenção dos logs de conversa.
 
 Nada é salvo antes da confirmação do resumo final.
 
@@ -101,6 +102,22 @@ As regras são processadas de cima para baixo. Uma linha correspondente posterio
 
 O arquivo é verificado quando um novo chat começa. Se estiver ausente ou inválido, todas as tools baseadas em arquivos ficam desativadas até que ele seja corrigido e um novo chat seja aberto. A própria pasta do projeto Jarvis é permanentemente somente leitura para as tools.
 
+## Contexto e memória local
+
+Edite [Context.md](Context.md) para ensinar referências e hábitos de trabalho ao Jarvis sem alterar sua personalidade. O contexto padrão orienta o assistente a localizar pastas como Documentos dentro da HOME, testar variações seguras de nomes e usar tools READ antes de fazer perguntas que ele consegue resolver localmente. As regras de segurança sempre possuem prioridade sobre esse arquivo.
+
+O Jarvis salva um resumo privado e a conversa visível entre usuário e assistente em:
+
+```text
+~/.local/state/jarvis/logs/conversations.db
+```
+
+As conversas ficam em um banco SQLite local. Os cinco resumos mais recentes ficam disponíveis como contexto. Para conversas mais antigas, o Jarvis pode usar a tool READ controlada `search_conversation_logs`. Isso permite pedidos como “lembra do código em que trabalhamos ontem?” sem banco vetorial ou serviço externo.
+
+Por padrão, os logs são mantidos por 30 dias e a pasta possui limite de 100 MB. Use `jarvis-config` para alterar os dois valores. Um número menor ou igual a zero significa sem limite. Logs vencidos e os mais antigos são removidos localmente quando necessário. O banco é privado para o usuário local, mas não é criptografado; portanto, as conversas não devem ser tratadas como um cofre de senhas.
+
+Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. A cada intervalo de 5–10 segundos, o Jarvis escolhe aleatoriamente uma linha não vazia sem repeti-la imediatamente. Deixe o arquivo vazio para desativá-las.
+
 ## Personalidade
 
 Edite [Persona.md](Persona.md) para mudar o tom e o comportamento. O arquivo padrão está em inglês, mas pode receber instruções em qualquer idioma. O nome escolhido no Config sempre prevalece sobre nomes escritos na persona. O wizard também permite restaurar o conteúdo original mediante confirmação.
@@ -122,4 +139,4 @@ Nunca inicie o modelo com `--tools all`; somente o Jarvis deve executar as tools
 
 Este é um projeto experimental produzido por vibe coding e fornecido sem garantias. Use inteiramente por sua conta e risco. Nem o autor do projeto nem a IA que auxiliou em sua produção assumem responsabilidade por perda de dados, danos ao sistema ou qualquer outra consequência causada pelo uso.
 
-O Jarvis apenas intermedeia você, o modelo de linguagem configurado e as tools locais controladas. Com o endpoint local padrão, prompts, resultados das tools e dados de auditoria permanecem no seu computador, e o projeto não possui telemetria nem mecanismo intencional de compartilhamento de prompts. A instalação ainda baixa dependências, e a configuração de um endpoint remoto pode enviar informações a esse serviço conforme os termos dele. Nenhum comportamento malicioso foi incluído intencionalmente, mas isso não garante que o software esteja livre de falhas ou vulnerabilidades.
+O Jarvis apenas intermedeia você, o modelo de linguagem configurado e as tools locais controladas. Com o endpoint local padrão, prompts, logs de conversa, resultados das tools e dados de auditoria permanecem no seu computador, e o projeto não possui telemetria nem mecanismo intencional de compartilhamento de prompts. A instalação ainda baixa dependências, e a configuração de um endpoint remoto pode enviar informações a esse serviço conforme os termos dele. Nenhum comportamento malicioso foi incluído intencionalmente, mas isso não garante que o software esteja livre de falhas ou vulnerabilidades.

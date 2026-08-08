@@ -27,9 +27,12 @@ class LlamaClient:
         )
 
     def chat(self, messages: list[Message], tools: list[dict[str, Any]]) -> AssistantMessage:
+        payload: dict[str, Any] = {"model": self.model, "messages": messages}
+        if tools:
+            payload.update({"tools": tools, "tool_choice": "auto"})
         response = self._client.post(
             "chat/completions",
-            json={"model": self.model, "messages": messages, "tools": tools, "tool_choice": "auto"},
+            json=payload,
         )
         response.raise_for_status()
         completion = ChatCompletion.model_validate(response.json())

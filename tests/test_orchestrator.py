@@ -79,3 +79,15 @@ def test_terminal_one_shot_does_not_request_another_message(monkeypatch) -> None
     TerminalUI(orchestrator, "Bob").run("mensagem inicial", continue_after_initial=False)  # type: ignore[arg-type]
 
     assert orchestrator.received == ["mensagem inicial"]
+
+
+def test_orchestrator_keeps_visible_transcript(registry: ToolRegistry) -> None:
+    llm = SequencedLLM([AssistantMessage(content="Resposta lembrável")])
+    agent = Orchestrator(llm, registry)
+
+    agent.handle("Pergunta lembrável")
+
+    assert agent.transcript == [
+        {"role": "user", "content": "Pergunta lembrável"},
+        {"role": "assistant", "content": "Resposta lembrável"},
+    ]

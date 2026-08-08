@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -46,6 +47,15 @@ class ListDirectoryInput(PathInput):
 class SearchFilesInput(PathInput):
     pattern: str = Field(min_length=1, max_length=256)
     max_results: int = Field(default=100, ge=1, le=1000)
+    case_sensitive: bool = False
+
+
+class SearchConversationLogsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=1, max_length=500)
+    date_from: date | None = None
+    date_to: date | None = None
+    max_results: int = Field(default=5, ge=1, le=10)
 
 
 class WriteFileInput(PathInput):
@@ -65,4 +75,3 @@ class RenameInput(BaseModel):
 
 
 Message = dict[str, Any]
-

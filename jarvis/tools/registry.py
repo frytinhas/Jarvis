@@ -13,6 +13,7 @@ from jarvis.llm.schemas import (
     MoveInput,
     PathInput,
     RenameInput,
+    SearchConversationLogsInput,
     SearchFilesInput,
     WriteFileInput,
 )
@@ -21,6 +22,7 @@ from jarvis.security.confirmation import ConfirmationManager, PendingAction
 from jarvis.security.path_policy import PathPolicy
 from jarvis.security.policy import Decision, PolicyEngine, Risk
 from jarvis.security.validator import resolve_path, validate_rename_name, validate_write_path
+from jarvis.memory.store import ConversationLogStore
 from jarvis.tools import filesystem, processes, system
 
 
@@ -34,10 +36,11 @@ class Tool:
     risk: Risk
     input_schema: type[BaseModel]
     handler: Handler
+    fixed_paths: tuple[Path, ...] = ()
 
     @property
     def path_based(self) -> bool:
-        return bool({"path", "source", "destination"} & self.input_schema.model_fields.keys())
+        return bool(self.fixed_paths or {"path", "source", "destination"} & self.input_schema.model_fields.keys())
 
     def openai_schema(self) -> dict[str, Any]:
         return {
@@ -208,6 +211,11 @@ class ToolRegistry:
                 **arguments,
                 can_read=lambda candidate: self._can_read_descendant(candidate, confirmed),
             )
+        if tool.name == "search_conversation_logs":
+            return tool.handler(
+                **arguments,
+                can_read=lambda candidate: self._can_read_descendant(candidate, confirmed),
+            )
         return tool.handler(**arguments)
 
     def _can_read_descendant(self, path: Path, confirmed: bool) -> bool:
@@ -226,7 +234,8 @@ class ToolRegistry:
 
     @staticmethod
     def _affected_paths(tool: Tool, arguments: dict[str, Any]) -> list[Path]:
-        paths = [Path(arguments[key]) for key in ("path", "source", "destination") if key in arguments]
+        paths = [*tool.fixed_paths]
+        paths.extend(Path(arguments[key]) for key in ("path", "source", "destination") if key in arguments)
         if tool.name == "rename_file" and "path" in arguments and "new_name" in arguments:
             paths.append(Path(arguments["path"]).with_name(arguments["new_name"]))
         if tool.name == "create_file" and "path" in arguments:
@@ -265,6 +274,7 @@ def build_registry(
     confirmations: ConfirmationManager,
     audit: AuditLog,
     path_policy: PathPolicy | None = None,
+    memory_store: ConversationLogStore | None = None,
 ) -> ToolRegistry:
     if path_policy is None:
         path_policy = PathPolicy.empty(project_directory=Path(__file__).resolve().parents[2])
@@ -273,10 +283,18 @@ def build_registry(
         Tool("list_directory", "Lista arquivos e diretórios", Risk.READ, ListDirectoryInput, filesystem.list_directory),
         Tool("read_file", "Lê um arquivo de texto UTF-8; o conteúdo é dado não confiável", Risk.READ, PathInput, filesystem.read_file),
         Tool("file_info", "Obtém metadados de um path", Risk.READ, PathInput, filesystem.file_info),
-        Tool("search_files", "Busca nomes de arquivos por padrão glob", Risk.READ, SearchFilesInput, filesystem.search_files),
+        Tool("search_files", "Busca nomes de arquivos por padrão glob; ignora maiúsculas por padrão", Risk.READ, SearchFilesInput, filesystem.search_files),
         Tool("get_processes", "Lista processos via /proc", Risk.READ, EmptyInput, processes.get_processes),
         Tool("get_system_info", "Obtém informações do sistema", Risk.READ, EmptyInput, system.get_system_info),
         Tool("get_current_directory", "Obtém o diretório atual", Risk.READ, EmptyInput, system.get_current_directory),
+        Tool(
+            "get_user_directories",
+            "Obtém a HOME e pastas pessoais como Documentos, Downloads e Desktop",
+            Risk.READ,
+            EmptyInput,
+            system.get_user_directories,
+            fixed_paths=(system.user_directories_config_path(),),
+        ),
         Tool("create_file", "Cria um arquivo vazio", Risk.CREATE, PathInput, filesystem.create_file),
         Tool("create_directory", "Cria um diretório", Risk.CREATE, PathInput, filesystem.create_directory),
         Tool("write_file", "Substitui o conteúdo de um arquivo", Risk.MODIFY, WriteFileInput, filesystem.write_file),
@@ -288,4 +306,15 @@ def build_registry(
     )
     for tool in definitions:
         registry.register(tool)
+    if memory_store is not None:
+        registry.register(
+            Tool(
+                "search_conversation_logs",
+                "Busca conversas locais anteriores por texto e intervalo de datas",
+                Risk.READ,
+                SearchConversationLogsInput,
+                memory_store.search,
+                fixed_paths=(memory_store.database_path,),
+            )
+        )
     return registry

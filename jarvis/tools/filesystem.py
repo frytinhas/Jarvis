@@ -75,6 +75,7 @@ def search_files(
     path: str,
     pattern: str,
     max_results: int = 100,
+    case_sensitive: bool = False,
     can_read: ReadPredicate | None = None,
 ) -> dict[str, Any]:
     target = resolve_path(path)
@@ -89,7 +90,9 @@ def search_files(
         )
         for name in directory_names + sorted(file_names):
             item = root_path / name
-            if allowed(item.resolve(strict=False)) and fnmatch.fnmatch(name, pattern):
+            candidate_name = name if case_sensitive else name.casefold()
+            candidate_pattern = pattern if case_sensitive else pattern.casefold()
+            if allowed(item.resolve(strict=False)) and fnmatch.fnmatch(candidate_name, candidate_pattern):
                 matches.append(str(item))
                 if len(matches) >= max_results:
                     return {

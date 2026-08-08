@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import shlex
 
-from jarvis.agent.prompts import default_persona_path
+from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import MessageMode, UserSettings, load_settings, project_root, save_settings
 
@@ -27,6 +27,7 @@ class ConfigurationResult:
     settings: UserSettings
     previous_command: str
     reset_persona: bool
+    reset_context: bool
 
 
 def discover_models(directory: Path) -> list[Path]:
@@ -67,6 +68,17 @@ def ask_yes_no(prompt: str, default: bool) -> bool:
         if answer in {"n", "no", "não", "nao"}:
             return False
         print("Responda sim ou não.")
+
+
+def ask_integer(prompt: str, default: int) -> int:
+    while True:
+        raw = input(f"{prompt} [{default}]: ").strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            print("Informe somente um número inteiro.")
 
 
 def _legacy_model() -> Path | None:
@@ -175,7 +187,14 @@ def _persona_is_default(persona: Path) -> bool:
         return False
 
 
-def _summary(settings: UserSettings, reset_persona: bool) -> None:
+def _context_is_default(context: Path) -> bool:
+    try:
+        return context.read_bytes() == default_context_path().read_bytes()
+    except OSError:
+        return False
+
+
+def _summary(settings: UserSettings, reset_persona: bool, reset_context: bool) -> None:
     print("\nResumo da configuração")
     print(f"  Pasta de modelos: {settings.model_directory}")
     print(f"  Modelo: {settings.model_path}")
@@ -184,6 +203,8 @@ def _summary(settings: UserSettings, reset_persona: bool) -> None:
         print(f"    {risk}: {settings.permissions.get(risk, Decision.DENY)}")
     persona_status = "será restaurada" if reset_persona else "mantida"
     print(f"  Persona: {settings.persona_path} ({persona_status})")
+    context_status = "será restaurado" if reset_context else "mantido"
+    print(f"  Contexto: {project_root() / 'Context.md'} ({context_status})")
     print(f"  Nome: {settings.assistant_name}")
     print(f"  Comando: {settings.command_name}")
     print(f"  Início automático: {'ativado' if settings.autostart else 'desativado'}")
@@ -191,14 +212,20 @@ def _summary(settings: UserSettings, reset_persona: bool) -> None:
     print(f"  Ao fechar o chat: o servidor {server_state}")
     message_state = "continuar no chat" if settings.message_mode is MessageMode.INTERACTIVE else "responder e sair"
     print(f"  Mensagem no comando: {message_state}")
+    size = "sem limite" if settings.log_max_size_mb <= 0 else f"{settings.log_max_size_mb} MB"
+    retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
+    print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
     if any(settings.permissions.get(risk) is Decision.ALLOW for risk in (Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)):
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
 
 def run_wizard() -> ConfigurationResult:
     persona = project_root() / "Persona.md"
+    context = project_root() / "Context.md"
     if not persona.is_file():
         persona.write_bytes(default_persona_path().read_bytes())
+    if not context.is_file():
+        context.write_bytes(default_context_path().read_bytes())
     persisted = load_settings()
     if persisted.model_path is None:
         legacy = _legacy_model()
@@ -216,6 +243,11 @@ def run_wizard() -> ConfigurationResult:
         reset_default = False
         if not _persona_is_default(persona):
             reset_default = ask_yes_no("Restaurar a personalidade padrão?", False)
+        print(f"\nContexto editável: {context}")
+        print("Edite esse arquivo para ensinar preferências e referências ao assistente.")
+        reset_context = False
+        if not _context_is_default(context):
+            reset_context = ask_yes_no("Restaurar o contexto padrão?", False)
         assistant_name, command_name = _choose_identity(draft)
         autostart = ask_yes_no("Iniciar o servidor automaticamente ao entrar no usuário?", draft.autostart)
         keep_llm_running = ask_yes_no(
@@ -226,6 +258,14 @@ def run_wizard() -> ConfigurationResult:
             "Ao chamar o assistente com uma mensagem, continuar no chat após a resposta?",
             draft.message_mode is MessageMode.INTERACTIVE,
         )
+        log_max_size_mb = ask_integer(
+            "Tamanho máximo da pasta de logs em MB (<= 0 significa sem limite)",
+            draft.log_max_size_mb,
+        )
+        log_retention_days = ask_integer(
+            "Tempo de retenção dos logs em dias (<= 0 significa sem limite)",
+            draft.log_retention_days,
+        )
         candidate = UserSettings(
             model_directory=model_directory,
             model_path=model_path,
@@ -235,11 +275,13 @@ def run_wizard() -> ConfigurationResult:
             autostart=autostart,
             keep_llm_running=keep_llm_running,
             message_mode=(MessageMode.INTERACTIVE if continue_after_message else MessageMode.ONE_SHOT),
+            log_max_size_mb=log_max_size_mb,
+            log_retention_days=log_retention_days,
             persona_path=persona,
         )
-        _summary(candidate, reset_default)
+        _summary(candidate, reset_default, reset_context)
         if ask_yes_no("Confirmar e salvar essa configuração?", True):
-            return ConfigurationResult(candidate, persisted.command_name, reset_default)
+            return ConfigurationResult(candidate, persisted.command_name, reset_default, reset_context)
         print("Nada foi salvo. O assistente de configuração será reiniciado.")
         draft = candidate
 
@@ -315,6 +357,8 @@ def commit(result: ConfigurationResult) -> None:
     old = load_settings()
     if result.reset_persona:
         result.settings.persona_path.write_bytes(default_persona_path().read_bytes())
+    if result.reset_context:
+        (project_root() / "Context.md").write_bytes(default_context_path().read_bytes())
     save_settings(result.settings)
     _write_runtime(result.settings)
     _apply_command(result.previous_command, result.settings.command_name)

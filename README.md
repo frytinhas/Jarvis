@@ -25,11 +25,12 @@ The wizard asks, in order, for:
 1. The folder containing your local GGUF models and which model to use.
 2. Which permission categories are available.
 3. Which enabled categories may run without confirmation.
-4. Whether to keep or restore `Persona.md`.
+4. Whether to keep or restore `Persona.md` and `Context.md`.
 5. Whether to use a custom assistant name and terminal command.
 6. Whether the model server starts automatically with your user session.
 7. Whether the model server stays on after the last chat closes.
 8. Whether a command-line message starts a continuing chat or answers once and exits.
+9. The maximum conversation-log size and retention period.
 
 Nothing is saved until the final summary is confirmed.
 
@@ -101,6 +102,22 @@ Rules are processed from top to bottom. A later matching line overrides the posi
 
 The file is checked when a new chat starts. If it is missing or invalid, all file-based tools are disabled until it is corrected and a new chat is opened. The Jarvis project directory itself is permanently read-only to tools.
 
+## Context and local memory
+
+Edit [Context.md](Context.md) to teach Jarvis useful references and working habits without changing its personality. The default context tells it to resolve folders such as Documents through your HOME, try safe name variations and use READ tools before asking questions that it can answer locally. Security rules always take priority over this file.
+
+Jarvis saves a private summary and the visible user/assistant conversation in:
+
+```text
+~/.local/state/jarvis/logs/conversations.db
+```
+
+Conversations are stored in a local SQLite database. The five newest summaries are available as recent context. For older conversations, Jarvis can use its controlled `search_conversation_logs` READ tool. This makes requests such as “remember the code we worked on yesterday?” possible without a vector database or external service.
+
+By default, logs are kept for 30 days and the folder is limited to 100 MB. Run `jarvis-config` to change either value. A value less than or equal to zero means unlimited. Expired and oldest logs are removed locally when needed. The database is private to your user account but is not encrypted, so conversations should not be treated as a password vault.
+
+Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. Every 5–10 seconds, Jarvis randomly selects a non-empty line without immediately repeating it. Leave the file empty to disable them.
+
 ## Personality
 
 Edit [Persona.md](Persona.md) to change tone and behavior. It is written in English by default, but may contain instructions in any language. The name selected in `jarvis-config` always overrides names written in the persona. The wizard can restore the original persona after confirmation.
@@ -122,4 +139,4 @@ Never start the model with `--tools all`; Jarvis must remain the only layer allo
 
 This is a vibe-coded experimental project provided without warranties. Use it entirely at your own risk. Neither the project author nor the AI that assisted in producing it accepts responsibility for data loss, system damage or any other consequence caused by its use.
 
-Jarvis only intermediates between you, the configured language model and its controlled local tools. With the default local endpoint, prompts, tool results and audit data remain on your computer, and the project includes no telemetry or intentional prompt-sharing mechanism. Installation still downloads dependencies, and configuring a remote model endpoint may send information to that endpoint under its own terms. No malicious behavior was intentionally included, but this is not a guarantee that the software is free of defects or vulnerabilities.
+Jarvis only intermediates between you, the configured language model and its controlled local tools. With the default local endpoint, prompts, conversation logs, tool results and audit data remain on your computer, and the project includes no telemetry or intentional prompt-sharing mechanism. Installation still downloads dependencies, and configuring a remote model endpoint may send information to that endpoint under its own terms. No malicious behavior was intentionally included, but this is not a guarantee that the software is free of defects or vulnerabilities.

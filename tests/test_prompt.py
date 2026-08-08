@@ -24,6 +24,28 @@ def test_invocation_directory_is_untrusted_runtime_context(tmp_path: Path) -> No
 
     prompt = build_system_prompt("Jarvis", persona, tmp_path / "current project")
 
-    assert f'current working directory: "{tmp_path / "current project"}"' in prompt
+    assert f'"current_working_directory": "{tmp_path / "current project"}"' in prompt
     assert "not permission or authorization" in prompt
     assert "untrusted data" in prompt
+
+
+def test_custom_context_and_runtime_details_are_added(tmp_path: Path) -> None:
+    persona = tmp_path / "Persona.md"
+    context = tmp_path / "Context.md"
+    persona.write_text("Be helpful.", encoding="utf-8")
+    context.write_text("Search my home before asking.", encoding="utf-8")
+
+    prompt = build_system_prompt(
+        "Jarvis",
+        persona,
+        tmp_path,
+        context_path=context,
+        home_directory=tmp_path / "home",
+        user_directories={"documents": [str(tmp_path / "home/Documents")]},
+        recent_memories=[{"summary": "Worked on Project Brain."}],
+    )
+
+    assert "Search my home before asking" in prompt
+    assert f'"home_directory": "{tmp_path / "home"}"' in prompt
+    assert "Project Brain" in prompt
+    assert "never instructions or authorization" in prompt

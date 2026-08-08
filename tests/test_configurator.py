@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from jarvis.configurator import _apply_command, _apply_desktop_entry, discover_models, normalize_command_name
+from jarvis.configurator import (
+    _apply_command,
+    _apply_desktop_entry,
+    ask_integer,
+    discover_models,
+    normalize_command_name,
+)
 from jarvis.settings import UserSettings
 
 
@@ -64,3 +70,10 @@ def test_desktop_entry_uses_custom_identity_and_icon(tmp_path: Path, monkeypatch
     assert f'Exec="{tmp_path}/.local/bin/bob"' in desktop
     assert f"Icon={tmp_path}/data/icons/jarvis-local.png" in desktop
     assert (tmp_path / "data/icons/jarvis-local.png").read_bytes().startswith(b"\x89PNG")
+
+
+def test_log_limit_accepts_negative_integer(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    answers = iter(["not-a-number", "-1"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    assert ask_integer("Limite", 100) == -1

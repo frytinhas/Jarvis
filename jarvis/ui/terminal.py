@@ -4,6 +4,7 @@ import re
 import sys
 
 from jarvis.agent.orchestrator import AgentReply, Orchestrator
+from jarvis.ui.waiting import WaitingIndicator
 
 
 POSITIVE = {"s", "sim", "y", "yes", "pode", "confirmo", "execute", "faça", "faca"}
@@ -26,10 +27,12 @@ class TerminalUI:
         orchestrator: Orchestrator,
         assistant_name: str = "Jarvis",
         startup_warning: str | None = None,
+        waiting_messages: list[str] | None = None,
     ) -> None:
         self.orchestrator = orchestrator
         self.assistant_name = assistant_name
         self.startup_warning = startup_warning
+        self.waiting = WaitingIndicator(waiting_messages or [])
 
     def run(self, initial_message: str | None = None, continue_after_initial: bool = True) -> None:
         mark = "\033[38;5;208m◉\033[0m" if sys.stdout.isatty() else "◉"
@@ -54,7 +57,8 @@ class TerminalUI:
 
     def _handle(self, user_text: str) -> None:
         try:
-            reply = self.orchestrator.handle(user_text)
+            with self.waiting.active():
+                reply = self.orchestrator.handle(user_text)
             self._show(reply)
         except Exception as error:
             print(f"{self.assistant_name}: erro de comunicação: {error}")
@@ -69,10 +73,11 @@ class TerminalUI:
             if intent is None:
                 print("Responda sim ou não.")
                 continue
-            follow_up = (
-                self.orchestrator.confirm(reply.pending.id)
-                if intent
-                else self.orchestrator.cancel(reply.pending.id)
-            )
+            with self.waiting.active():
+                follow_up = (
+                    self.orchestrator.confirm(reply.pending.id)
+                    if intent
+                    else self.orchestrator.cancel(reply.pending.id)
+                )
             self._show(follow_up)
             return

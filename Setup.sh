@@ -88,6 +88,12 @@ mv "$temporary" "$PROJECT_DIR/.install"
 if [[ ! -f "$PROJECT_DIR/Persona.md" ]]; then
     cp "$PROJECT_DIR/jarvis/agent/default_persona.md" "$PROJECT_DIR/Persona.md"
 fi
+if [[ ! -f "$PROJECT_DIR/Context.md" ]]; then
+    cp "$PROJECT_DIR/jarvis/agent/default_context.md" "$PROJECT_DIR/Context.md"
+fi
+if [[ ! -f "$PROJECT_DIR/WaitingMessages.txt" ]]; then
+    cp "$PROJECT_DIR/jarvis/ui/default_waiting_messages.txt" "$PROJECT_DIR/WaitingMessages.txt"
+fi
 if [[ ! -f "$PROJECT_DIR/.env" ]]; then
     cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
 fi
@@ -134,4 +140,3 @@ fi
 
 info "Instalação concluída. Iniciando a configuração"
 exec "$PROJECT_DIR/Config.sh"
-

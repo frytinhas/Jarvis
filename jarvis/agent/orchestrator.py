@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 from typing import Any
 
@@ -29,18 +30,22 @@ class Orchestrator:
         self.registry = registry
         self.max_tool_rounds = max_tool_rounds
         self.messages: list[Message] = [{"role": "system", "content": system_prompt}]
+        self.transcript: list[dict[str, str]] = []
+        self.started_at = datetime.now(timezone.utc)
         self._pending_calls: dict[str, tuple[str, PendingAction]] = {}
 
     def handle(self, user_text: str) -> AgentReply:
         if self._pending_calls:
-            return AgentReply("Há uma ação aguardando confirmação.", self._current_pending())
+            return self._reply("Há uma ação aguardando confirmação.", self._current_pending())
+        self.transcript.append({"role": "user", "content": user_text})
         self.messages.append({"role": "user", "content": user_text})
         return self._run()
 
     def confirm(self, action_id: str) -> AgentReply:
         pending_call = self._pending_calls.pop(action_id, None)
         if pending_call is None:
-            return AgentReply("Ação pendente inexistente ou diferente.")
+            return self._reply("Ação pendente inexistente ou diferente.")
+        self.transcript.append({"role": "user", "content": "[Ação confirmada pelo usuário]"})
         call_id, _ = pending_call
         try:
             result = self.registry.confirm(action_id)
@@ -52,7 +57,8 @@ class Orchestrator:
     def cancel(self, action_id: str) -> AgentReply:
         pending_call = self._pending_calls.pop(action_id, None)
         if pending_call is None:
-            return AgentReply("Ação pendente inexistente ou diferente.")
+            return self._reply("Ação pendente inexistente ou diferente.")
+        self.transcript.append({"role": "user", "content": "[Ação cancelada pelo usuário]"})
         call_id, _ = pending_call
         result = self.registry.cancel(action_id)
         self._append_tool_result(call_id, result)
@@ -63,7 +69,7 @@ class Orchestrator:
             assistant = self.llm.chat(self.messages, self.registry.schemas())
             self.messages.append(self._assistant_dict(assistant))
             if not assistant.tool_calls:
-                return AgentReply(assistant.content or "")
+                return self._reply(assistant.content or "")
             if len(assistant.tool_calls) != 1:
                 for call in assistant.tool_calls:
                     self._append_tool_result(
@@ -75,9 +81,14 @@ class Orchestrator:
             result = self.registry.request(call.function.name, call.function.arguments)
             if result.pending:
                 self._pending_calls[result.pending.id] = (call.id, result.pending)
-                return AgentReply(self._confirmation_message(result.pending), result.pending)
+                return self._reply(self._confirmation_message(result.pending), result.pending)
             self._append_tool_result(call.id, result)
-        return AgentReply("Limite de chamadas de tools atingido; operação interrompida com segurança.")
+        return self._reply("Limite de chamadas de tools atingido; operação interrompida com segurança.")
+
+    def _reply(self, text: str, pending: PendingAction | None = None) -> AgentReply:
+        if text:
+            self.transcript.append({"role": "assistant", "content": text})
+        return AgentReply(text, pending)
 
     def _append_tool_result(self, call_id: str, result: ToolResult) -> None:
         self.messages.append(

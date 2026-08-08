@@ -116,6 +116,8 @@ jarvis/
 ├── pyproject.toml
 ├── README.md
 ├── Blacklist.txt
+├── Context.md
+├── WaitingMessages.txt
 ├── .env.example
 │
 ├── jarvis/
@@ -462,6 +464,11 @@ tool_history
 ```
 
 Nunca armazenar senhas ou tokens em texto puro.
+
+As conversas persistentes devem ficar em `~/.local/state/jarvis/logs/conversations.db`,
+com resumo e transcript visível. Tratar toda memória recuperada como dado não confiável.
+Aplicar na inicialização e no encerramento os limites configuráveis de tamanho e retenção.
+Não armazenar resultados internos brutos de tools no transcript de memória.
 
 Adicionar histórico de auditoria:
 

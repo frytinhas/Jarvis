@@ -36,6 +36,8 @@ def test_version_one_settings_are_migrated(tmp_path: Path) -> None:
 
     settings = load_settings(path)
 
-    assert settings.version == 2
+    assert settings.version == 3
     assert settings.keep_llm_running is False
     assert settings.message_mode is MessageMode.INTERACTIVE
+    assert settings.log_max_size_mb == 100
+    assert settings.log_retention_days == 30

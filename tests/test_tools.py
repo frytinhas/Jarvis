@@ -106,3 +106,15 @@ def test_denied_category_is_hidden_and_rejected(tmp_path: Path) -> None:
     assert "read_file" not in schema_names
     result = restricted.request("read_file", {"path": str(tmp_path)})
     assert result.status == "denied"
+
+
+def test_search_files_is_case_insensitive_by_default(registry: ToolRegistry, tmp_path: Path) -> None:
+    vault = tmp_path / "Brain"
+    vault.mkdir()
+
+    result = registry.request(
+        "search_files",
+        {"path": str(tmp_path), "pattern": "*brain*"},
+    )
+
+    assert str(vault) in result.result["matches"]
