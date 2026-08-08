@@ -23,11 +23,18 @@ COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 @dataclass(frozen=True)
+class CommandReplacement:
+    path: Path
+    link_target: str
+
+
+@dataclass(frozen=True)
 class ConfigurationResult:
     settings: UserSettings
     previous_command: str
     reset_persona: bool
     reset_context: bool
+    command_replacement: CommandReplacement | None = None
 
 
 def discover_models(directory: Path) -> list[Path]:
@@ -153,17 +160,26 @@ def _choose_permissions(current: UserSettings) -> dict[Risk, Decision]:
     return decisions
 
 
-def _choose_identity(current: UserSettings) -> tuple[str, str]:
+def _choose_identity(current: UserSettings) -> tuple[str, str, CommandReplacement | None]:
     custom_default = current.command_name != "jarvis" or current.assistant_name != "Jarvis"
-    if not ask_yes_no("Usar um nome personalizado?", custom_default):
-        return "Jarvis", "jarvis"
     while True:
-        hint = f" [{current.assistant_name}]" if custom_default else ""
-        display_name = input(f"Novo nome{hint}: ").strip() or current.assistant_name
+        if ask_yes_no("Usar um nome personalizado?", custom_default):
+            hint = f" [{current.assistant_name}]" if custom_default else ""
+            display_name = input(f"Novo nome{hint}: ").strip() or current.assistant_name
+        else:
+            display_name = "Jarvis"
         try:
             command = normalize_command_name(display_name)
-            _validate_command_collision(command)
-            return display_name, command
+            replacement = _inspect_command(command)
+            if replacement is not None:
+                print(
+                    f"O comando {replacement.path} aponta para um launcher antigo "
+                    f"ou inexistente: {replacement.link_target}"
+                )
+                if not ask_yes_no("Substituir esse link pelo launcher atual?", False):
+                    print("Escolha outro nome de comando ou autorize a migração do link antigo.")
+                    continue
+            return display_name, command, replacement
         except ValueError as error:
             print(f"Nome inválido: {error}")
 
@@ -172,12 +188,38 @@ def _launcher_path() -> Path:
     return (project_root() / "scripts/jarvis").resolve()
 
 
-def _validate_command_collision(command: str) -> None:
+def _resolved_link_target(path: Path, link_target: str) -> Path:
+    target = Path(link_target)
+    if not target.is_absolute():
+        target = path.parent / target
+    return target.resolve(strict=False)
+
+
+def _inspect_command(command: str) -> CommandReplacement | None:
     target = Path.home() / ".local/bin" / command
     if not target.exists() and not target.is_symlink():
         return
-    if not target.is_symlink() or target.resolve(strict=False) != _launcher_path():
-        raise ValueError(f"já existe outro comando em {target}")
+    if target.is_symlink():
+        link_target = os.readlink(target)
+        resolved = _resolved_link_target(target, link_target)
+        if resolved == _launcher_path():
+            return None
+        if not target.exists() and resolved.parts[-2:] == ("scripts", "jarvis"):
+            return CommandReplacement(path=target, link_target=link_target)
+    raise ValueError(f"já existe outro comando em {target}")
+
+
+def _validate_command_collision(
+    command: str, approved_replacement: CommandReplacement | None = None
+) -> CommandReplacement | None:
+    replacement = _inspect_command(command)
+    if replacement == approved_replacement:
+        return replacement
+    if approved_replacement is not None:
+        raise ValueError("o comando mudou desde que a substituição foi confirmada")
+    if replacement is not None:
+        raise ValueError(f"o link antigo em {replacement.path} precisa de confirmação")
+    return None
 
 
 def _persona_is_default(persona: Path) -> bool:
@@ -248,7 +290,7 @@ def run_wizard() -> ConfigurationResult:
         reset_context = False
         if not _context_is_default(context):
             reset_context = ask_yes_no("Restaurar o contexto padrão?", False)
-        assistant_name, command_name = _choose_identity(draft)
+        assistant_name, command_name, command_replacement = _choose_identity(draft)
         autostart = ask_yes_no("Iniciar o servidor automaticamente ao entrar no usuário?", draft.autostart)
         keep_llm_running = ask_yes_no(
             "Manter o servidor da IA ligado depois que o chat for fechado?",
@@ -281,7 +323,13 @@ def run_wizard() -> ConfigurationResult:
         )
         _summary(candidate, reset_default, reset_context)
         if ask_yes_no("Confirmar e salvar essa configuração?", True):
-            return ConfigurationResult(candidate, persisted.command_name, reset_default, reset_context)
+            return ConfigurationResult(
+                candidate,
+                persisted.command_name,
+                reset_default,
+                reset_context,
+                command_replacement,
+            )
         print("Nada foi salvo. O assistente de configuração será reiniciado.")
         draft = candidate
 
@@ -305,13 +353,20 @@ def _write_runtime(settings: UserSettings) -> None:
     temporary.replace(runtime)
 
 
-def _apply_command(previous: str, current: str) -> None:
+def _apply_command(
+    previous: str,
+    current: str,
+    approved_replacement: CommandReplacement | None = None,
+) -> None:
     local_bin = Path.home() / ".local/bin"
     local_bin.mkdir(parents=True, exist_ok=True)
     launcher = _launcher_path()
     new_command = local_bin / current
-    _validate_command_collision(current)
-    if not new_command.is_symlink():
+    replacement = _validate_command_collision(current, approved_replacement)
+    if replacement is not None:
+        replacement.path.unlink()
+        replacement.path.symlink_to(launcher)
+    elif not new_command.is_symlink():
         new_command.symlink_to(launcher)
     if previous != current:
         old_command = local_bin / previous
@@ -354,6 +409,7 @@ def _apply_desktop_entry(settings: UserSettings) -> None:
 
 
 def commit(result: ConfigurationResult) -> None:
+    _validate_command_collision(result.settings.command_name, result.command_replacement)
     old = load_settings()
     if result.reset_persona:
         result.settings.persona_path.write_bytes(default_persona_path().read_bytes())
@@ -361,7 +417,11 @@ def commit(result: ConfigurationResult) -> None:
         (project_root() / "Context.md").write_bytes(default_context_path().read_bytes())
     save_settings(result.settings)
     _write_runtime(result.settings)
-    _apply_command(result.previous_command, result.settings.command_name)
+    _apply_command(
+        result.previous_command,
+        result.settings.command_name,
+        result.command_replacement,
+    )
     _apply_desktop_entry(result.settings)
     if old.model_path != result.settings.model_path:
         marker = Path.home() / ".local/state/jarvis/restart-required"

@@ -3,9 +3,14 @@ from pathlib import Path
 import pytest
 
 from jarvis.configurator import (
+    CommandReplacement,
+    ConfigurationResult,
     _apply_command,
     _apply_desktop_entry,
+    _choose_identity,
+    _inspect_command,
     ask_integer,
+    commit,
     discover_models,
     normalize_command_name,
 )
@@ -52,6 +57,110 @@ def test_custom_command_replaces_owned_default_alias(tmp_path: Path, monkeypatch
 
     assert not (local_bin / "jarvis").exists()
     assert (local_bin / "bob").resolve() == launcher
+
+
+def test_migrates_confirmed_broken_legacy_launcher(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    old_launcher = tmp_path / "old-project/scripts/jarvis"
+    command = local_bin / "jarvis"
+    command.symlink_to(old_launcher)
+    replacement = _inspect_command("jarvis")
+
+    assert replacement == CommandReplacement(command, str(old_launcher))
+
+    _apply_command("jarvis", "jarvis", replacement)
+
+    launcher = (Path(__file__).resolve().parent.parent / "scripts/jarvis").resolve()
+    assert command.resolve() == launcher
+
+
+def test_default_identity_offers_confirmed_legacy_migration(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    old_launcher = tmp_path / "old-project/scripts/jarvis"
+    (local_bin / "jarvis").symlink_to(old_launcher)
+    answers = iter(["n", "y"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    name, command, replacement = _choose_identity(
+        UserSettings(persona_path=tmp_path / "Persona.md")
+    )
+
+    assert (name, command) == ("Jarvis", "jarvis")
+    assert replacement == CommandReplacement(local_bin / "jarvis", str(old_launcher))
+
+
+def test_unapproved_legacy_migration_does_not_change_link(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    old_launcher = tmp_path / "old-project/scripts/jarvis"
+    command = local_bin / "jarvis"
+    command.symlink_to(old_launcher)
+
+    with pytest.raises(ValueError, match="precisa de confirmação"):
+        _apply_command("jarvis", "jarvis")
+
+    assert command.readlink() == old_launcher
+
+
+def test_rejects_changed_legacy_launcher_after_confirmation(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    command = local_bin / "jarvis"
+    command.symlink_to(tmp_path / "old-project/scripts/jarvis")
+    replacement = _inspect_command("jarvis")
+    command.unlink()
+    command.symlink_to(tmp_path / "different-project/scripts/jarvis")
+
+    with pytest.raises(ValueError, match="mudou"):
+        _apply_command("jarvis", "jarvis", replacement)
+
+    assert command.readlink() == tmp_path / "different-project/scripts/jarvis"
+
+
+@pytest.mark.parametrize("kind", ["file", "live-link", "unknown-broken-link"])
+def test_rejects_commands_not_owned_by_jarvis(
+    tmp_path: Path, monkeypatch, kind: str
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    command = local_bin / "jarvis"
+    if kind == "file":
+        command.write_text("third party", encoding="utf-8")
+    elif kind == "live-link":
+        program = tmp_path / "third-party"
+        program.write_text("third party", encoding="utf-8")
+        command.symlink_to(program)
+    else:
+        command.symlink_to(tmp_path / "missing-program")
+
+    with pytest.raises(ValueError, match="outro comando"):
+        _inspect_command("jarvis")
+
+
+def test_commit_checks_command_before_writing_configuration(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("JARVIS_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setattr("jarvis.configurator.project_root", lambda: project)
+    local_bin = tmp_path / ".local/bin"
+    local_bin.mkdir(parents=True)
+    (local_bin / "jarvis").write_text("third party", encoding="utf-8")
+    settings = UserSettings(persona_path=project / "Persona.md")
+    result = ConfigurationResult(settings, "jarvis", False, False)
+
+    with pytest.raises(ValueError, match="outro comando"):
+        commit(result)
+
+    assert not (tmp_path / "settings.json").exists()
+    assert not (project / ".runtime").exists()
 
 
 def test_desktop_entry_uses_custom_identity_and_icon(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
