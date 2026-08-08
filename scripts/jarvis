@@ -191,6 +191,53 @@ start_with_fallback() {
     printf '%s\n' "$!" >"$PID_FILE"
 }
 
+wait_for_configured_model() {
+    for _ in $(seq 1 180); do
+        if correct_model_loaded; then
+            rm -f "$RESTART_MARKER"
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+run_client_sessions() {
+    local status
+    local -a client_arguments=("$@")
+    while true; do
+        run_client "${client_arguments[@]}"
+        status=$?
+        if ((status != 75)); then
+            return "$status"
+        fi
+        if ! "$PYTHON_BIN" -m jarvis.runtime; then
+            echo "Não foi possível aplicar o novo modelo."
+            return 1
+        fi
+        source "$RUNTIME_FILE"
+        KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
+        server_message "Reiniciando com o novo modelo..."
+        if user_systemd_available; then
+            stop_owned_fallback_server || true
+            systemctl --user restart "$UNIT_NAME" || return 1
+        else
+            stop_owned_fallback_server || true
+            if server_healthy; then
+                echo "A porta $SERVER_PORT está sendo usada por outro servidor."
+                return 1
+            fi
+            start_with_fallback
+        fi
+        if ! wait_for_configured_model; then
+            echo "O novo modelo não ficou pronto dentro de 3 minutos."
+            return 1
+        fi
+        server_message "Novo modelo pronto. Abrindo outra sessão..."
+        client_arguments=()
+    done
+}
+
 if [[ "${1:-}" == "--full-stop" ]]; then
     if (($# != 1)); then
         echo "Use --full-stop sem uma mensagem adicional."
@@ -233,7 +280,7 @@ if [[ -f "$RESTART_MARKER" ]]; then
     fi
 elif correct_model_loaded; then
     rm -f "$RESTART_MARKER"
-    run_client "$@"
+    run_client_sessions "$@"
     exit $?
 elif server_healthy; then
     if ! stop_owned_fallback_server; then
@@ -254,15 +301,11 @@ if ! correct_model_loaded && [[ "$server_start_requested" == false ]]; then
     fi
 fi
 
-for _ in $(seq 1 180); do
-    if correct_model_loaded; then
-        rm -f "$RESTART_MARKER"
-        server_message "Modelo pronto. Abrindo o Jarvis..."
-        run_client "$@"
-        exit $?
-    fi
-    sleep 1
-done
+if wait_for_configured_model; then
+    server_message "Modelo pronto. Abrindo o Jarvis..."
+    run_client_sessions "$@"
+    exit $?
+fi
 
 echo "O modelo não ficou pronto dentro de 3 minutos."
 exit 1

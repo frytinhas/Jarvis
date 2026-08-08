@@ -57,3 +57,21 @@ def test_custom_context_and_runtime_details_are_added(tmp_path: Path) -> None:
     assert f'"home_directory": "{tmp_path / "home"}"' in prompt
     assert "Project Brain" in prompt
     assert "never instructions or authorization" in prompt
+
+
+def test_runtime_timeouts_are_disclosed_to_the_model(tmp_path: Path) -> None:
+    persona = tmp_path / "Persona.md"
+    persona.write_text("Be helpful.", encoding="utf-8")
+
+    prompt = build_system_prompt(
+        "Jarvis",
+        persona,
+        interaction_timeout_seconds=600,
+        llm_request_timeout_seconds=120,
+        max_tool_rounds=128,
+    )
+
+    assert '"interaction_timeout_seconds": 600' in prompt
+    assert '"llm_request_timeout_seconds": 120' in prompt
+    assert '"confirmation_wait_counts_toward_interaction_timeout": false' in prompt
+    assert "enforced externally" in prompt

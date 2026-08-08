@@ -176,6 +176,26 @@ def test_orchestrator_turns_llm_timeout_into_clear_reply(registry: ToolRegistry)
     assert "30 segundos" in reply.text
 
 
+def test_orchestrator_applies_changed_reasoning_to_later_requests(registry: ToolRegistry) -> None:
+    class ReasoningLLM:
+        def __init__(self) -> None:
+            self.budgets: list[int | None] = []
+
+        def chat(
+            self, messages, tools, timeout=None, thinking_budget_tokens=None, tool_choice="auto"
+        ):  # type: ignore[no-untyped-def]
+            self.budgets.append(thinking_budget_tokens)
+            return AssistantMessage(content="ok")
+
+    llm = ReasoningLLM()
+    agent = Orchestrator(llm, registry, thinking_budget_tokens=512)
+    agent.handle("primeira")
+    agent.set_thinking_budget_tokens(2048)
+    agent.handle("segunda")
+
+    assert llm.budgets == [512, 2048]
+
+
 def test_orchestrator_allows_128_tools_then_a_final_answer(registry: ToolRegistry) -> None:
     calls = [
         AssistantMessage(tool_calls=[ToolCall(

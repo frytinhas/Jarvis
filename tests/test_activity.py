@@ -56,3 +56,38 @@ def test_runtime_log_maintenance_removes_old_sessions(tmp_path: Path) -> None:
     os.utime(old, (0, 0))
     maintain_runtime_logs(tmp_path, max_size_mb=100, retention_days=1)
     assert not old.exists()
+
+
+def test_essential_shows_tool_and_total_timing(tmp_path: Path) -> None:
+    output = StringIO()
+    now = [10.0]
+    panel = ActivityPanel(
+        DisplayLogLevel.ESSENTIAL,
+        stream=output,
+        interaction_timeout_seconds=600,
+        clock=lambda: now[0],
+        total_seconds=lambda: 25.0,
+    )
+    event = ToolActivity("running", "search_files", Risk.READ, {"path": str(tmp_path)})
+    panel(event)
+    now[0] = 25.0
+    panel(ToolActivity("finished", "search_files", Risk.READ, {"path": str(tmp_path)}, "ok", {"matches": []}))
+
+    rendered = output.getvalue()
+    assert f"search_files — {tmp_path} (15s/600s)" in rendered
+    assert "total — 40s/600s" in rendered
+
+
+def test_minimal_essential_omits_timing_details(tmp_path: Path) -> None:
+    output = StringIO()
+    now = [0.0]
+    panel = ActivityPanel(
+        DisplayLogLevel.MINIMAL_ESSENTIAL,
+        stream=output,
+        clock=lambda: now[0],
+    )
+    panel(ToolActivity("running", "file_info", Risk.READ, {"path": str(tmp_path)}))
+    now[0] = 5.0
+    panel(ToolActivity("finished", "file_info", Risk.READ, {"path": str(tmp_path)}, "ok", {}))
+    assert "5s/" not in output.getvalue()
+    assert "total —" not in output.getvalue()

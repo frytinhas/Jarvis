@@ -31,10 +31,16 @@ class DisplayLogLevel(StrEnum):
     NONE = "None"
 
 
+class ColorMode(StrEnum):
+    AUTO = "auto"
+    ALWAYS = "always"
+    NEVER = "never"
+
+
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 6
+    version: int = 7
     model_directory: Path | None = None
     model_path: Path | None = None
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
@@ -48,6 +54,7 @@ class UserSettings(BaseModel):
     llm_request_timeout_seconds: int = Field(default=120, gt=0)
     default_reasoning_level: int = Field(default=2, ge=0, le=4)
     display_log_level: DisplayLogLevel = DisplayLogLevel.ESSENTIAL
+    color_mode: ColorMode = ColorMode.AUTO
     log_max_size_mb: int = 100
     log_retention_days: int = 30
     persona_path: Path

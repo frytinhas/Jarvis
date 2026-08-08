@@ -240,7 +240,7 @@ def test_menu_choice_keeps_default_and_rejects_invalid_values(monkeypatch) -> No
     assert ask_choice("Seção", ["a", "b", "c"], default=2) == 2
 
 
-def test_menu_has_nine_categories_with_separate_timeouts() -> None:
+def test_menu_has_appearance_and_separate_timeouts() -> None:
     assert MENU_OPTIONS == (
         "Modelo e reasoning",
         "Identidade",
@@ -248,6 +248,7 @@ def test_menu_has_nine_categories_with_separate_timeouts() -> None:
         "Timeouts",
         "Permissões",
         "Logs e painel",
+        "Aparência",
         "Persona e contexto",
         "Salvar e sair",
         "Sair sem salvar",
@@ -310,7 +311,7 @@ def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None: 
         persona_path=project / "Persona.md",
     )
     config = JarvisConfig(settings=settings)
-    choices = iter([1, 4, 8])
+    choices = iter([1, 4, 9])
     monkeypatch.setattr("jarvis.configurator.project_root", lambda: project)
     monkeypatch.setattr("jarvis.configurator.load_config", lambda **kwargs: config)
     monkeypatch.setattr("jarvis.configurator._choose_model", lambda current: (tmp_path, model))

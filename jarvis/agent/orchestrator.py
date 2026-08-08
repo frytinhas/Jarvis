@@ -31,6 +31,7 @@ class Orchestrator:
         interaction_timeout_seconds: float = 600.0,
         llm_request_timeout_seconds: float = 120.0,
         system_prompt: str = SYSTEM_PROMPT,
+        thinking_budget_tokens: int | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
         if interaction_timeout_seconds <= 0 or llm_request_timeout_seconds <= 0:
@@ -43,6 +44,7 @@ class Orchestrator:
         self.interaction_timeout_seconds = interaction_timeout_seconds
         self.llm_request_timeout_seconds = llm_request_timeout_seconds
         self.clock = clock or time.monotonic
+        self.thinking_budget_tokens = thinking_budget_tokens
         self.messages: list[Message] = [{"role": "system", "content": system_prompt}]
         self.transcript: list[dict[str, str]] = []
         self.started_at = datetime.now(timezone.utc)
@@ -137,6 +139,11 @@ class Orchestrator:
                     },
                 ]
             started = self.clock()
+            reasoning_arguments = (
+                {"thinking_budget_tokens": self.thinking_budget_tokens}
+                if self.thinking_budget_tokens is not None
+                else {}
+            )
             try:
                 if restricted:
                     assistant = self.llm.chat(
@@ -144,9 +151,15 @@ class Orchestrator:
                         schemas,
                         timeout=request_timeout,
                         tool_choice="required",
+                        **reasoning_arguments,
                     )
                 else:
-                    assistant = self.llm.chat(self.messages, schemas, timeout=request_timeout)
+                    assistant = self.llm.chat(
+                        self.messages,
+                        schemas,
+                        timeout=request_timeout,
+                        **reasoning_arguments,
+                    )
             except LLMTimeoutError:
                 self._active_seconds += max(0.0, self.clock() - started)
                 if remaining <= self.llm_request_timeout_seconds:
@@ -213,6 +226,13 @@ class Orchestrator:
             f"Timeout do Jarvis por chamada ao LLM atingido ({seconds} segundos). "
             "Altere em jarvis-config → Timeouts."
         )
+
+    @property
+    def active_seconds(self) -> float:
+        return self._active_seconds
+
+    def set_thinking_budget_tokens(self, value: int) -> None:
+        self.thinking_budget_tokens = value
 
     def _total_timeout_reply(self) -> AgentReply:
         seconds = f"{self.interaction_timeout_seconds:g}"

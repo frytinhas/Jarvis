@@ -8,10 +8,10 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import DisplayLogLevel, UserSettings, default_settings, project_root
+from jarvis.settings import ColorMode, DisplayLogLevel, UserSettings, default_settings, project_root
 
 
-CONFIG_VERSION = 6
+CONFIG_VERSION = 7
 
 
 class ConfigFileError(ValueError):
@@ -161,10 +161,12 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, CONFIG_VERSION}:
-        raise ConfigFileError(path, f"versão {version} não suportada; esperada 5 ou {CONFIG_VERSION}")
+    if version not in {5, 6, CONFIG_VERSION}:
+        raise ConfigFileError(path, f"versão {version} não suportada; esperada 5, 6 ou {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
+    if version == CONFIG_VERSION:
+        sections.add("appearance")
     _validate_children(root, sections, path)
     expected = {
         "model": {"directory", "path"},
@@ -183,6 +185,8 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                  {"max_size_mb", "retention_days", "audit_db_path", "display_level"}),
         "paths": {"persona"},
     }
+    if version == CONFIG_VERSION:
+        expected["appearance"] = {"color_mode"}
     for name, children in expected.items():
         section = _section(root, name)
         if section.attrib:
@@ -250,6 +254,11 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             display_log_level=(DisplayLogLevel.ESSENTIAL if version == 5 else DisplayLogLevel(
                 _text(logs, "display_level")
             )),
+            color_mode=(
+                ColorMode.AUTO
+                if version < CONFIG_VERSION
+                else ColorMode(_text(_section(root, "appearance"), "color_mode"))
+            ),
             log_max_size_mb=_integer(_text(logs, "max_size_mb"), "max_size_mb", path),
             log_retention_days=_integer(_text(logs, "retention_days"), "retention_days", path),
             persona_path=Path(persona).expanduser(),
@@ -285,6 +294,7 @@ def _new_tree() -> ET.ElementTree:
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
         ("logs", "Nível visual: Full, Server-Essential, Essential, Minimal-Essential ou None.", "Display level: Full, Server-Essential, Essential, Minimal-Essential, or None.", ("max_size_mb", "retention_days", "audit_db_path", "display_level")),
         ("paths", "Caminhos podem usar ~ e são expandidos pelo Jarvis.", "Paths may use ~ and are expanded by Jarvis.", ("persona",)),
+        ("appearance", "Modo de cores: auto, always ou never.", "Color mode: auto, always, or never.", ("color_mode",)),
     )
     for name, pt_br, en, children in definitions:
         _comment(root, pt_br, en)
@@ -337,6 +347,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(logs, "audit_db_path", advanced.audit_db_path)
     _set(logs, "display_level", settings.display_log_level.value)
     _set(_section(root, "paths"), "persona", settings.persona_path)
+    _set(_section(root, "appearance"), "color_mode", settings.color_mode.value)
 
 
 def _read_env_file(path: Path) -> dict[str, str]:

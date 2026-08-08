@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from jarvis.config import ConfigFileError, JarvisConfig, default_config, load_config, save_config
+from jarvis.config import CONFIG_VERSION, ConfigFileError, JarvisConfig, default_config, load_config, save_config
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import MessageMode
+from jarvis.settings import ColorMode
 
 
 def test_xml_config_round_trip_with_comments_and_private_mode(tmp_path: Path) -> None:
@@ -101,7 +102,7 @@ def test_legacy_files_are_only_loaded_when_explicitly_allowed(
     migrated = load_config(config_path, allow_legacy=True)
 
     assert migrated.settings.assistant_name == "Bob"
-    assert migrated.settings.version == 6
+    assert migrated.settings.version == CONFIG_VERSION
     assert migrated.advanced.llm_base_url == "http://legacy.test/v1"
     assert not config_path.exists()
 
@@ -126,11 +127,11 @@ def test_new_lifecycle_defaults() -> None:
     assert settings.permissions[Risk.PRIVILEGED] is Decision.DENY
 
 
-def test_v5_xml_is_loaded_with_safe_v6_defaults_and_upgraded_on_save(tmp_path: Path) -> None:
+def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path) -> None:
     path = tmp_path / "config.xml"
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
-    content = content.replace('<jarvis version="6">', '<jarvis version="5">')
+    content = content.replace('<jarvis version="7">', '<jarvis version="5">')
     start = content.index("  <behavior>")
     end = content.index("  </behavior>") + len("  </behavior>")
     content = content[:start] + """  <behavior>
@@ -140,10 +141,13 @@ def test_v5_xml_is_loaded_with_safe_v6_defaults_and_upgraded_on_save(tmp_path: P
     <request_timeout_seconds>240</request_timeout_seconds>
   </behavior>""" + content[end:]
     content = content.replace("<display_level>Essential</display_level>", "<level>DEBUG</level>")
+    appearance_start = content.index("  <appearance>")
+    appearance_end = content.index("  </appearance>") + len("  </appearance>\n")
+    content = content[:appearance_start] + content[appearance_end:]
     path.write_text(content, encoding="utf-8")
 
     migrated = load_config(path)
-    assert migrated.version == 6
+    assert migrated.version == CONFIG_VERSION
     assert migrated.settings.max_tool_rounds == 128
     assert migrated.settings.interaction_timeout_seconds == 600
     assert migrated.settings.llm_request_timeout_seconds == 120
@@ -151,5 +155,21 @@ def test_v5_xml_is_loaded_with_safe_v6_defaults_and_upgraded_on_save(tmp_path: P
 
     save_config(migrated, path)
     upgraded = path.read_text(encoding="utf-8")
-    assert '<jarvis version="6">' in upgraded
+    assert '<jarvis version="7">' in upgraded
     assert "<display_level>Essential</display_level>" in upgraded
+
+
+def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
+    path = tmp_path / "config.xml"
+    save_config(default_config(), path)
+    content = path.read_text(encoding="utf-8").replace(
+        '<jarvis version="7">', '<jarvis version="6">'
+    )
+    start = content.index("  <appearance>")
+    end = content.index("  </appearance>") + len("  </appearance>\n")
+    path.write_text(content[:start] + content[end:], encoding="utf-8")
+
+    migrated = load_config(path)
+
+    assert migrated.version == CONFIG_VERSION
+    assert migrated.settings.color_mode is ColorMode.AUTO

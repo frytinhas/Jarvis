@@ -123,3 +123,30 @@ def test_launcher_routes_uninstall_modes_before_startup(tmp_path: Path, mode: st
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "uninstall-mode").read_text(encoding="utf-8") == mode
     assert not (tmp_path / "client-cwd").exists()
+
+
+def test_launcher_restarts_model_and_reopens_client_on_internal_exit_code(tmp_path: Path) -> None:
+    launcher, environment = _launcher_fixture(tmp_path, keep_running=True)
+    client = tmp_path / "install/.venv/bin/jarvis"
+    client.write_text(
+        '#!/usr/bin/env bash\n'
+        'count_file="$HOME/client-count"\n'
+        'count=0\n'
+        '[[ -f "$count_file" ]] && count="$(<"$count_file")"\n'
+        'count=$((count + 1))\n'
+        'printf "%s\\n" "$count" >"$count_file"\n'
+        '((count == 1)) && exit 75\n'
+        'exit 0\n',
+        encoding="utf-8",
+    )
+    client.chmod(0o755)
+
+    result = subprocess.run(
+        [str(launcher)], env=environment, text=True, capture_output=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "client-count").read_text(encoding="utf-8").strip() == "2"
+    assert "--user restart jarvis-llm.service" in (
+        tmp_path / "systemctl-log"
+    ).read_text(encoding="utf-8")

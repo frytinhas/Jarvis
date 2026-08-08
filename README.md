@@ -26,7 +26,7 @@ The administrative configuration starts as an independent copy of the Setup conf
 
 Running as root increases the reach of tools. The Tool Router, confirmations, blacklist, critical-path protections, and `PRIVILEGED` denial remain active, but use this command only when administrative access is required.
 
-The configurator has nine entries: Model and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Persona and context, Save and exit, and Exit without saving. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
+The configurator has ten entries: Model and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Appearance, Persona and context, Save and exit, and Exit without saving. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
 
 When using `jarvis-config`, the review shows only modified fields as `previous value → new value`. During `Setup.sh`, it shows the complete initial configuration summary. Exiting without saving writes nothing.
 
@@ -41,6 +41,8 @@ All persistent configuration is stored in:
 The file is simple, indented, and includes both PT-BR and English comments explaining each section. Advanced users may edit it directly; changes are validated and take effect the next time Jarvis starts. Invalid values, unknown elements, or malformed XML stop startup with a clear error instead of silently applying defaults.
 
 The XML is created with `0600` permissions and may contain an API key. Remove sensitive data before sharing it. The internal runtime is regenerated automatically at `~/.local/state/jarvis/runtime.env` and should not be edited.
+
+Terminal colors live in `~/.config/jarvis/colors.toml`. Jarvis creates a complete orange palette and preserves valid `#RRGGBB` values on every session while replacing only missing or invalid fields. The Appearance menu can detect terminal support automatically, force colors, or disable them; automatic mode also honors `NO_COLOR`.
 
 To open the XML directly in Nano, run:
 
@@ -77,7 +79,17 @@ jarvis "what are my computer specifications?"
 jarvis --r 3 "analyze this project"
 ```
 
-`--r` controls reasoning for that chat only: `-1` uses the configured default, `0` disables it, `1` is Low, `2` Medium, `3` High, and `4` Max. The initial default is Medium and can be changed with `jarvis-config`.
+`--r` controls the initial reasoning level for that chat: `-1` uses the configured default, `0` disables it, `1` is Low, `2` Medium, `3` High, and `4` Max. The initial default is Medium. During a session, `/reasoning off|low|medium|high|max` applies immediately and persists the new default.
+
+Local commands support Tab completion and are never sent to the model:
+
+- `/help`: show available commands.
+- `/reasoning`: inspect or change reasoning.
+- `/model`: list or select a GGUF from the configured directory. The server can restart immediately or apply the change on the next launch.
+- `/config`: show a read-only configuration summary.
+- `/clear`: clear the screen without deleting conversation context.
+- `/license`: show the complete GPL text.
+- `/exit`: close the session; `/quit` and `/sair` are aliases.
 
 If you choose a custom name such as Bob, use:
 
@@ -162,7 +174,7 @@ The activity panel has five levels. `Essential`, the default, shows tools, comma
 
 Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. On startup, Jarvis randomly selects a non-empty line and then advances through the list in circular order every 5–10 seconds. In interactive terminals, each message replaces the previous one on the same line. Leave the file empty to disable them.
 
-Each interaction allows up to 128 tool cycles, 600 seconds of total active processing, and 120 seconds per model request. Time spent waiting for human confirmation does not consume the total. Change tool cycles under `jarvis-config → Behavior` and time limits under `jarvis-config → Timeouts`; timeout messages identify which limit was reached and where to adjust it.
+Each interaction allows up to 128 tool cycles, 600 seconds of total active processing, and 120 seconds per model request. The configured values are disclosed to the model at session startup. Time spent waiting for human confirmation does not consume the total. In `Essential`, `Server-Essential`, and `Full`, completed tools show their duration followed by the interaction's accumulated active time, both against the total timeout. Change tool cycles under `jarvis-config → Behavior` and time limits under `jarvis-config → Timeouts`.
 
 ## Personality
 
@@ -185,7 +197,7 @@ Never start the model with `--tools all`; Jarvis must remain the only layer allo
 
 Copyright (C) 2026 Jose Nunes.
 
-Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. The interactive terminal displays the required legal notice at startup; type `/license` to read the complete bundled license.
+Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning` or `/model`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
 
 Distributions must retain the copyright and license notices, include the GPL, and make the corresponding source available as required by the license. Modified distributions must prominently identify their changes and the relevant dates. Models, `llama.cpp`, Python dependencies and other separately obtained third-party components remain governed by their own licenses.
 

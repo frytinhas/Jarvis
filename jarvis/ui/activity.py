@@ -7,10 +7,12 @@ import os
 from pathlib import Path
 import sys
 import time
+from collections.abc import Callable
 from typing import Any, TextIO
 
 from jarvis.settings import DisplayLogLevel
 from jarvis.tools.registry import ToolActivity
+from jarvis.ui.theme import PLAIN_THEME, Theme
 
 
 _CONTENT_TOOLS = {"write_file", "append_file"}
@@ -50,8 +52,13 @@ class ActivityPanel:
     level: DisplayLogLevel
     stream: TextIO = sys.stdout
     log_path: Path | None = None
+    theme: Theme = PLAIN_THEME
+    interaction_timeout_seconds: float = 600.0
+    clock: Callable[[], float] = time.monotonic
+    total_seconds: Callable[[], float] = lambda: 0.0
     _before: dict[tuple[str, str], str] = field(default_factory=dict)
     _metadata: dict[tuple[str, str], str] = field(default_factory=dict)
+    _started: dict[tuple[str, str], float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.log_path is None:
@@ -67,12 +74,13 @@ class ActivityPanel:
             return
         if event.phase == "running":
             self._capture_before(event)
+            self._started[self._event_key(event)] = self.clock()
         lines = self._format(event)
         if not lines:
             return
         payload = "\n".join(lines)
         self._write_file(payload)
-        print(f"\n{payload}", file=self.stream, flush=True)
+        print(f"\n{self._styled(lines)}", file=self.stream, flush=True)
 
     def technical(self, message: str) -> None:
         if self.level is not DisplayLogLevel.FULL:
@@ -88,19 +96,61 @@ class ActivityPanel:
         }.get(event.phase, "•")
         target = self._target(event.arguments)
         headline = f"{icon} {event.tool}{f' — {target}' if target else ''}"
+        timing = self._timing(event)
+        if timing is not None and self.level is not DisplayLogLevel.MINIMAL_ESSENTIAL:
+            headline += f" ({self._seconds(timing)}/{self._seconds(self.interaction_timeout_seconds)})"
         if event.phase == "finished" and event.status:
             headline += f" [{event.status}]"
         if self.level is DisplayLogLevel.MINIMAL_ESSENTIAL:
             return [headline]
         if self.level in {DisplayLogLevel.ESSENTIAL, DisplayLogLevel.SERVER_ESSENTIAL}:
-            return [headline, *self._essential_details(event)]
+            return [headline, *self._total_line(event, timing), *self._essential_details(event)]
         details = json.dumps(
             {"arguments": event.arguments, "result": event.result},
             ensure_ascii=False,
             indent=2,
             default=str,
         )
-        return [headline, details]
+        return [headline, *self._total_line(event, timing), details]
+
+    def _timing(self, event: ToolActivity) -> float | None:
+        if event.phase != "finished":
+            return None
+        started = self._started.pop(self._event_key(event), None)
+        return max(0.0, self.clock() - started) if started is not None else None
+
+    def _total_line(self, event: ToolActivity, duration: float | None) -> list[str]:
+        if duration is None or self.level is DisplayLogLevel.MINIMAL_ESSENTIAL:
+            return []
+        total = max(0.0, self.total_seconds()) + duration
+        return [f"  total — {self._seconds(total)}/{self._seconds(self.interaction_timeout_seconds)}"]
+
+    @staticmethod
+    def _seconds(value: float) -> str:
+        if value < 1:
+            return "<1s"
+        return f"{round(value):d}s"
+
+    @classmethod
+    def _event_key(cls, event: ToolActivity) -> tuple[str, str]:
+        return event.tool, cls._target(event.arguments)
+
+    def _styled(self, lines: list[str]) -> str:
+        styled: list[str] = []
+        for line in lines:
+            if line.lstrip().startswith("total —") or "s/" in line and line.rstrip().endswith(")"):
+                styled.append(self.theme.paint(line, "timer"))
+            elif line.startswith("✓"):
+                styled.append(self.theme.paint(line, "success"))
+            elif line.startswith("!"):
+                styled.append(self.theme.paint(line, "error"))
+            elif line.startswith("?"):
+                styled.append(self.theme.paint(line, "warning"))
+            elif line.startswith("▶"):
+                styled.append(self.theme.paint(line, "tool"))
+            else:
+                styled.append(line)
+        return "\n".join(styled)
 
     def _essential_details(self, event: ToolActivity) -> list[str]:
         if event.phase != "running":

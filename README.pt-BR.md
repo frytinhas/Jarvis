@@ -24,7 +24,7 @@ A configuração administrativa começa como uma cópia independente da configur
 
 Executar como root amplia o alcance das tools. O Tool Router, as confirmações, a blacklist, os paths críticos e a proibição de ações `PRIVILEGED` continuam ativos, mas use esse comando somente quando o acesso administrativo for necessário.
 
-O configurador possui nove entradas: Modelo e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Persona e contexto, Salvar e sair, e Sair sem salvar. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
+O configurador possui dez entradas: Modelo e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Aparência, Persona e contexto, Salvar e sair, e Sair sem salvar. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
 
 Ao usar `jarvis-config`, a revisão mostra somente os campos modificados, sempre como `valor anterior → valor novo`. Durante o `Setup.sh`, a revisão mostra o resumo completo da configuração inicial. Sair sem salvar não grava nenhuma mudança.
 
@@ -39,6 +39,8 @@ Toda a configuração persistente fica em:
 O arquivo é simples, indentado e contém comentários em PT-BR e inglês explicando cada seção. Usuários avançados podem editá-lo diretamente; as mudanças são validadas e passam a valer na próxima execução do Jarvis. Valores inválidos, elementos desconhecidos ou XML malformado interrompem a inicialização com uma mensagem clara, sem aplicar defaults silenciosamente.
 
 O XML possui permissão `0600` e pode conter uma chave de API. Não compartilhe o arquivo sem remover dados sensíveis. O runtime interno é regenerado automaticamente em `~/.local/state/jarvis/runtime.env` e não deve ser editado.
+
+A paleta do terminal fica em `~/.config/jarvis/colors.toml`. O Jarvis cria uma paleta laranja completa e, a cada sessão, preserva cores `#RRGGBB` válidas enquanto repõe somente campos ausentes ou inválidos. O menu Aparência permite detectar o terminal automaticamente, forçar as cores ou desligá-las; o modo automático também respeita `NO_COLOR`.
 
 Para abrir diretamente o XML no Nano, use:
 
@@ -75,7 +77,17 @@ jarvis "quais são as especificações do meu computador?"
 jarvis --r 3 "analise este projeto"
 ```
 
-`--r` controla o reasoning apenas daquele chat: `-1` usa o padrão configurado, `0` desliga, `1` é Low, `2` Medium, `3` High e `4` Max. O padrão inicial é Medium e pode ser alterado no `jarvis-config`.
+`--r` controla o reasoning inicial daquele chat: `-1` usa o padrão configurado, `0` desliga, `1` é Low, `2` Medium, `3` High e `4` Max. O padrão inicial é Medium. Durante a sessão, `/reasoning off|low|medium|high|max` aplica a mudança imediatamente e a persiste como novo padrão.
+
+Os comandos locais possuem autocomplete com Tab e nunca são enviados ao modelo:
+
+- `/help`: mostra os comandos disponíveis.
+- `/reasoning`: consulta ou altera o reasoning.
+- `/model`: lista ou seleciona um GGUF da pasta configurada. A troca pode reiniciar o servidor imediatamente ou ficar pendente para a próxima execução.
+- `/config`: mostra um resumo somente leitura.
+- `/clear`: limpa a tela sem apagar o contexto.
+- `/license`: exibe a GPL completa.
+- `/exit`: encerra a sessão; `/quit` e `/sair` são aliases.
 
 Se o nome escolhido for Bob:
 
@@ -162,7 +174,7 @@ O painel de atividade possui cinco níveis. `Essential`, o padrão, mostra tools
 
 Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Em terminais interativos, a mensagem atual substitui a anterior na mesma linha. Deixe o arquivo vazio para desativá-las.
 
-Cada interação permite até 128 ciclos de tools, possui 600 segundos de processamento ativo total e 120 segundos para cada chamada ao modelo. O tempo aguardando uma confirmação humana não consome o limite total. Os ciclos podem ser alterados em `jarvis-config → Comportamento`, e os limites de tempo em `jarvis-config → Timeouts`; mensagens de timeout identificam o limite atingido e onde ajustá-lo.
+Cada interação permite até 128 ciclos de tools, possui 600 segundos de processamento ativo total e 120 segundos para cada chamada ao modelo. Esses valores configurados são informados ao modelo no início da sessão. O tempo aguardando uma confirmação humana não consome o limite total. Em `Essential`, `Server-Essential` e `Full`, a conclusão de cada tool mostra sua duração e, abaixo, o processamento acumulado, ambos comparados ao timeout total. Os ciclos podem ser alterados em `jarvis-config → Comportamento`, e os limites em `jarvis-config → Timeouts`.
 
 ## Personalidade
 
@@ -185,7 +197,7 @@ Nunca inicie o modelo com `--tools all`; somente o Jarvis deve executar as tools
 
 Copyright (C) 2026 Jose Nunes.
 
-O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. O terminal interativo exibe o aviso legal exigido na inicialização; digite `/license` para ler a cópia integral incluída na distribuição. `/licenca` e `/licença` permanecem disponíveis como aliases em português.
+O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning` ou `/model` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
 
 Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
 

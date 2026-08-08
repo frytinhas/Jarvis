@@ -9,6 +9,7 @@ from pathlib import Path
 from jarvis.agent.orchestrator import Orchestrator
 from jarvis.agent.prompts import build_system_prompt
 from jarvis.config import load_config
+from jarvis.legal import consume_license_notice
 from jarvis.llm.client import LlamaClient
 from jarvis.memory import ConversationLogStore, summarize_conversation
 from jarvis.security.audit import AuditLog
@@ -19,7 +20,9 @@ from jarvis.settings import DisplayLogLevel, MessageMode, project_root
 from jarvis.tools.registry import build_registry
 from jarvis.tools import system
 from jarvis.ui.terminal import TerminalUI
+from jarvis.ui.commands import SessionExit
 from jarvis.ui.activity import ActivityPanel, maintain_runtime_logs
+from jarvis.ui.theme import Theme
 from jarvis.ui.waiting import WaitingIndicator, load_waiting_messages
 
 
@@ -66,7 +69,12 @@ def main(arguments: list[str] | None = None) -> None:
         user_settings.log_max_size_mb,
         user_settings.log_retention_days,
     )
-    activity = ActivityPanel(user_settings.display_log_level)
+    theme = Theme.load(user_settings.color_mode)
+    activity = ActivityPanel(
+        user_settings.display_log_level,
+        theme=theme,
+        interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
+    )
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if activity.log_path is not None:
         handlers.append(logging.FileHandler(activity.log_path, encoding="utf-8"))
@@ -136,6 +144,9 @@ def main(arguments: list[str] | None = None) -> None:
         current_time=datetime.now().astimezone(),
         user_directories=user_directories,
         recent_memories=recent_memories,
+        interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
+        llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
+        max_tool_rounds=user_settings.max_tool_rounds,
     )
     waiting_messages = load_waiting_messages(project_root() / "WaitingMessages.txt")
     waiting_indicator = WaitingIndicator(waiting_messages)
@@ -153,7 +164,9 @@ def main(arguments: list[str] | None = None) -> None:
             interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
             llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
             system_prompt=system_prompt,
+            thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
         )
+        activity.total_seconds = lambda: orchestrator.active_seconds
         initial_message = invocation.message
         warning = (
             f"Blacklist.txt inválido: {path_policy.error}. Tools de arquivos foram bloqueadas; "
@@ -161,11 +174,14 @@ def main(arguments: list[str] | None = None) -> None:
             if path_policy.error
             else None
         )
-        TerminalUI(
+        outcome = TerminalUI(
             orchestrator,
             user_settings.assistant_name,
             warning,
             waiting_indicator=waiting_indicator,
+            config=config,
+            theme=theme,
+            show_license_notice=consume_license_notice(),
         ).run(
             initial_message,
             continue_after_initial=(
@@ -177,7 +193,7 @@ def main(arguments: list[str] | None = None) -> None:
             started_at=orchestrator.started_at,
             invocation_directory=invocation_directory,
         )
-        if log_path is not None:
+        if log_path is not None and outcome is not SessionExit.RESTART_MODEL:
             try:
                 with waiting_indicator.active():
                     summary = summarize_conversation(llm, orchestrator.transcript)
@@ -185,6 +201,8 @@ def main(arguments: list[str] | None = None) -> None:
             except Exception:
                 pass
             memory_store.maintain()
+        if outcome is SessionExit.RESTART_MODEL:
+            raise SystemExit(75)
 
 
 if __name__ == "__main__":

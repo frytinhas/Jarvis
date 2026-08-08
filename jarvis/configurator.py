@@ -9,8 +9,9 @@ import shlex
 
 from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
+from jarvis.legal import schedule_license_notice
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import DisplayLogLevel, MessageMode, UserSettings, project_root, runtime_path
+from jarvis.settings import ColorMode, DisplayLogLevel, MessageMode, UserSettings, project_root, runtime_path
 from jarvis.ui.selector import select_option, supports_arrow_selection
 
 
@@ -31,6 +32,7 @@ MENU_OPTIONS = (
     "Timeouts",
     "Permissões",
     "Logs e painel",
+    "Aparência",
     "Persona e contexto",
     "Salvar e sair",
     "Sair sem salvar",
@@ -305,6 +307,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     print(f"  Timeout total ativo: {settings.interaction_timeout_seconds} segundos")
     print(f"  Timeout por chamada ao LLM: {settings.llm_request_timeout_seconds} segundos")
     print(f"  Painel de atividade: {settings.display_log_level.value}")
+    print(f"  Cores do terminal: {_color_mode_label(settings.color_mode)}")
     size = "sem limite" if settings.log_max_size_mb <= 0 else f"{settings.log_max_size_mb} MB"
     retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
     print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
@@ -330,6 +333,14 @@ def _log_size_label(value: int) -> str:
 
 def _retention_label(value: int) -> str:
     return "sem limite" if value <= 0 else f"{value} dias"
+
+
+def _color_mode_label(value: ColorMode) -> str:
+    return {
+        ColorMode.AUTO: "automático",
+        ColorMode.ALWAYS: "sempre ligado",
+        ColorMode.NEVER: "desligado",
+    }[value]
 
 
 def _print_change(label: str, previous: object, current: object) -> None:
@@ -358,6 +369,7 @@ def _changes_summary(
         ("Timeout total", "interaction_timeout_seconds", lambda value: f"{value} segundos"),
         ("Timeout do LLM", "llm_request_timeout_seconds", lambda value: f"{value} segundos"),
         ("Painel de atividade", "display_log_level", lambda value: value.value),
+        ("Cores", "color_mode", _color_mode_label),
         ("Limite dos logs", "log_max_size_mb", _log_size_label),
         ("Retenção dos logs", "log_retention_days", _retention_label),
     )
@@ -418,7 +430,7 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
         print("\n=== Jarvis · Configuração ===")
         print(f"Modelo: {draft.model_path.name if draft.model_path else 'não selecionado'}")
         print(f"Reasoning: nível {draft.default_reasoning_level} · Painel: {draft.display_log_level.value}")
-        choice = ask_choice("Categorias", list(MENU_OPTIONS), 8)
+        choice = ask_choice("Categorias", list(MENU_OPTIONS), 9)
         if choice == 1:
             directory, model = _choose_model(draft)
             reasoning = ask_choice(
@@ -475,13 +487,21 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                 "log_retention_days": retention,
             })
         elif choice == 7:
+            modes = list(ColorMode)
+            selected = ask_choice(
+                "Cores do terminal",
+                ["Automático (TTY e NO_COLOR)", "Sempre ligadas", "Desligadas"],
+                modes.index(draft.color_mode) + 1,
+            )
+            draft = draft.model_copy(update={"color_mode": modes[selected - 1]})
+        elif choice == 8:
             print(f"\nPersona: {persona}")
             if not _persona_is_default(persona):
                 reset_default = ask_yes_no("Restaurar a personalidade padrão ao salvar?", reset_default)
             print(f"Contexto: {context}")
             if not _context_is_default(context):
                 reset_context = ask_yes_no("Restaurar o contexto padrão ao salvar?", reset_context)
-        elif choice == 8:
+        elif choice == 9:
             if full_summary:
                 _full_summary(draft, reset_default, reset_context)
             else:
@@ -501,7 +521,7 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                     command_replacement,
                 )
             print("Tudo bem; nenhuma alteração foi salva ainda.")
-        elif choice == 9:
+        elif choice == 10:
             print("Nenhuma alteração foi salva.")
             return None
 
@@ -592,6 +612,7 @@ def commit(result: ConfigurationResult) -> None:
     if result.reset_context:
         (project_root() / "Context.md").write_bytes(default_context_path().read_bytes())
     save_config(result.config)
+    schedule_license_notice()
     _write_runtime(result.config)
     _apply_command(
         result.previous_command,

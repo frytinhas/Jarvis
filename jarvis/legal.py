@@ -5,6 +5,8 @@ from __future__ import annotations
 from importlib import metadata
 from pathlib import Path
 
+from jarvis.settings import state_directory
+
 
 COPYRIGHT_NOTICE = "Jarvis-CLI  Copyright (C) 2026  Jose Nunes"
 STARTUP_LICENSE_NOTICE = (
@@ -46,3 +48,23 @@ def license_text() -> str:
         except (OSError, UnicodeError):
             continue
     return LICENSE_FALLBACK
+
+
+def license_notice_marker() -> Path:
+    return state_directory() / "license-notice.pending"
+
+
+def schedule_license_notice() -> None:
+    marker = license_notice_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.parent.chmod(0o700)
+    marker.touch(mode=0o600, exist_ok=True)
+    marker.chmod(0o600)
+
+
+def consume_license_notice() -> bool:
+    marker = license_notice_marker()
+    if not marker.is_file():
+        return False
+    marker.unlink(missing_ok=True)
+    return True
