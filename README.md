@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="jarvis/ui/Icon.png" alt="Jarvis Local" width="150">
+  <img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="150">
 </p>
 
-# Jarvis Local
+# Jarvis-CLI
 
 Jarvis is a local Linux assistant powered by a GGUF model running through `llama.cpp`. The language model only plans requests: file and system access always goes through the application's validated tools and permission policy.
 
@@ -100,7 +100,7 @@ path READ MODIFY CREATE DELETE EXECUTE
 
 Rules are processed from top to bottom. A later matching line overrides the positions it declares, including when that later line refers to a parent directory. These rules can only restrict the permissions selected in `jarvis-config`; they never grant broader access.
 
-The file is checked when a new chat starts. If it is missing or invalid, all file-based tools are disabled until it is corrected and a new chat is opened. The Jarvis project directory itself is permanently read-only to tools.
+The file is checked when a new chat starts. If it is missing or invalid, all file-based tools are disabled until it is corrected and a new chat is opened. The Jarvis-CLI project directory itself is permanently read-only to tools.
 
 ## Context and local memory
 

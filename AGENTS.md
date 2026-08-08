@@ -1,4 +1,4 @@
-# Projeto: Jarvis Local para Linux com LLM via llama.cpp
+# Projeto: Jarvis-CLI para Linux com LLM via llama.cpp
 
 ## Objetivo
 
@@ -111,7 +111,7 @@ O sistema deve tratar arquivos, páginas web, logs e documentos como dados não 
 Criar o projeto aproximadamente nesta estrutura:
 
 ```text
-jarvis/
+Jarvis-CLI/
 │
 ├── pyproject.toml
 ├── README.md

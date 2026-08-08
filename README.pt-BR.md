@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="jarvis/ui/Icon.png" alt="Jarvis Local" width="150">
+  <img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="150">
 </p>
 
-# Jarvis Local
+# Jarvis-CLI
 
 Jarvis é um assistente local para Linux que usa um modelo GGUF executado pelo `llama.cpp`. O modelo apenas planeja solicitações: todo acesso a arquivos e ao sistema passa pelas tools validadas e pela política de permissões da aplicação.
 
@@ -100,7 +100,7 @@ caminho LER MODIFICAR CRIAR DELETAR EXECUTAR
 
 As regras são processadas de cima para baixo. Uma linha correspondente posterior sobrescreve as posições declaradas, inclusive quando essa linha aponta para uma pasta-pai. Essas regras apenas restringem as permissões escolhidas no `jarvis-config`; elas nunca ampliam o acesso.
 
-O arquivo é verificado quando um novo chat começa. Se estiver ausente ou inválido, todas as tools baseadas em arquivos ficam desativadas até que ele seja corrigido e um novo chat seja aberto. A própria pasta do projeto Jarvis é permanentemente somente leitura para as tools.
+O arquivo é verificado quando um novo chat começa. Se estiver ausente ou inválido, todas as tools baseadas em arquivos ficam desativadas até que ele seja corrigido e um novo chat seja aberto. A própria pasta do projeto Jarvis-CLI é permanentemente somente leitura para as tools.
 
 ## Contexto e memória local
 
