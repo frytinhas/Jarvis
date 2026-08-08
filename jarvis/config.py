@@ -21,11 +21,11 @@ def _read_env_file(path: Path) -> dict[str, str]:
 @dataclass(frozen=True)
 class Config:
     llm_base_url: str = "http://127.0.0.1:8080/v1"
-    llm_model: str = "local-model"
+    llm_model: str = "jarvis-gemma-4-12b"
     llm_api_key: str = ""
     confirmation_timeout: int = 30
     audit_db_path: Path = Path("~/.local/state/jarvis/audit.db")
-    log_level: str = "INFO"
+    log_level: str = "CRITICAL"
 
     @classmethod
     def load(cls, env_file: Path = Path(".env")) -> "Config":
@@ -43,6 +43,5 @@ class Config:
             llm_api_key=value("LLM_API_KEY", ""),
             confirmation_timeout=timeout,
             audit_db_path=Path(value("AUDIT_DB_PATH", str(cls.audit_db_path))).expanduser(),
-            log_level=value("LOG_LEVEL", "INFO"),
+            log_level=value("LOG_LEVEL", "CRITICAL"),
         )
-

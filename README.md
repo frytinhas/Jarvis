@@ -1,59 +1,51 @@
 # Jarvis Local
 
-Jarvis é um assistente que conversa pelo terminal e usa um modelo de linguagem rodando no próprio computador. Ele pode consultar arquivos e informações do sistema, mas pede confirmação antes de criar, alterar, mover ou apagar algo.
+Jarvis é um assistente para Ubuntu que conversa pelo terminal usando uma IA executada no próprio computador. Ele pode consultar arquivos e informações do sistema, mas sempre pede autorização antes de criar, alterar, mover ou apagar algo.
 
-## Como iniciar
+## Instalação
 
-Abra um terminal e digite:
+Baixe ou clone este projeto, abra um terminal dentro da pasta e execute:
+
+```bash
+bash Setup.sh
+```
+
+O instalador prepara o Jarvis, instala o comando no sistema e procura um modelo já baixado pelo LM Studio. Se não encontrar, baixa o Gemma 4 12B Q4_K_M, que ocupa aproximadamente 7 GB.
+
+Em algumas máquinas, o Ubuntu pode pedir sua senha para instalar componentes básicos. A senha é solicitada diretamente pelo `sudo` e não é armazenada pelo Jarvis.
+
+## Como usar
+
+Depois da instalação, abra um novo terminal e digite:
 
 ```bash
 jarvis
 ```
 
-O comando verifica se o modelo já está rodando. Caso não esteja, inicia o Gemma 4 12B silenciosamente em background, aguarda ele ficar pronto e abre o assistente. O primeiro início pode levar alguns instantes; os seguintes são mais rápidos porque o servidor continua ativo.
+O comando inicia automaticamente o modelo quando necessário e abre o assistente. O primeiro início pode demorar um pouco; depois disso, o servidor permanece em background.
 
-Para encerrar o Jarvis, digite:
+Para encerrar a conversa, digite:
 
 ```text
 /sair
 ```
 
-O arquivo `.env` já está configurado para esse modelo e normalmente não precisa ser alterado. Os logs técnicos ficam desligados, mas o histórico de segurança das ações continua sendo registrado.
-
-> Não use `--tools all` ao iniciar o modelo. O Jarvis fornece suas próprias ferramentas protegidas e controla cada ação antes de executá-la.
-
-## Exemplos de uso
-
-Você pode pedir coisas como:
+## Exemplos
 
 ```text
 Como está meu sistema?
 Liste os arquivos da minha pasta Downloads.
 Leia o arquivo ~/Documentos/notas.txt.
-Encontre arquivos PDF dentro de ~/Downloads.
+Encontre arquivos PDF em ~/Downloads.
 Crie o arquivo ~/Documentos/lembrete.txt.
 Apague ~/Downloads/arquivo-antigo.txt.
 ```
 
-Consultas e leituras são feitas automaticamente. Para criar, modificar, mover ou apagar algo, o Jarvis mostra a ação exata e pede confirmação. Responder “sim” autoriza somente aquela ação; responder “não” cancela.
+Leituras são feitas automaticamente. Criações, alterações e exclusões mostram a ação exata e aguardam sua confirmação.
 
-## Primeira instalação
+## Observações
 
-O ambiente já está preparado nesta máquina. Se precisar recriá-lo no futuro:
-
-```bash
-cd /home/gabri/Public/Jarvis
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-cp .env.example .env
-```
-
-## Verificar se está tudo funcionando
-
-Dentro da pasta `/home/gabri/Public/Jarvis`, rode:
-
-```bash
-.venv/bin/python -m pytest
-```
-
-Todos os testes devem terminar sem erros.
+- O modelo recomendado precisa de memória suficiente e cerca de 7 GB livres em disco.
+- Sem uma instalação do `llama` com suporte à GPU, o setup instala uma versão para CPU. Ela funciona, mas responde mais lentamente.
+- Os logs técnicos ficam desligados. O histórico de segurança das ações permanece ativo.
+- Nunca inicie o modelo com `--tools all`; o Jarvis fornece suas próprias ferramentas protegidas.

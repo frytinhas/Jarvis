@@ -2,20 +2,29 @@
 
 set -u
 
-PROJECT_DIR="/home/gabri/Public/Jarvis"
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+RUNTIME_FILE="$PROJECT_DIR/.runtime"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
-LLAMA_BIN="/home/gabri/.local/bin/llama"
-MODEL_PATH="/home/gabri/.lmstudio/models/lmstudio-community/gemma-4-12B-it-GGUF/gemma-4-12B-it-Q4_K_M.gguf"
 MODEL_ALIAS="jarvis-gemma-4-12b"
 SERVER_URL="http://127.0.0.1:8080"
-STATE_DIR="/home/gabri/.local/state/jarvis"
+STATE_DIR="$HOME/.local/state/jarvis"
 PID_FILE="$STATE_DIR/llama-server.pid"
 
 cd "$PROJECT_DIR" || {
     echo "Não foi possível acessar o projeto em $PROJECT_DIR."
     exit 1
 }
+
+if [[ ! -f "$RUNTIME_FILE" ]]; then
+    echo "A instalação do Jarvis ainda não foi concluída."
+    echo "Execute: $PROJECT_DIR/Setup.sh"
+    exit 1
+fi
+
+# Gerado exclusivamente pelo Setup.sh e nunca enviado ao modelo.
+source "$RUNTIME_FILE"
 
 server_healthy() {
     curl --silent --fail --max-time 2 "$SERVER_URL/health" >/dev/null 2>&1
@@ -27,17 +36,19 @@ correct_model_loaded() {
 }
 
 if [[ ! -x "$PYTHON_BIN" || ! -x "$JARVIS_BIN" ]]; then
-    echo "Jarvis não está instalado. Consulte a seção 'Primeira instalação' do README."
+    echo "Jarvis não está instalado. Execute novamente: $PROJECT_DIR/Setup.sh"
     exit 1
 fi
 
 if [[ ! -x "$LLAMA_BIN" ]]; then
-    echo "O executável llama não foi encontrado em $LLAMA_BIN."
+    echo "O servidor llama configurado não foi encontrado: $LLAMA_BIN"
+    echo "Execute novamente: $PROJECT_DIR/Setup.sh"
     exit 1
 fi
 
 if [[ ! -f "$MODEL_PATH" ]]; then
-    echo "O modelo Gemma não foi encontrado em: $MODEL_PATH"
+    echo "O modelo Gemma não foi encontrado: $MODEL_PATH"
+    echo "Execute novamente: $PROJECT_DIR/Setup.sh"
     exit 1
 fi
 
@@ -52,8 +63,15 @@ if server_healthy; then
 fi
 
 mkdir -p "$STATE_DIR"
-echo "Iniciando o Gemma 4 12B em background..."
-nohup "$LLAMA_BIN" serve \
+echo "Iniciando o modelo em background..."
+
+if [[ "$LLAMA_STYLE" == "subcommand" ]]; then
+    server_command=("$LLAMA_BIN" serve)
+else
+    server_command=("$LLAMA_BIN")
+fi
+
+nohup "${server_command[@]}" \
     --model "$MODEL_PATH" \
     --alias "$MODEL_ALIAS" \
     --host 127.0.0.1 \
@@ -73,6 +91,7 @@ for _ in $(seq 1 180); do
     fi
     if ! kill -0 "$server_pid" 2>/dev/null; then
         echo "O servidor do modelo encerrou durante a inicialização."
+        echo "Execute '$LLAMA_BIN --help' para verificar a instalação."
         exit 1
     fi
     sleep 1
@@ -80,3 +99,4 @@ done
 
 echo "O modelo não ficou pronto dentro de 3 minutos."
 exit 1
+
