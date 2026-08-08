@@ -1,51 +1,75 @@
 # Jarvis Local
 
-Jarvis é um assistente para Ubuntu que conversa pelo terminal usando uma IA executada no próprio computador. Ele pode consultar arquivos e informações do sistema, mas sempre pede autorização antes de criar, alterar, mover ou apagar algo.
+Jarvis é um assistente para Ubuntu que conversa pelo terminal usando uma IA executada no próprio computador. A aplicação não escolhe nem baixa a IA: o usuário informa o caminho de qualquer modelo GGUF compatível com `llama.cpp`.
 
 ## Instalação
 
-Baixe ou clone este projeto, abra um terminal dentro da pasta e execute:
+Tenha um modelo `.gguf` salvo no computador. Depois, abra um terminal dentro da pasta do projeto e execute:
 
 ```bash
 bash Setup.sh
 ```
 
-O instalador prepara o Jarvis, instala o comando no sistema e procura um modelo já baixado pelo LM Studio. Se não encontrar, baixa o Gemma 4 12B Q4_K_M, que ocupa aproximadamente 7 GB.
+O instalador pedirá o caminho completo do modelo, preparará o Jarvis e perguntará se o servidor deve iniciar automaticamente ao entrar no usuário. A opção padrão é ativar.
 
-Em algumas máquinas, o Ubuntu pode pedir sua senha para instalar componentes básicos. A senha é solicitada diretamente pelo `sudo` e não é armazenada pelo Jarvis.
+Se o Jarvis já estiver instalado, executar o Setup novamente permite informar outro modelo. O arquivo anterior não é apagado.
 
 ## Como usar
 
-Depois da instalação, abra um novo terminal e digite:
+Para abrir uma conversa:
 
 ```bash
 jarvis
 ```
 
-O comando inicia automaticamente o modelo quando necessário e abre o assistente. O primeiro início pode demorar um pouco; depois disso, o servidor permanece em background.
+Também é possível começar com uma pergunta diretamente pelo comando:
 
-Para encerrar a conversa, digite:
-
-```text
-/sair
+```bash
+jarvis "quais são as especificações do meu computador?"
 ```
 
-## Exemplos
+Depois da primeira resposta, a conversa continua normalmente. Para encerrar, digite `/sair`.
 
-```text
-Como está meu sistema?
-Liste os arquivos da minha pasta Downloads.
-Leia o arquivo ~/Documentos/notas.txt.
-Encontre arquivos PDF em ~/Downloads.
-Crie o arquivo ~/Documentos/lembrete.txt.
-Apague ~/Downloads/arquivo-antigo.txt.
+Leituras são feitas automaticamente. Criações, alterações e exclusões mostram a ação exata e aguardam confirmação.
+
+## Alterar configurações
+
+Depois da instalação, execute:
+
+```bash
+jarvis-config
 ```
 
-Leituras são feitas automaticamente. Criações, alterações e exclusões mostram a ação exata e aguardam sua confirmação.
+O menu permite trocar o caminho do modelo e ativar ou desativar o início automático. Uma troca de modelo não interrompe o servidor atual: ela é aplicada no próximo uso do Jarvis ou no próximo login.
+
+Também é possível abrir o configurador dentro da pasta do projeto:
+
+```bash
+bash Config.sh
+```
+
+## Modelos recomendados
+
+Prefira versões instruct/chat em formato GGUF e quantização `Q4_K_M`. Modelos menores usam menos memória e respondem mais rápido; modelos maiores geralmente entregam respostas melhores.
+
+Opções leves:
+
+- [Qwen3 4B GGUF](https://huggingface.co/Qwen/Qwen3-4B-GGUF) — boa opção geral e multilíngue.
+- [Phi-4 Mini 3.8B GGUF](https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF) — compacto e voltado a instruções.
+- [Llama 3.2 3B Instruct GGUF](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) — leve para computadores modestos.
+- [Gemma 3 4B Instruct GGUF](https://huggingface.co/lmstudio-community/gemma-3-4b-it-GGUF) — alternativa leve da família Gemma.
+
+Opções para máquinas com mais memória:
+
+- Qwen3 8B Instruct GGUF.
+- Gemma 4 12B Instruct GGUF.
+
+O Jarvis aceita outros modelos GGUF, mas a capacidade de usar ferramentas depende do modelo e do chat template incluído nele.
 
 ## Observações
 
-- O modelo recomendado precisa de memória suficiente e cerca de 7 GB livres em disco.
-- Sem uma instalação do `llama` com suporte à GPU, o setup instala uma versão para CPU. Ela funciona, mas responde mais lentamente.
-- Os logs técnicos ficam desligados. O histórico de segurança das ações permanece ativo.
-- Nunca inicie o modelo com `--tools all`; o Jarvis fornece suas próprias ferramentas protegidas.
+- O servidor fica disponível somente em `127.0.0.1:8080`.
+- Os logs técnicos ficam desligados, mas o histórico de segurança permanece ativo.
+- Sem uma instalação do `llama` com GPU, o Setup compila uma versão para CPU, que será mais lenta.
+- Nunca inicie o modelo com `--tools all`; somente as ferramentas protegidas do Jarvis devem acessar o computador.
+

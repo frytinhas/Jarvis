@@ -23,8 +23,10 @@ class TerminalUI:
     def __init__(self, orchestrator: Orchestrator) -> None:
         self.orchestrator = orchestrator
 
-    def run(self) -> None:
+    def run(self, initial_message: str | None = None) -> None:
         print("Jarvis local. Digite /sair para encerrar.")
+        if initial_message:
+            self._handle(initial_message)
         while True:
             try:
                 user_text = input("\nVocê > ").strip()
@@ -35,11 +37,14 @@ class TerminalUI:
                 return
             if not user_text:
                 continue
-            try:
-                reply = self.orchestrator.handle(user_text)
-                self._show(reply)
-            except Exception as error:
-                print(f"Jarvis: erro de comunicação: {error}")
+            self._handle(user_text)
+
+    def _handle(self, user_text: str) -> None:
+        try:
+            reply = self.orchestrator.handle(user_text)
+            self._show(reply)
+        except Exception as error:
+            print(f"Jarvis: erro de comunicação: {error}")
 
     def _show(self, reply: AgentReply) -> None:
         print(f"\nJarvis:\n{reply.text}")
@@ -58,4 +63,3 @@ class TerminalUI:
             )
             self._show(follow_up)
             return
-

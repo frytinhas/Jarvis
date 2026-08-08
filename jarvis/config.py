@@ -21,7 +21,7 @@ def _read_env_file(path: Path) -> dict[str, str]:
 @dataclass(frozen=True)
 class Config:
     llm_base_url: str = "http://127.0.0.1:8080/v1"
-    llm_model: str = "jarvis-gemma-4-12b"
+    llm_model: str = "jarvis-model"
     llm_api_key: str = ""
     confirmation_timeout: int = 30
     audit_db_path: Path = Path("~/.local/state/jarvis/audit.db")

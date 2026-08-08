@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -u
+
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+RUNTIME_FILE="$PROJECT_DIR/.runtime"
+RESTART_MARKER="$HOME/.local/state/jarvis/restart-required"
+
+if [[ ! -f "$RUNTIME_FILE" ]]; then
+    echo "Configuração do Jarvis não encontrada. Execute: $PROJECT_DIR/Setup.sh" >&2
+    exit 1
+fi
+
+# Arquivo local gerado exclusivamente por Setup.sh ou Config.sh.
+source "$RUNTIME_FILE"
+: "${MODEL_ALIAS:=jarvis-model}"
+: "${SERVER_HOST:=127.0.0.1}"
+: "${SERVER_PORT:=8080}"
+
+if [[ ! -x "$LLAMA_BIN" ]]; then
+    echo "Servidor llama não encontrado: $LLAMA_BIN" >&2
+    exit 1
+fi
+
+if [[ ! -f "$MODEL_PATH" ]]; then
+    echo "Modelo configurado não encontrado: $MODEL_PATH" >&2
+    exit 1
+fi
+
+rm -f "$RESTART_MARKER"
+
+if [[ "$LLAMA_STYLE" == "subcommand" ]]; then
+    server_command=("$LLAMA_BIN" serve)
+else
+    server_command=("$LLAMA_BIN")
+fi
+
+exec "${server_command[@]}" \
+    --model "$MODEL_PATH" \
+    --alias "$MODEL_ALIAS" \
+    --host "$SERVER_HOST" \
+    --port "$SERVER_PORT" \
+    --jinja \
+    --n-gpu-layers auto \
+    --log-disable

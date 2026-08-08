@@ -7,6 +7,7 @@ from jarvis.agent.orchestrator import Orchestrator
 from jarvis.llm.schemas import AssistantMessage, ToolCall, ToolFunctionCall
 from jarvis.tools.registry import ToolRegistry
 from jarvis.ui.terminal import confirmation_intent
+from jarvis.ui.terminal import TerminalUI
 
 
 class SequencedLLM:
@@ -35,3 +36,22 @@ def test_voice_style_confirmation_only_authorizes_pending_clause() -> None:
     assert confirmation_intent("não faça") is False
     assert confirmation_intent("talvez") is None
 
+
+def test_terminal_sends_initial_message_and_stays_interactive(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.received: list[str] = []
+
+        def handle(self, message: str):  # type: ignore[no-untyped-def]
+            self.received.append(message)
+            from jarvis.agent.orchestrator import AgentReply
+
+            return AgentReply("Resposta")
+
+    orchestrator = FakeOrchestrator()
+    answers = iter(["segunda mensagem", "/sair"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    TerminalUI(orchestrator).run("mensagem inicial")  # type: ignore[arg-type]
+
+    assert orchestrator.received == ["mensagem inicial", "segunda mensagem"]
