@@ -38,6 +38,7 @@ def _installation(tmp_path: Path) -> tuple[Path, dict[str, str], dict[str, Path]
     (config / "config.xml").write_text("config\n", encoding="utf-8")
     (state / "logs/conversations.db").write_text("logs\n", encoding="utf-8")
     (state / "audit.db").write_text("audit\n", encoding="utf-8")
+    (state / "runtime.env").write_text("runtime\n", encoding="utf-8")
     (state / "sessions/123").write_text("123\n", encoding="utf-8")
     (data / "llama.cpp").mkdir()
     unit = home / ".config/systemd/user/jarvis-llm.service"
@@ -91,6 +92,7 @@ def test_remove_keeps_configuration_logs_and_audit(tmp_path: Path) -> None:
     assert (paths["state"] / "logs/conversations.db").is_file()
     assert (paths["state"] / "audit.db").is_file()
     assert not (paths["state"] / "sessions").exists()
+    assert not (paths["state"] / "runtime.env").exists()
     assert not paths["data"].exists()
     assert not (paths["project"] / ".venv").exists()
     assert not (paths["project"] / ".install").exists()

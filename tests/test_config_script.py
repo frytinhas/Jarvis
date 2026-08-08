@@ -10,10 +10,13 @@ def test_advanced_flag_opens_config_xml_in_nano(tmp_path: Path) -> None:
     source_root = Path(__file__).resolve().parent.parent
     project = tmp_path / "project"
     binary = project / ".venv/bin"
+    scripts = project / "scripts"
     mock_bin = tmp_path / "mock-bin"
     binary.mkdir(parents=True)
+    scripts.mkdir()
     mock_bin.mkdir()
     shutil.copy2(source_root / "Config.sh", project / "Config.sh")
+    shutil.copy2(source_root / "scripts/jarvis-env", scripts / "jarvis-env")
     (project / ".install").write_text("installed\n", encoding="utf-8")
     python = binary / "python"
     python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")

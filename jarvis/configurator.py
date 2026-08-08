@@ -9,7 +9,7 @@ import shlex
 from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import DisplayLogLevel, MessageMode, UserSettings, project_root
+from jarvis.settings import DisplayLogLevel, MessageMode, UserSettings, project_root, runtime_path
 
 
 CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
@@ -402,7 +402,9 @@ def run_wizard() -> ConfigurationResult | None:
 
 def _write_runtime(config: JarvisConfig) -> None:
     settings = config.settings
-    runtime = project_root() / ".runtime"
+    runtime = runtime_path()
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    runtime.parent.chmod(0o700)
     content = "\n".join(
         (
             f"MODEL_PATH={shlex.quote(str(settings.model_path))}",
@@ -492,7 +494,7 @@ def commit(result: ConfigurationResult) -> None:
     )
     _apply_desktop_entry(result.settings)
     if old.model_path != result.settings.model_path:
-        marker = Path.home() / ".local/state/jarvis/restart-required"
+        marker = runtime_path().parent / "restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
 

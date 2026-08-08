@@ -4,10 +4,12 @@ set -u
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+source "$PROJECT_DIR/scripts/jarvis-env"
+jarvis_prepare_environment
 INSTALL_FILE="$PROJECT_DIR/.install"
-RUNTIME_FILE="$PROJECT_DIR/.runtime"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 STATE_DIR="$HOME/.local/state/jarvis"
+RUNTIME_FILE="$STATE_DIR/runtime.env"
 SERVER_LOG="$STATE_DIR/logs/runtime/llama-server.log"
 
 if [[ ! -f "$INSTALL_FILE" || ! -x "$PYTHON_BIN" ]]; then

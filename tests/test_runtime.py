@@ -14,9 +14,9 @@ def _prepare_runtime(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:  # type:
     config_path = tmp_path / "config.xml"
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("JARVIS_CONFIG_PATH", str(config_path))
-    monkeypatch.setattr("jarvis.runtime.project_root", lambda: project)
     monkeypatch.setattr("jarvis.configurator.project_root", lambda: project)
-    runtime = project / ".runtime"
+    runtime = tmp_path / ".local/state/jarvis/runtime.env"
+    runtime.parent.mkdir(parents=True)
     runtime.write_text(
         "MODEL_PATH=/tmp/old.gguf\nMODEL_ALIAS=jarvis-model\n"
         "COMMAND_NAME=jarvis\nASSISTANT_NAME=Jarvis\nAUTOSTART=true\n"

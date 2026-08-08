@@ -4,13 +4,15 @@ set -u
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+source "$PROJECT_DIR/scripts/jarvis-env"
+jarvis_prepare_environment
 INSTALL_FILE="$PROJECT_DIR/.install"
-RUNTIME_FILE="$PROJECT_DIR/.runtime"
 JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 SERVER_SCRIPT="$PROJECT_DIR/scripts/jarvis-server"
 UNINSTALL_SCRIPT="$PROJECT_DIR/Uninstall.sh"
 STATE_DIR="$HOME/.local/state/jarvis"
+RUNTIME_FILE="$STATE_DIR/runtime.env"
 PID_FILE="$STATE_DIR/llama-server.pid"
 RESTART_MARKER="$STATE_DIR/restart-required"
 SESSION_DIR="$STATE_DIR/sessions"

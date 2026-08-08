@@ -3,8 +3,11 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+source "$PROJECT_DIR/scripts/jarvis-env"
+jarvis_prepare_environment
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 UNIT_NAME="jarvis-llm.service"
+RUNTIME_FILE="$HOME/.local/state/jarvis/runtime.env"
 
 if [[ ! -x "$PYTHON_BIN" || ! -f "$PROJECT_DIR/.install" ]]; then
     echo "Jarvis ainda não foi instalado. Execute: bash $PROJECT_DIR/Setup.sh"
@@ -33,13 +36,13 @@ fi
 cd "$PROJECT_DIR"
 "$PYTHON_BIN" -m jarvis.configurator
 
-if [[ ! -f "$PROJECT_DIR/.runtime" ]]; then
+if [[ ! -f "$RUNTIME_FILE" ]]; then
     echo "Configuração não alterada."
     exit 0
 fi
 
 # Gerado pelo configurador após a confirmação final.
-source "$PROJECT_DIR/.runtime"
+source "$RUNTIME_FILE"
 
 if command -v systemctl >/dev/null 2>&1 \
     && systemctl --user daemon-reload >/dev/null 2>&1; then

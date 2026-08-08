@@ -20,6 +20,12 @@ The setup only installs Jarvis, its Python environment, the llama server and the
 
 The automatic installer is officially supported on Debian, Ubuntu and their derivatives. Jarvis may work on other Linux distributions, but that setup path has not been tested and system dependencies may need to be installed manually.
 
+Run Setup as a regular user. It also creates an isolated, root-owned administrative installation under `/usr/local/lib/jarvis-local`. `sudo jarvis` runs the assistant as root while preserving the directory from which it was invoked.
+
+The administrative configuration starts as an independent copy of the Setup configuration at `/root/.config/jarvis/config.xml`. Its state, runtime, logs, and audit database live under `/root/.local/state/jarvis`. Use `sudo jarvis-config` to change it without affecting the regular user.
+
+Running as root increases the reach of tools. The Tool Router, confirmations, blacklist, critical-path protections, and `PRIVILEGED` denial remain active, but use this command only when administrative access is required.
+
 The configurator uses a calm section menu: Model, Identity, Behavior and timeouts, Permissions, Logs and panel, and Persona and context. You can change only what you need, review the summary, and save; leaving the menu does not write changes.
 
 ### Advanced configuration
@@ -32,7 +38,7 @@ All persistent configuration is stored in:
 
 The file is simple, indented, and includes both PT-BR and English comments explaining each section. Advanced users may edit it directly; changes are validated and take effect the next time Jarvis starts. Invalid values, unknown elements, or malformed XML stop startup with a clear error instead of silently applying defaults.
 
-The XML is created with `0600` permissions and may contain an API key. Remove sensitive data before sharing it. The `.runtime` file in the project folder is an automatically regenerated internal file and should not be edited.
+The XML is created with `0600` permissions and may contain an API key. Remove sensitive data before sharing it. The internal runtime is regenerated automatically at `~/.local/state/jarvis/runtime.env` and should not be edited.
 
 To open the XML directly in Nano, run:
 
@@ -57,6 +63,7 @@ jarvis --purge
 ```
 
 This mode requires `jarvis purge`. Running `bash Uninstall.sh` from the project directory is equivalent to `jarvis --purge`; `bash Uninstall.sh --remove` is also available. The source repository is not deleted. For safety, a manually configured audit file outside Jarvis's standard directories is not removed automatically.
+Uninstallation also removes the administrative launchers and application copy. `--remove` preserves root configuration and logs, while `--purge` removes them as well.
 
 ## Use
 

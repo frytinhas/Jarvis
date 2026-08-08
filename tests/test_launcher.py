@@ -19,6 +19,7 @@ def _launcher_fixture(tmp_path: Path, keep_running: bool) -> tuple[Path, dict[st
     mock_bin.mkdir()
     launcher = scripts / "jarvis"
     shutil.copy2(source_root / "scripts/jarvis", launcher)
+    shutil.copy2(source_root / "scripts/jarvis-env", scripts / "jarvis-env")
     uninstaller = project / "Uninstall.sh"
     uninstaller.write_text(
         '#!/usr/bin/env bash\nprintf "%s" "$1" > "$HOME/uninstall-mode"\n',
@@ -29,7 +30,9 @@ def _launcher_fixture(tmp_path: Path, keep_running: bool) -> tuple[Path, dict[st
         "LLAMA_BIN=/bin/true\nLLAMA_STYLE=server\nSERVER_HOST=127.0.0.1\nSERVER_PORT=8080\n",
         encoding="utf-8",
     )
-    (project / ".runtime").write_text(
+    state = tmp_path / ".local/state/jarvis"
+    state.mkdir(parents=True)
+    (state / "runtime.env").write_text(
         "MODEL_PATH=/tmp/model.gguf\nMODEL_ALIAS=jarvis-model\nCOMMAND_NAME=jarvis\n"
         "ASSISTANT_NAME=Jarvis\nAUTOSTART=true\n"
         f"KEEP_LLM_RUNNING={'true' if keep_running else 'false'}\n",

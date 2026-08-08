@@ -11,7 +11,7 @@ from jarvis.configurator import (
     _write_runtime,
     normalize_command_name,
 )
-from jarvis.settings import project_root
+from jarvis.settings import runtime_path
 
 
 def _read_runtime(path: Path) -> dict[str, str]:
@@ -38,8 +38,8 @@ def sync_runtime() -> None:
         save_config(config, source)
     settings = config.settings
     normalize_command_name(settings.command_name)
-    runtime_path = project_root() / ".runtime"
-    previous = _read_runtime(runtime_path)
+    target_runtime = runtime_path()
+    previous = _read_runtime(target_runtime)
     previous_command = previous.get("COMMAND_NAME", settings.command_name)
     _apply_command(previous_command, settings.command_name)
     identity_changed = (
@@ -57,7 +57,7 @@ def sync_runtime() -> None:
     )
     _write_runtime(config)
     if model_changed or server_logging_changed:
-        marker = Path.home() / ".local/state/jarvis/restart-required"
+        marker = target_runtime.parent / "restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
 

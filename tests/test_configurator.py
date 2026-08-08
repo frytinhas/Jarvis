@@ -163,7 +163,7 @@ def test_commit_checks_command_before_writing_configuration(tmp_path: Path, monk
         commit(result)
 
     assert not (tmp_path / "config.xml").exists()
-    assert not (project / ".runtime").exists()
+    assert not (tmp_path / ".local/state/jarvis/runtime.env").exists()
 
 
 def test_commit_preserves_advanced_xml_values(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

@@ -57,5 +57,13 @@ def project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def state_directory() -> Path:
+    return Path.home() / ".local/state/jarvis"
+
+
+def runtime_path() -> Path:
+    return state_directory() / "runtime.env"
+
+
 def default_settings() -> UserSettings:
     return UserSettings(persona_path=project_root() / "Persona.md")
