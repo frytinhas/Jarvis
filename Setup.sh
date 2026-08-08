@@ -32,6 +32,7 @@ install_packages() {
 missing_packages=()
 command -v python3 >/dev/null 2>&1 || missing_packages+=(python3)
 command -v curl >/dev/null 2>&1 || missing_packages+=(curl)
+command -v nano >/dev/null 2>&1 || missing_packages+=(nano)
 if ((${#missing_packages[@]})); then
     install_packages "${missing_packages[@]}"
 fi
@@ -94,7 +95,8 @@ fi
 if [[ ! -f "$PROJECT_DIR/WaitingMessages.txt" ]]; then
     cp "$PROJECT_DIR/jarvis/ui/default_waiting_messages.txt" "$PROJECT_DIR/WaitingMessages.txt"
 fi
-chmod +x "$PROJECT_DIR/Config.sh" "$PROJECT_DIR/scripts/jarvis" "$PROJECT_DIR/scripts/jarvis-server"
+chmod +x "$PROJECT_DIR/Config.sh" "$PROJECT_DIR/Uninstall.sh" \
+    "$PROJECT_DIR/scripts/jarvis" "$PROJECT_DIR/scripts/jarvis-server"
 mkdir -p "$LOCAL_BIN"
 config_command="$LOCAL_BIN/jarvis-config"
 if [[ -e "$config_command" && ! -L "$config_command" ]]; then

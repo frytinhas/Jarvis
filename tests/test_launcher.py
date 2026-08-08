@@ -19,6 +19,11 @@ def _launcher_fixture(tmp_path: Path, keep_running: bool) -> tuple[Path, dict[st
     mock_bin.mkdir()
     launcher = scripts / "jarvis"
     shutil.copy2(source_root / "scripts/jarvis", launcher)
+    uninstaller = project / "Uninstall.sh"
+    uninstaller.write_text(
+        '#!/usr/bin/env bash\nprintf "%s" "$1" > "$HOME/uninstall-mode"\n',
+        encoding="utf-8",
+    )
 
     (project / ".install").write_text(
         "LLAMA_BIN=/bin/true\nLLAMA_STYLE=server\nSERVER_HOST=127.0.0.1\nSERVER_PORT=8080\n",
@@ -97,3 +102,21 @@ def test_full_stop_stops_managed_server_without_opening_client(tmp_path: Path) -
     assert "início automático foi mantida" in result.stdout
     assert not (tmp_path / "client-cwd").exists()
     assert "--user stop jarvis-llm.service" in (tmp_path / "systemctl-log").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("mode", ["--remove", "--purge"])
+def test_launcher_routes_uninstall_modes_before_startup(tmp_path: Path, mode: str) -> None:
+    launcher, environment = _launcher_fixture(tmp_path, keep_running=True)
+
+    result = subprocess.run(
+        [str(launcher), mode],
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "uninstall-mode").read_text(encoding="utf-8") == mode
+    assert not (tmp_path / "client-cwd").exists()

@@ -9,11 +9,20 @@ RUNTIME_FILE="$PROJECT_DIR/.runtime"
 JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 SERVER_SCRIPT="$PROJECT_DIR/scripts/jarvis-server"
+UNINSTALL_SCRIPT="$PROJECT_DIR/Uninstall.sh"
 STATE_DIR="$HOME/.local/state/jarvis"
 PID_FILE="$STATE_DIR/llama-server.pid"
 RESTART_MARKER="$STATE_DIR/restart-required"
 SESSION_DIR="$STATE_DIR/sessions"
 UNIT_NAME="jarvis-llm.service"
+
+if [[ "${1:-}" == "--remove" || "${1:-}" == "--purge" ]]; then
+    if (($# != 1)); then
+        echo "Use ${1} sem uma mensagem adicional."
+        exit 2
+    fi
+    exec bash "$UNINSTALL_SCRIPT" "$1"
+fi
 
 if [[ ! -f "$INSTALL_FILE" || ! -x "$JARVIS_BIN" || ! -x "$PYTHON_BIN" ]]; then
     echo "A instalação do Jarvis não está completa."

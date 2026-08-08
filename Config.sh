@@ -11,6 +11,25 @@ if [[ ! -x "$PYTHON_BIN" || ! -f "$PROJECT_DIR/.install" ]]; then
     exit 1
 fi
 
+if (($# > 0)); then
+    if [[ "$1" != "--a" || $# -ne 1 ]]; then
+        echo "Uso: jarvis-config [--a]"
+        exit 2
+    fi
+    config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+    config_file="${JARVIS_CONFIG_PATH:-$config_home/jarvis/config.xml}"
+    if [[ ! -f "$config_file" ]]; then
+        echo "Configuração não encontrada em $config_file."
+        echo "Execute jarvis-config sem argumentos para criá-la."
+        exit 1
+    fi
+    if ! command -v nano >/dev/null 2>&1; then
+        echo "O editor nano não está instalado."
+        exit 1
+    fi
+    exec nano "$config_file"
+fi
+
 cd "$PROJECT_DIR"
 "$PYTHON_BIN" -m jarvis.configurator
 
@@ -32,4 +51,3 @@ if command -v systemctl >/dev/null 2>&1 \
 else
     echo "systemd do usuário indisponível; o servidor iniciará sob demanda."
 fi
-

@@ -45,7 +45,29 @@ O arquivo é simples, indentado e contém comentários em PT-BR e inglês explic
 
 O XML possui permissão `0600` e pode conter uma chave de API. Não compartilhe o arquivo sem remover dados sensíveis. O `.runtime` na pasta do projeto é apenas um arquivo interno regenerado automaticamente e não deve ser editado.
 
+Para abrir diretamente o XML no Nano, use:
+
+```bash
+jarvis-config --a
+```
+
 Após atualizar uma instalação antiga, execute `jarvis-config` uma vez para criar o XML. Os antigos `~/.config/jarvis/settings.json` e `.env` podem ser usados como valores iniciais pelo wizard, mas não são migrados durante uma inicialização normal e permanecem intactos como backup.
+
+### Desinstalação
+
+Para remover o aplicativo, serviço, atalhos, CLI e runtime, mantendo configurações, auditoria e conversas para uma reinstalação futura:
+
+```bash
+jarvis --remove
+```
+
+Confirme digitando exatamente `jarvis remove`. Para remover também configurações e todos os dados mantidos nas pastas padrão do Jarvis:
+
+```bash
+jarvis --purge
+```
+
+Esse modo exige `jarvis purge`. Executar `bash Uninstall.sh` na pasta do projeto equivale a `jarvis --purge`; também é possível usar `bash Uninstall.sh --remove`. O repositório-fonte não é apagado. Por segurança, um arquivo de auditoria configurado manualmente fora das pastas padrão do Jarvis também não é removido automaticamente.
 
 ## Como usar
 
