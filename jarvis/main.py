@@ -7,14 +7,14 @@ from pathlib import Path
 
 from jarvis.agent.orchestrator import Orchestrator
 from jarvis.agent.prompts import build_system_prompt
-from jarvis.config import Config
+from jarvis.config import load_config
 from jarvis.llm.client import LlamaClient
 from jarvis.memory import ConversationLogStore, summarize_conversation
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
 from jarvis.security.policy import Decision, PolicyEngine, Risk
-from jarvis.settings import MessageMode, load_settings, project_root
+from jarvis.settings import MessageMode, project_root
 from jarvis.tools.registry import build_registry
 from jarvis.tools import system
 from jarvis.ui.terminal import TerminalUI
@@ -31,11 +31,12 @@ def parse_initial_message(arguments: list[str] | None = None, prog: str = "jarvi
 
 def main(arguments: list[str] | None = None) -> None:
     invocation_directory = Path.cwd().resolve()
-    config = Config.load(project_root() / ".env")
-    user_settings = load_settings()
-    logging.basicConfig(level=config.log_level)
-    audit = AuditLog(config.audit_db_path)
-    confirmations = ConfirmationManager(config.confirmation_timeout)
+    config = load_config()
+    user_settings = config.settings
+    advanced = config.advanced
+    logging.basicConfig(level=advanced.log_level)
+    audit = AuditLog(advanced.audit_db_path)
+    confirmations = ConfirmationManager(advanced.confirmation_timeout)
     policy_engine = PolicyEngine(user_settings.permissions)
     path_policy = PathPolicy.load(
         project_root() / "Blacklist.txt",
@@ -92,9 +93,9 @@ def main(arguments: list[str] | None = None) -> None:
     waiting_messages = load_waiting_messages(project_root() / "WaitingMessages.txt")
     waiting_indicator = WaitingIndicator(waiting_messages)
     with LlamaClient(
-        config.llm_base_url,
-        config.llm_model,
-        config.llm_api_key,
+        advanced.llm_base_url,
+        advanced.llm_model,
+        advanced.llm_api_key,
         timeout=user_settings.request_timeout_seconds,
     ) as llm:
         orchestrator = Orchestrator(

@@ -28,9 +28,24 @@ O Config solicita, em sequência:
 6. Se o servidor iniciará automaticamente junto da sessão do usuário.
 7. Se o servidor continuará ligado depois que o último chat fechar.
 8. Se uma mensagem enviada junto do comando abre uma conversa ou responde uma vez e encerra.
-9. O tamanho máximo e o período de retenção dos logs de conversa.
+9. O tempo máximo de cada interação.
+10. O tamanho máximo e o período de retenção dos logs de conversa.
 
 Nada é salvo antes da confirmação do resumo final.
+
+### Configuração avançada
+
+Toda a configuração persistente fica em:
+
+```text
+~/.config/jarvis/config.xml
+```
+
+O arquivo é simples, indentado e contém comentários em PT-BR e inglês explicando cada seção. Usuários avançados podem editá-lo diretamente; as mudanças são validadas e passam a valer na próxima execução do Jarvis. Valores inválidos, elementos desconhecidos ou XML malformado interrompem a inicialização com uma mensagem clara, sem aplicar defaults silenciosamente.
+
+O XML possui permissão `0600` e pode conter uma chave de API. Não compartilhe o arquivo sem remover dados sensíveis. O `.runtime` na pasta do projeto é apenas um arquivo interno regenerado automaticamente e não deve ser editado.
+
+Após atualizar uma instalação antiga, execute `jarvis-config` uma vez para criar o XML. Os antigos `~/.config/jarvis/settings.json` e `.env` podem ser usados como valores iniciais pelo wizard, mas não são migrados durante uma inicialização normal e permanecem intactos como backup.
 
 ## Como usar
 

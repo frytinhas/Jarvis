@@ -30,9 +30,24 @@ The wizard asks, in order, for:
 6. Whether the model server starts automatically with your user session.
 7. Whether the model server stays on after the last chat closes.
 8. Whether a command-line message starts a continuing chat or answers once and exits.
-9. The maximum conversation-log size and retention period.
+9. The maximum duration of each interaction.
+10. The maximum conversation-log size and retention period.
 
 Nothing is saved until the final summary is confirmed.
+
+### Advanced configuration
+
+All persistent configuration is stored in:
+
+```text
+~/.config/jarvis/config.xml
+```
+
+The file is simple, indented, and includes both PT-BR and English comments explaining each section. Advanced users may edit it directly; changes are validated and take effect the next time Jarvis starts. Invalid values, unknown elements, or malformed XML stop startup with a clear error instead of silently applying defaults.
+
+The XML is created with `0600` permissions and may contain an API key. Remove sensitive data before sharing it. The `.runtime` file in the project folder is an automatically regenerated internal file and should not be edited.
+
+After upgrading an older installation, run `jarvis-config` once to create the XML. The old `~/.config/jarvis/settings.json` and `.env` may supply initial values to the wizard, but they are not migrated during normal startup and remain untouched as backups.
 
 ## Use
 

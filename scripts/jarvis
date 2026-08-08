@@ -7,6 +7,7 @@ PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 INSTALL_FILE="$PROJECT_DIR/.install"
 RUNTIME_FILE="$PROJECT_DIR/.runtime"
 JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
+PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 SERVER_SCRIPT="$PROJECT_DIR/scripts/jarvis-server"
 STATE_DIR="$HOME/.local/state/jarvis"
 PID_FILE="$STATE_DIR/llama-server.pid"
@@ -14,13 +15,22 @@ RESTART_MARKER="$STATE_DIR/restart-required"
 SESSION_DIR="$STATE_DIR/sessions"
 UNIT_NAME="jarvis-llm.service"
 
-if [[ ! -f "$INSTALL_FILE" || ! -f "$RUNTIME_FILE" || ! -x "$JARVIS_BIN" ]]; then
+if [[ ! -f "$INSTALL_FILE" || ! -x "$JARVIS_BIN" || ! -x "$PYTHON_BIN" ]]; then
     echo "A instalação do Jarvis não está completa."
     echo "Execute: bash $PROJECT_DIR/Setup.sh"
     exit 1
 fi
 
-# Arquivo local gerado exclusivamente por Setup.sh ou Config.sh.
+if ! "$PYTHON_BIN" -m jarvis.runtime; then
+    echo "Execute jarvis-config para criar ou corrigir o config.xml."
+    exit 1
+fi
+if [[ ! -f "$RUNTIME_FILE" ]]; then
+    echo "Não foi possível gerar a configuração interna do Jarvis."
+    exit 1
+fi
+
+# Arquivo interno gerado a partir de config.xml.
 source "$INSTALL_FILE"
 source "$RUNTIME_FILE"
 KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
@@ -134,6 +144,14 @@ if [[ "${1:-}" == "--full-stop" ]]; then
 fi
 
 register_session
+
+if user_systemd_available; then
+    if [[ "$AUTOSTART" == true ]]; then
+        systemctl --user enable "$UNIT_NAME" >/dev/null 2>&1 || true
+    else
+        systemctl --user disable "$UNIT_NAME" >/dev/null 2>&1 || true
+    fi
+fi
 
 if [[ -f "$RESTART_MARKER" ]]; then
     if user_systemd_available; then

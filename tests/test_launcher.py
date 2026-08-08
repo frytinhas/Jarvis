@@ -26,9 +26,13 @@ def _launcher_fixture(tmp_path: Path, keep_running: bool) -> tuple[Path, dict[st
     )
     (project / ".runtime").write_text(
         "MODEL_PATH=/tmp/model.gguf\nMODEL_ALIAS=jarvis-model\nCOMMAND_NAME=jarvis\n"
+        "ASSISTANT_NAME=Jarvis\nAUTOSTART=true\n"
         f"KEEP_LLM_RUNNING={'true' if keep_running else 'false'}\n",
         encoding="utf-8",
     )
+    python = binary / "python"
+    python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
     client = binary / "jarvis"
     client.write_text(
         '#!/usr/bin/env bash\nprintf "%s\\n" "$PWD" > "$HOME/client-cwd"\n'

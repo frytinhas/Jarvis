@@ -7,8 +7,9 @@ import re
 import shlex
 
 from jarvis.agent.prompts import default_context_path, default_persona_path
+from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import MessageMode, UserSettings, load_settings, project_root, save_settings
+from jarvis.settings import MessageMode, UserSettings, project_root
 
 
 CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
@@ -30,11 +31,15 @@ class CommandReplacement:
 
 @dataclass(frozen=True)
 class ConfigurationResult:
-    settings: UserSettings
+    config: JarvisConfig
     previous_command: str
     reset_persona: bool
     reset_context: bool
     command_replacement: CommandReplacement | None = None
+
+    @property
+    def settings(self) -> UserSettings:
+        return self.config.settings
 
 
 def discover_models(directory: Path) -> list[Path]:
@@ -277,7 +282,8 @@ def run_wizard() -> ConfigurationResult:
         persona.write_bytes(default_persona_path().read_bytes())
     if not context.is_file():
         context.write_bytes(default_context_path().read_bytes())
-    persisted = load_settings()
+    persisted_config = load_config(allow_legacy=True)
+    persisted = persisted_config.settings
     if persisted.model_path is None:
         legacy = _legacy_model()
         if legacy:
@@ -338,7 +344,7 @@ def run_wizard() -> ConfigurationResult:
         _summary(candidate, reset_default, reset_context)
         if ask_yes_no("Confirmar e salvar essa configuração?", True):
             return ConfigurationResult(
-                candidate,
+                persisted_config.model_copy(update={"settings": candidate}),
                 persisted.command_name,
                 reset_default,
                 reset_context,
@@ -348,12 +354,13 @@ def run_wizard() -> ConfigurationResult:
         draft = candidate
 
 
-def _write_runtime(settings: UserSettings) -> None:
+def _write_runtime(config: JarvisConfig) -> None:
+    settings = config.settings
     runtime = project_root() / ".runtime"
     content = "\n".join(
         (
             f"MODEL_PATH={shlex.quote(str(settings.model_path))}",
-            "MODEL_ALIAS=jarvis-model",
+            f"MODEL_ALIAS={shlex.quote(config.advanced.llm_model)}",
             f"COMMAND_NAME={shlex.quote(settings.command_name)}",
             f"ASSISTANT_NAME={shlex.quote(settings.assistant_name)}",
             f"AUTOSTART={'true' if settings.autostart else 'false'}",
@@ -424,13 +431,13 @@ def _apply_desktop_entry(settings: UserSettings) -> None:
 
 def commit(result: ConfigurationResult) -> None:
     _validate_command_collision(result.settings.command_name, result.command_replacement)
-    old = load_settings()
+    old = load_config(allow_legacy=True).settings
     if result.reset_persona:
         result.settings.persona_path.write_bytes(default_persona_path().read_bytes())
     if result.reset_context:
         (project_root() / "Context.md").write_bytes(default_context_path().read_bytes())
-    save_settings(result.settings)
-    _write_runtime(result.settings)
+    save_config(result.config)
+    _write_runtime(result.config)
     _apply_command(
         result.previous_command,
         result.settings.command_name,
@@ -444,9 +451,14 @@ def commit(result: ConfigurationResult) -> None:
 
 
 def main() -> None:
-    result = run_wizard()
-    commit(result)
-    print(f"\nConfiguração salva. Use: {result.settings.command_name}")
+    try:
+        result = run_wizard()
+        commit(result)
+    except ConfigFileError as error:
+        print(error)
+        raise SystemExit(1) from error
+    print(f"\nConfiguração salva em {config_path()}.")
+    print(f"Use: {result.settings.command_name}")
 
 
 if __name__ == "__main__":

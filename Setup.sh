@@ -94,10 +94,6 @@ fi
 if [[ ! -f "$PROJECT_DIR/WaitingMessages.txt" ]]; then
     cp "$PROJECT_DIR/jarvis/ui/default_waiting_messages.txt" "$PROJECT_DIR/WaitingMessages.txt"
 fi
-if [[ ! -f "$PROJECT_DIR/.env" ]]; then
-    cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
-fi
-
 chmod +x "$PROJECT_DIR/Config.sh" "$PROJECT_DIR/scripts/jarvis" "$PROJECT_DIR/scripts/jarvis-server"
 mkdir -p "$LOCAL_BIN"
 config_command="$LOCAL_BIN/jarvis-config"

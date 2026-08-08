@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from jarvis.config import AdvancedConfig, JarvisConfig, load_config, save_config
 from jarvis.configurator import (
     CommandReplacement,
     ConfigurationResult,
@@ -147,7 +148,7 @@ def test_rejects_commands_not_owned_by_jarvis(
 
 def test_commit_checks_command_before_writing_configuration(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("JARVIS_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("JARVIS_CONFIG_PATH", str(tmp_path / "config.xml"))
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.setattr("jarvis.configurator.project_root", lambda: project)
@@ -155,13 +156,44 @@ def test_commit_checks_command_before_writing_configuration(tmp_path: Path, monk
     local_bin.mkdir(parents=True)
     (local_bin / "jarvis").write_text("third party", encoding="utf-8")
     settings = UserSettings(persona_path=project / "Persona.md")
-    result = ConfigurationResult(settings, "jarvis", False, False)
+    result = ConfigurationResult(JarvisConfig(settings=settings), "jarvis", False, False)
 
     with pytest.raises(ValueError, match="outro comando"):
         commit(result)
 
-    assert not (tmp_path / "settings.json").exists()
+    assert not (tmp_path / "config.xml").exists()
     assert not (project / ".runtime").exists()
+
+
+def test_commit_preserves_advanced_xml_values(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    config_path = tmp_path / "config.xml"
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("JARVIS_CONFIG_PATH", str(config_path))
+    monkeypatch.setattr("jarvis.configurator.project_root", lambda: project)
+    monkeypatch.setattr("jarvis.configurator._apply_command", lambda *args: None)
+    monkeypatch.setattr("jarvis.configurator._apply_desktop_entry", lambda *args: None)
+    original = JarvisConfig(
+        settings=UserSettings(persona_path=project / "Persona.md"),
+        advanced=AdvancedConfig(llm_base_url="http://advanced.test/v1", llm_api_key="secret"),
+    )
+    save_config(original, config_path)
+    updated_settings = original.settings.model_copy(update={"assistant_name": "Bob"})
+
+    commit(
+        ConfigurationResult(
+            original.model_copy(update={"settings": updated_settings}),
+            "jarvis",
+            False,
+            False,
+        )
+    )
+
+    saved = load_config(config_path)
+    assert saved.settings.assistant_name == "Bob"
+    assert saved.advanced.llm_base_url == "http://advanced.test/v1"
+    assert saved.advanced.llm_api_key == "secret"
 
 
 def test_desktop_entry_uses_custom_identity_and_icon(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
