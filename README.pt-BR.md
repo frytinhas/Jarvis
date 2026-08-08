@@ -108,7 +108,7 @@ Em ambientes desktop compatíveis, o Jarvis também aparece no menu de aplicativ
 
 ## Chat e servidor da IA
 
-Digite `/sair` para fechar uma conversa. Por padrão, o Jarvis também encerra o servidor gerenciado do modelo quando o último chat aberto termina. No `jarvis-config`, você pode optar por deixá-lo ligado em segundo plano.
+Digite `/sair` para fechar uma conversa. Por padrão, o Jarvis mantém o servidor gerenciado do modelo pronto em segundo plano quando o último chat aberto termina. No `jarvis-config`, você pode optar por encerrá-lo.
 
 Para desligar um servidor que ficou em segundo plano sem alterar a preferência de início automático, use:
 
@@ -135,11 +135,11 @@ A mensagem inicial pode continuar no chat depois da primeira resposta, que é o 
 - `DELETE`: apagar arquivos e diretórios vazios.
 - `EXECUTE`: executar um script `.sh` ou binário informado por path, sem shell genérico.
 
-Por padrão, `READ` e `CREATE` não pedem confirmação. `MODIFY`, `DELETE` e `EXECUTE` pedem. Paths críticos e ações privilegiadas permanecem bloqueados independentemente da configuração.
+Por padrão, `READ`, `CREATE` e `EXECUTE` não pedem confirmação. `MODIFY` e `DELETE` pedem. Paths críticos e ações privilegiadas permanecem bloqueados independentemente da configuração.
 
 O Jarvis não deve perguntar em texto se pode usar uma tool. Tools `READ` permitidas são chamadas diretamente; ações configuradas como `CONFIRM` produzem a confirmação vinculada aos argumentos exatos pelo Policy Engine. Pedidos de especificações locais obrigam a consulta de hardware real e, se ela falhar, nenhum componente é presumido. Arquivos grandes podem ser lidos em partes.
 
-`execute_file` aceita apenas um arquivo explícito, argumentos separados, diretório de trabalho opcional, timeout e modo background. Ela usa `shell=False`, bloqueia executáveis privilegiados conhecidos e código inline em interpretadores. Com `EXECUTE=ALLOW`, a execução ocorre sem confirmação — inclusive quando o programa foi iniciado como `sudo jarvis`, caso em que o processo filho possui privilégios de root. Essa combinação é extremamente poderosa; use `CONFIRM` como padrão e restrinja paths no `Blacklist.txt`.
+`execute_file` aceita apenas um arquivo explícito, argumentos separados, diretório de trabalho opcional, timeout e modo background. Ela usa `shell=False`, bloqueia executáveis privilegiados conhecidos e código inline em interpretadores. `EXECUTE=ALLOW` é o padrão da primeira configuração, portanto uma execução pedida explicitamente ocorre sem confirmação — inclusive quando o programa foi iniciado como `sudo jarvis`, caso em que o processo filho possui privilégios de root. Essa combinação é extremamente poderosa; escolha `CONFIRM` no `jarvis-config` se desejar e restrinja paths no `Blacklist.txt`.
 
 Durante uma geração ou execução em primeiro plano, `Ctrl+C` cancela somente a operação atual e mantém o chat aberto.
 
@@ -172,7 +172,7 @@ As conversas ficam em um banco SQLite local. Os cinco resumos mais recentes fica
 
 Por padrão, os logs são mantidos por 30 dias e a pasta possui limite de 100 MB. Use `jarvis-config` para alterar os dois valores. Um número menor ou igual a zero significa sem limite. Logs vencidos e os mais antigos são removidos localmente quando necessário. O banco é privado para o usuário local, mas não é criptografado; portanto, as conversas não devem ser tratadas como um cofre de senhas.
 
-O painel de atividade possui cinco níveis. `Essential`, o padrão, mostra tools, comandos, paths e o conteúdo alterado; leituras mostram somente alvo e metadados. `Minimal-Essential` mostra apenas tools e estados. `Server-Essential` acrescenta logs do servidor, `Full` inclui diagnóstico técnico completo e `None` mantém apenas a conversa e as mensagens de espera. Em `Full` e `Server-Essential`, o Jarvis pergunta no início da sessão se os logs devem ser salvos em `~/.local/state/jarvis/logs/runtime/`.
+O painel de atividade possui cinco níveis. `Minimal-Essential`, o padrão, mostra apenas tools e estados. `Essential` também mostra comandos, paths e o conteúdo alterado; leituras mostram somente alvo e metadados. `Server-Essential` acrescenta logs do servidor, `Full` inclui diagnóstico técnico completo e `None` mantém apenas a conversa e as mensagens de espera. As cores do terminal usam `always` por padrão; tanto o nível do painel quanto o modo de cores continuam configuráveis. Em `Full` e `Server-Essential`, o Jarvis pergunta no início da sessão se os logs devem ser salvos em `~/.local/state/jarvis/logs/runtime/`.
 
 Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Em terminais interativos, a mensagem atual substitui a anterior na mesma linha. Deixe o arquivo vazio para desativá-las.
 

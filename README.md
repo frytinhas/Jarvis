@@ -106,7 +106,7 @@ On compatible desktop environments, Jarvis also appears in the application menu 
 
 ## Chat and model server
 
-Use `/sair` to close a chat. By default, Jarvis stops its managed model server when the last open chat closes. You can change this in `jarvis-config` so the model stays ready in the background.
+Use `/sair` to close a chat. By default, Jarvis keeps its managed model server ready in the background after the last open chat closes. You can change this in `jarvis-config` so the server stops instead.
 
 To stop a server kept in the background without changing its automatic-start preference, run:
 
@@ -135,11 +135,11 @@ Permissions are configured by category:
 - `DELETE`: remove files and empty directories.
 - `EXECUTE`: run an explicit `.sh` script or binary path, without a generic shell.
 
-The first-run defaults allow `READ` and `CREATE` without confirmation. `MODIFY`, `DELETE` and `EXECUTE` require confirmation. Critical paths and privileged actions remain blocked regardless of these choices.
+The first-run defaults allow `READ`, `CREATE`, and `EXECUTE` without confirmation. `MODIFY` and `DELETE` require confirmation. Critical paths and privileged actions remain blocked regardless of these choices.
 
 Jarvis does not ask in prose for permission to use a tool. Allowed `READ` tools run directly; actions configured as `CONFIRM` produce an exact-arguments confirmation through the Policy Engine. Local specification questions require real hardware inspection and no component is guessed if inspection fails. Large files can be read in bounded chunks.
 
-`execute_file` accepts only an explicit file, separate arguments, an optional working directory, timeout, and background mode. It uses `shell=False`, blocks known privilege frontends and inline interpreter code. With `EXECUTE=ALLOW`, it runs without confirmation—including under `sudo jarvis`, where the child process has root privileges. This combination is extremely powerful; keep `CONFIRM` as the default and restrict paths in `Blacklist.txt`.
+`execute_file` accepts only an explicit file, separate arguments, an optional working directory, timeout, and background mode. It uses `shell=False`, blocks known privilege frontends and inline interpreter code. `EXECUTE=ALLOW` is the first-run default, so an explicitly requested execution runs without confirmation—including under `sudo jarvis`, where the child process has root privileges. This combination is extremely powerful; choose `CONFIRM` in `jarvis-config` if desired and restrict paths in `Blacklist.txt`.
 
 During foreground generation or execution, `Ctrl+C` cancels only the current operation and keeps the chat open.
 
@@ -172,7 +172,7 @@ Conversations are stored in a local SQLite database. The five newest summaries a
 
 By default, logs are kept for 30 days and the folder is limited to 100 MB. Run `jarvis-config` to change either value. A value less than or equal to zero means unlimited. Expired and oldest logs are removed locally when needed. The database is private to your user account but is not encrypted, so conversations should not be treated as a password vault.
 
-The activity panel has five levels. `Essential`, the default, shows tools, commands, paths, and changed content; reads show only their target and metadata. `Minimal-Essential` shows only tools and states. `Server-Essential` adds server logs, `Full` includes complete technical diagnostics, and `None` keeps only the conversation and waiting messages. In `Full` and `Server-Essential`, Jarvis asks at session startup whether logs should be saved under `~/.local/state/jarvis/logs/runtime/`.
+The activity panel has five levels. `Minimal-Essential`, the default, shows only tools and states. `Essential` also shows commands, paths, and changed content; reads show only their target and metadata. `Server-Essential` adds server logs, `Full` includes complete technical diagnostics, and `None` keeps only the conversation and waiting messages. Terminal colors default to `always`; both the panel level and color mode remain configurable. In `Full` and `Server-Essential`, Jarvis asks at session startup whether logs should be saved under `~/.local/state/jarvis/logs/runtime/`.
 
 Edit [WaitingMessages.txt](WaitingMessages.txt) to customize the short messages shown while the model is working. On startup, Jarvis randomly selects a non-empty line and then advances through the list in circular order every 5–10 seconds. In interactive terminals, each message replaces the previous one on the same line. Leave the file empty to disable them.
 

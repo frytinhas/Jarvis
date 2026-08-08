@@ -117,13 +117,15 @@ def test_environment_values_do_not_override_xml(tmp_path: Path, monkeypatch) -> 
 
 def test_new_lifecycle_defaults() -> None:
     settings = default_config().settings
-    assert settings.keep_llm_running is False
+    assert settings.keep_llm_running is True
     assert settings.message_mode is MessageMode.INTERACTIVE
     assert settings.max_tool_rounds == 128
     assert settings.interaction_timeout_seconds == 600
     assert settings.llm_request_timeout_seconds == 120
     assert settings.default_reasoning_level == 2
-    assert settings.display_log_level.value == "Essential"
+    assert settings.display_log_level.value == "Minimal-Essential"
+    assert settings.color_mode is ColorMode.ALWAYS
+    assert settings.permissions[Risk.EXECUTE] is Decision.ALLOW
     assert settings.permissions[Risk.PRIVILEGED] is Decision.DENY
 
 
@@ -140,7 +142,9 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
     <message_mode>interactive</message_mode>
     <request_timeout_seconds>240</request_timeout_seconds>
   </behavior>""" + content[end:]
-    content = content.replace("<display_level>Essential</display_level>", "<level>DEBUG</level>")
+    content = content.replace(
+        "<display_level>Minimal-Essential</display_level>", "<level>DEBUG</level>"
+    )
     appearance_start = content.index("  <appearance>")
     appearance_end = content.index("  </appearance>") + len("  </appearance>\n")
     content = content[:appearance_start] + content[appearance_end:]

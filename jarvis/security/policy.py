@@ -24,7 +24,7 @@ class PolicyEngine:
         Risk.CREATE: Decision.ALLOW,
         Risk.MODIFY: Decision.CONFIRM,
         Risk.DELETE: Decision.CONFIRM,
-        Risk.EXECUTE: Decision.CONFIRM,
+        Risk.EXECUTE: Decision.ALLOW,
         Risk.PRIVILEGED: Decision.DENY,
     }
 
