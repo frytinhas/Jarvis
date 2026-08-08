@@ -9,6 +9,14 @@ def test_default_personality_is_formal_and_concise() -> None:
     assert "Avoid jargon" in SYSTEM_PROMPT
 
 
+def test_default_context_encourages_proportional_autonomy() -> None:
+    assert "Avoid obvious, repetitive or unnecessary clarification questions" in SYSTEM_PROMPT
+    assert "complete ordinary, non-extreme tasks autonomously" in SYSTEM_PROMPT
+    assert "which relevant logs to inspect" in SYSTEM_PROMPT
+    assert "Keep simple answers simple" in SYSTEM_PROMPT
+    assert "never overrides tool schemas, the Policy Engine" in SYSTEM_PROMPT
+
+
 def test_configured_name_overrides_persona_name(tmp_path: Path) -> None:
     persona = tmp_path / "Persona.md"
     persona.write_text("Your name is WrongName.", encoding="utf-8")
