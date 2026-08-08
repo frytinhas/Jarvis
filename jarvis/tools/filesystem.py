@@ -1,30 +1,47 @@
 from __future__ import annotations
 
 import fnmatch
+import os
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, Callable
 
 from jarvis.security.validator import resolve_path, validate_rename_name, validate_write_path
 
 
 MAX_READ_BYTES = 1_000_000
+ReadPredicate = Callable[[Path], bool]
 
 
-def list_directory(path: str, recursive: bool = False) -> dict[str, Any]:
+def list_directory(
+    path: str,
+    recursive: bool = False,
+    can_read: ReadPredicate | None = None,
+) -> dict[str, Any]:
     target = resolve_path(path)
     if not target.is_dir():
         raise NotADirectoryError(str(target))
-    iterator = target.rglob("*") if recursive else target.iterdir()
-    entries = []
-    for item in sorted(iterator, key=lambda value: str(value))[:1000]:
-        entries.append(
-            {
-                "path": str(item),
-                "name": item.name,
-                "type": "directory" if item.is_dir() else "file" if item.is_file() else "other",
-            }
-        )
+    allowed = can_read or (lambda _: True)
+    entries: list[dict[str, str]] = []
+    if recursive:
+        for root, directory_names, file_names in os.walk(target, topdown=True, followlinks=False):
+            root_path = Path(root)
+            directory_names[:] = sorted(
+                name for name in directory_names if allowed((root_path / name).resolve(strict=False))
+            )
+            for name in directory_names + sorted(file_names):
+                item = root_path / name
+                if not allowed(item.resolve(strict=False)):
+                    continue
+                entries.append(_entry(item))
+                if len(entries) == 1000:
+                    return {"path": str(target), "entries": entries, "truncated": True}
+    else:
+        for item in sorted(target.iterdir(), key=lambda value: str(value)):
+            if allowed(item.resolve(strict=False)):
+                entries.append(_entry(item))
+            if len(entries) == 1000:
+                break
     return {"path": str(target), "entries": entries, "truncated": len(entries) == 1000}
 
 
@@ -54,17 +71,42 @@ def file_info(path: str) -> dict[str, Any]:
     }
 
 
-def search_files(path: str, pattern: str, max_results: int = 100) -> dict[str, Any]:
+def search_files(
+    path: str,
+    pattern: str,
+    max_results: int = 100,
+    can_read: ReadPredicate | None = None,
+) -> dict[str, Any]:
     target = resolve_path(path)
     if not target.is_dir():
         raise NotADirectoryError(str(target))
+    allowed = can_read or (lambda _: True)
     matches: list[str] = []
-    for item in target.rglob("*"):
-        if fnmatch.fnmatch(item.name, pattern):
-            matches.append(str(item))
-            if len(matches) >= max_results:
-                break
+    for root, directory_names, file_names in os.walk(target, topdown=True, followlinks=False):
+        root_path = Path(root)
+        directory_names[:] = sorted(
+            name for name in directory_names if allowed((root_path / name).resolve(strict=False))
+        )
+        for name in directory_names + sorted(file_names):
+            item = root_path / name
+            if allowed(item.resolve(strict=False)) and fnmatch.fnmatch(name, pattern):
+                matches.append(str(item))
+                if len(matches) >= max_results:
+                    return {
+                        "path": str(target),
+                        "pattern": pattern,
+                        "matches": matches,
+                        "truncated": True,
+                    }
     return {"path": str(target), "pattern": pattern, "matches": matches, "truncated": len(matches) >= max_results}
+
+
+def _entry(item: Path) -> dict[str, str]:
+    return {
+        "path": str(item),
+        "name": item.name,
+        "type": "directory" if item.is_dir() else "file" if item.is_file() else "other",
+    }
 
 
 def create_file(path: str) -> dict[str, Any]:
@@ -123,4 +165,3 @@ def delete_directory(path: str) -> dict[str, Any]:
         raise NotADirectoryError(str(target))
     target.rmdir()
     return {"path": str(target), "deleted": True}
-

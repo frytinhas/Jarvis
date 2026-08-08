@@ -21,13 +21,21 @@ def confirmation_intent(text: str) -> bool | None:
 
 
 class TerminalUI:
-    def __init__(self, orchestrator: Orchestrator, assistant_name: str = "Jarvis") -> None:
+    def __init__(
+        self,
+        orchestrator: Orchestrator,
+        assistant_name: str = "Jarvis",
+        startup_warning: str | None = None,
+    ) -> None:
         self.orchestrator = orchestrator
         self.assistant_name = assistant_name
+        self.startup_warning = startup_warning
 
     def run(self, initial_message: str | None = None, continue_after_initial: bool = True) -> None:
         mark = "\033[38;5;208m◉\033[0m" if sys.stdout.isatty() else "◉"
         print(f"{mark} {self.assistant_name} local. Digite /sair para encerrar.")
+        if self.startup_warning:
+            print(f"AVISO: {self.startup_warning}")
         if initial_message:
             self._handle(initial_message)
             if not continue_after_initial:

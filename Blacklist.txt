@@ -1,0 +1,31 @@
+# JARVIS PATH PERMISSIONS / PERMISSÕES DE PATH DO JARVIS
+#
+# One rule per line / Uma regra por linha:
+# path READ MODIFY CREATE DELETE EXECUTE
+# caminho LER MODIFICAR CRIAR DELETAR EXECUTAR
+#
+# Write the five permissions as one code, in that exact order.
+# Escreva as cinco permissões em um único código, exatamente nessa ordem.
+#
+#   0 = denied / negado
+#   1 = allowed after confirmation / permitido após confirmação
+#   2 = allowed without confirmation / permitido sem confirmação
+#   - = inherit the value from an earlier matching rule / herdar da regra correspondente anterior
+#
+# Short codes omit trailing positions. Any position that was never defined defaults to 0.
+# Códigos curtos omitem as posições finais. Toda posição nunca definida assume 0.
+#
+# Rules are read from top to bottom. A later matching line has priority for the
+# positions it declares, even when it refers to a parent directory.
+# As regras são lidas de cima para baixo. Uma linha correspondente posterior tem
+# prioridade nas posições declaradas, mesmo quando aponta para uma pasta-pai.
+#
+# Examples / Exemplos:
+# ~/UnrealProjects 21202
+# ~/UnrealProjects/Private 0----
+# ~/A folder with spaces 20000
+#
+# Rules can only restrict the permissions selected in jarvis-config. They never
+# grant broader access. The Jarvis project directory is always read-only for tools.
+# As regras apenas restringem as permissões do jarvis-config e nunca ampliam acesso.
+# A pasta do projeto Jarvis é sempre somente leitura para as tools.

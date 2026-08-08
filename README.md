@@ -4,7 +4,7 @@
 
 # Jarvis Local
 
-Jarvis is a local Ubuntu assistant powered by a GGUF model running through `llama.cpp`. The language model only plans requests: file and system access always goes through the application's validated tools and permission policy.
+Jarvis is a local Linux assistant powered by a GGUF model running through `llama.cpp`. The language model only plans requests: file and system access always goes through the application's validated tools and permission policy.
 
 Portuguese documentation: [README.pt-BR.md](README.pt-BR.md)
 
@@ -17,6 +17,8 @@ bash Setup.sh
 ```
 
 The setup only installs Jarvis, its Python environment, the llama server and the configuration command. When installation finishes, it automatically starts the configuration wizard.
+
+The automatic installer is officially supported on Debian, Ubuntu and their derivatives. Jarvis may work on other Linux distributions, but that setup path has not been tested and system dependencies may need to be installed manually.
 
 The wizard asks, in order, for:
 
@@ -49,7 +51,7 @@ bob "list the files in my Downloads folder"
 
 The custom name changes the public command, terminal labels and assistant identity. Internal project files and services remain named Jarvis. Run `jarvis-config` at any time to reconfigure it.
 
-Jarvis also appears in Ubuntu's application menu with its icon. Opening it there starts the same terminal assistant.
+On compatible desktop environments, Jarvis also appears in the application menu with its icon. Opening it there starts the same terminal assistant.
 
 ## Chat and model server
 
@@ -84,6 +86,21 @@ Permissions are configured by category:
 
 The first-run defaults allow `READ` and `CREATE` without confirmation. `MODIFY`, `DELETE` and `EXECUTE` require confirmation. Critical paths and privileged actions remain blocked regardless of these choices.
 
+### Permissions by file or folder
+
+Edit [Blacklist.txt](Blacklist.txt) to make permissions stricter for particular paths. Each line contains a file or directory followed by a five-position code in this order:
+
+```text
+path READ MODIFY CREATE DELETE EXECUTE
+~/UnrealProjects 21202
+```
+
+`0` denies the operation, `1` requires confirmation and `2` permits it without confirmation. A short code leaves trailing positions unspecified, while `-` inherits an individual position from an earlier matching rule. Any position never defined defaults to `0`.
+
+Rules are processed from top to bottom. A later matching line overrides the positions it declares, including when that later line refers to a parent directory. These rules can only restrict the permissions selected in `jarvis-config`; they never grant broader access.
+
+The file is checked when a new chat starts. If it is missing or invalid, all file-based tools are disabled until it is corrected and a new chat is opened. The Jarvis project directory itself is permanently read-only to tools.
+
 ## Personality
 
 Edit [Persona.md](Persona.md) to change tone and behavior. It is written in English by default, but may contain instructions in any language. The name selected in `jarvis-config` always overrides names written in the persona. The wizard can restore the original persona after confirmation.
@@ -100,3 +117,9 @@ Use an instruct/chat GGUF model, preferably a `Q4_K_M` quantization. Lightweight
 Larger alternatives such as Qwen3 8B or Gemma 4 12B generally require more memory. Tool-calling quality depends on the selected model and its chat template.
 
 Never start the model with `--tools all`; Jarvis must remain the only layer allowed to execute protected tools.
+
+## Disclaimer
+
+This is a vibe-coded experimental project provided without warranties. Use it entirely at your own risk. Neither the project author nor the AI that assisted in producing it accepts responsibility for data loss, system damage or any other consequence caused by its use.
+
+Jarvis only intermediates between you, the configured language model and its controlled local tools. With the default local endpoint, prompts, tool results and audit data remain on your computer, and the project includes no telemetry or intentional prompt-sharing mechanism. Installation still downloads dependencies, and configuring a remote model endpoint may send information to that endpoint under its own terms. No malicious behavior was intentionally included, but this is not a guarantee that the software is free of defects or vulnerabilities.

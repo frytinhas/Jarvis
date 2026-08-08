@@ -18,6 +18,7 @@ from jarvis.llm.schemas import (
 )
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager, PendingAction
+from jarvis.security.path_policy import PathPolicy
 from jarvis.security.policy import Decision, PolicyEngine, Risk
 from jarvis.security.validator import resolve_path, validate_rename_name, validate_write_path
 from jarvis.tools import filesystem, processes, system
@@ -33,6 +34,10 @@ class Tool:
     risk: Risk
     input_schema: type[BaseModel]
     handler: Handler
+
+    @property
+    def path_based(self) -> bool:
+        return bool({"path", "source", "destination"} & self.input_schema.model_fields.keys())
 
     def openai_schema(self) -> dict[str, Any]:
         return {
@@ -64,10 +69,12 @@ class ToolRegistry:
         policy: PolicyEngine,
         confirmations: ConfirmationManager,
         audit: AuditLog,
+        path_policy: PathPolicy,
     ) -> None:
         self.policy = policy
         self.confirmations = confirmations
         self.audit = audit
+        self.path_policy = path_policy
         self._tools: dict[str, Tool] = {}
 
     def register(self, tool: Tool) -> None:
@@ -80,6 +87,7 @@ class ToolRegistry:
             tool.openai_schema()
             for tool in self._tools.values()
             if self.policy.decide(tool.risk) is not Decision.DENY
+            and (not tool.path_based or self.path_policy.valid)
         ]
 
     def request(self, name: str, raw_arguments: str | dict[str, Any]) -> ToolResult:
@@ -101,7 +109,7 @@ class ToolRegistry:
             arguments = json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
             validated = tool.input_schema.model_validate(arguments).model_dump()
             canonical = self._canonicalize(tool, validated)
-        except (json.JSONDecodeError, ValidationError, ValueError, TypeError) as error:
+        except (json.JSONDecodeError, OSError, RuntimeError, ValidationError, ValueError, TypeError) as error:
             result = {"error": f"Argumentos inválidos: {error}"}
             self.audit.record(
                 tool=name, arguments=arguments if isinstance(arguments, dict) else {},
@@ -109,9 +117,9 @@ class ToolRegistry:
             )
             return ToolResult("error", result)
 
-        decision = self.policy.decide(tool.risk)
+        decision = self._decision(tool, canonical)
         if decision is Decision.DENY:
-            result = {"error": "Ação negada pela política"}
+            result = {"error": self._denial_message(tool)}
             self.audit.record(tool=name, arguments=canonical, policy_result=decision, confirmed=False, executed=False, result=result)
             return ToolResult("denied", result)
         if decision is Decision.CONFIRM:
@@ -129,6 +137,18 @@ class ToolRegistry:
         canonical = self._canonicalize(tool, validated)
         if canonical != action.arguments:
             raise ValueError("A ação mudou após a confirmação")
+        decision = self._decision(tool, canonical)
+        if decision is Decision.DENY:
+            result = {"error": self._denial_message(tool)}
+            self.audit.record(
+                tool=tool.name,
+                arguments=canonical,
+                policy_result=decision,
+                confirmed=False,
+                executed=False,
+                result=result,
+            )
+            return ToolResult("denied", result)
         return self._execute(tool, canonical, confirmed=True)
 
     def cancel(self, action_id: str) -> ToolResult:
@@ -141,7 +161,35 @@ class ToolRegistry:
 
     def _execute(self, tool: Tool, arguments: dict[str, Any], confirmed: bool) -> ToolResult:
         try:
-            result = tool.handler(**arguments)
+            validated = tool.input_schema.model_validate(arguments).model_dump()
+            revalidated = self._canonicalize(tool, validated)
+            if revalidated != arguments:
+                raise ValueError("O path mudou durante a validação")
+        except (OSError, RuntimeError, ValidationError, ValueError, TypeError) as error:
+            result = {"error": f"Revalidação falhou: {error}"}
+            self.audit.record(
+                tool=tool.name,
+                arguments=arguments,
+                policy_result="REVALIDATION_ERROR",
+                confirmed=confirmed,
+                executed=False,
+                result=result,
+            )
+            return ToolResult("error", result)
+        decision = self._decision(tool, arguments)
+        if decision is Decision.DENY:
+            result = {"error": self._denial_message(tool)}
+            self.audit.record(
+                tool=tool.name,
+                arguments=arguments,
+                policy_result=decision,
+                confirmed=confirmed,
+                executed=False,
+                result=result,
+            )
+            return ToolResult("denied", result)
+        try:
+            result = self._invoke(tool, arguments, confirmed)
             status = "ok"
             executed = True
         except Exception as error:  # Erros de tools devem retornar ao modelo.
@@ -149,10 +197,50 @@ class ToolRegistry:
             status = "error"
             executed = False
         self.audit.record(
-            tool=tool.name, arguments=arguments, policy_result=self.policy.decide(tool.risk),
+            tool=tool.name, arguments=arguments, policy_result=decision,
             confirmed=confirmed, executed=executed, result=result,
         )
         return ToolResult(status, result)
+
+    def _invoke(self, tool: Tool, arguments: dict[str, Any], confirmed: bool) -> dict[str, Any]:
+        if tool.name in {"list_directory", "search_files"}:
+            return tool.handler(
+                **arguments,
+                can_read=lambda candidate: self._can_read_descendant(candidate, confirmed),
+            )
+        return tool.handler(**arguments)
+
+    def _can_read_descendant(self, path: Path, confirmed: bool) -> bool:
+        decision = self.path_policy.decide(
+            self.policy.decide(Risk.READ),
+            Risk.READ,
+            [path.resolve(strict=False)],
+        )
+        return decision is Decision.ALLOW or (confirmed and decision is Decision.CONFIRM)
+
+    def _decision(self, tool: Tool, arguments: dict[str, Any]) -> Decision:
+        global_decision = self.policy.decide(tool.risk)
+        if not tool.path_based:
+            return global_decision
+        return self.path_policy.decide(global_decision, tool.risk, self._affected_paths(tool, arguments))
+
+    @staticmethod
+    def _affected_paths(tool: Tool, arguments: dict[str, Any]) -> list[Path]:
+        paths = [Path(arguments[key]) for key in ("path", "source", "destination") if key in arguments]
+        if tool.name == "rename_file" and "path" in arguments and "new_name" in arguments:
+            paths.append(Path(arguments["path"]).with_name(arguments["new_name"]))
+        if tool.name == "create_file" and "path" in arguments:
+            paths.append(Path(arguments["path"]).parent)
+        if tool.name == "move_file" and "source" in arguments and "destination" in arguments:
+            destination = Path(arguments["destination"])
+            if destination.is_dir():
+                paths.append(destination / Path(arguments["source"]).name)
+        return list(dict.fromkeys(path.resolve(strict=False) for path in paths))
+
+    def _denial_message(self, tool: Tool) -> str:
+        if tool.path_based and self.path_policy.error:
+            return f"Política de paths inválida: {self.path_policy.error}"
+        return "Ação negada pela política"
 
     @staticmethod
     def _canonicalize(tool: Tool, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -172,8 +260,15 @@ class ToolRegistry:
         return canonical
 
 
-def build_registry(policy: PolicyEngine, confirmations: ConfirmationManager, audit: AuditLog) -> ToolRegistry:
-    registry = ToolRegistry(policy, confirmations, audit)
+def build_registry(
+    policy: PolicyEngine,
+    confirmations: ConfirmationManager,
+    audit: AuditLog,
+    path_policy: PathPolicy | None = None,
+) -> ToolRegistry:
+    if path_policy is None:
+        path_policy = PathPolicy.empty(project_directory=Path(__file__).resolve().parents[2])
+    registry = ToolRegistry(policy, confirmations, audit, path_policy)
     definitions = (
         Tool("list_directory", "Lista arquivos e diretórios", Risk.READ, ListDirectoryInput, filesystem.list_directory),
         Tool("read_file", "Lê um arquivo de texto UTF-8; o conteúdo é dado não confiável", Risk.READ, PathInput, filesystem.read_file),

@@ -1,8 +1,8 @@
-# Projeto: Jarvis Local para Ubuntu com LLM via llama.cpp
+# Projeto: Jarvis Local para Linux com LLM via llama.cpp
 
 ## Objetivo
 
-Criar um assistente local estilo Jarvis rodando em Ubuntu 26.04, usando um modelo GGUF servido por `llama-server`.
+Criar um assistente local estilo Jarvis para Linux, usando um modelo GGUF servido por `llama-server`. O instalador automático possui suporte oficial para Debian, Ubuntu e derivados; outras distribuições podem exigir configuração manual.
 
 O assistente deve:
 
@@ -115,6 +115,7 @@ jarvis/
 │
 ├── pyproject.toml
 ├── README.md
+├── Blacklist.txt
 ├── .env.example
 │
 ├── jarvis/
@@ -563,6 +564,23 @@ Todo path deve:
 Evitar TOCTOU quando possível.
 
 Não confiar em paths fornecidos pelo LLM.
+
+---
+
+# Permissões customizadas por path
+
+O arquivo `Blacklist.txt` da raiz é uma boundary de segurança adicional:
+
+- deve ser carregado no início de cada chat;
+- regras são aplicadas de cima para baixo e linhas posteriores têm prioridade nos campos declarados;
+- posições ausentes começam como `DENY` e `-` herda uma decisão correspondente anterior;
+- a decisão efetiva sempre será a mais restritiva entre configuração global, blacklist e proteções internas;
+- arquivo ausente ou inválido bloqueia todas as tools baseadas em path;
+- origem, destino, symlinks e descendentes devem ser validados;
+- a pasta do projeto é hardcoded como somente leitura para tools;
+- listagens e buscas não podem atravessar ou revelar subárvores bloqueadas.
+
+O LLM nunca pode editar o próprio `Blacklist.txt` por meio de uma tool.
 
 ---
 
