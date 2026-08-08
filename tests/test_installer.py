@@ -2,7 +2,8 @@ from pathlib import Path
 
 from jarvis.config import AdvancedConfig, JarvisConfig, load_config, save_config
 from jarvis.installer import clone_config_for_root
-from jarvis.settings import UserSettings
+from jarvis.security.policy import Decision, Risk
+from jarvis.settings import UserSettings, editable_paths
 
 
 def test_root_configuration_is_independent_and_uses_private_paths(tmp_path: Path) -> None:
@@ -34,8 +35,10 @@ def test_root_configuration_is_independent_and_uses_private_paths(tmp_path: Path
 
     cloned = load_config(target)
     assert cloned.settings.model_path == model
-    assert cloned.settings.permissions == original.settings.permissions
-    assert cloned.settings.persona_path == root_project / "Persona.md"
+    assert cloned.settings.permissions[Risk.READ] is Decision.ALLOW
+    assert cloned.settings.permissions[Risk.DELETE] is Decision.CONFIRM
+    assert cloned.settings.permissions[Risk.PRIVILEGED] is Decision.DENY
+    assert cloned.settings.persona_path == editable_paths(root_home / ".config/jarvis")["persona"]
     assert cloned.advanced.audit_db_path == root_home / ".local/state/jarvis/audit.db"
     assert cloned.advanced.llm_api_key == "private-key"
     assert target.stat().st_mode & 0o777 == 0o600

@@ -100,10 +100,10 @@ As definições atuais ficam centralizadas em `build_registry()`:
 | `get_current_directory` | `READ` | informa o diretório de invocação atual |
 | `get_user_directories` | `READ` | descobre HOME e pastas XDG |
 | `search_conversation_logs` | `READ` | busca memória local quando habilitada |
-| `create_file` | `CREATE` | cria arquivo vazio |
+| `create_file` | `CREATE` | cria arquivo novo, opcionalmente já com conteúdo |
 | `create_directory` | `CREATE` | cria diretório |
-| `write_file` | `MODIFY` | substitui conteúdo |
-| `append_file` | `MODIFY` | acrescenta conteúdo |
+| `write_file` | `MODIFY` | substitui conteúdo de arquivo existente |
+| `append_file` | `MODIFY` | acrescenta conteúdo a arquivo existente |
 | `move_file` | `MODIFY` | move arquivo |
 | `rename_file` | `MODIFY` | renomeia arquivo |
 | `delete_file` | `DELETE` | apaga arquivo |

@@ -8,6 +8,10 @@ from threading import Event, Thread
 from typing import Callable, Iterator, TextIO
 
 
+def default_waiting_messages_path() -> Path:
+    return Path(__file__).with_name("default_waiting_messages.txt")
+
+
 def load_waiting_messages(path: Path) -> list[str]:
     try:
         return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]

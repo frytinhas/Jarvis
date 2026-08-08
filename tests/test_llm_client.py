@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import httpx
+import pytest
 
-from jarvis.llm.client import LlamaClient
+from jarvis.llm.client import LLMHTTPError, LlamaClient
 
 
 def test_client_uses_configured_v1_chat_completions_route() -> None:
@@ -100,3 +101,28 @@ def test_client_allows_per_request_reasoning_override() -> None:
         client.chat([{"role": "user", "content": "oi"}], [], thinking_budget_tokens=0)
 
     assert observed["thinking_budget_tokens"] == 0
+
+
+def test_client_retries_once_without_known_incompatible_thinking_field() -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.read())
+        payloads.append(payload)
+        if "thinking_budget_tokens" in payload:
+            return httpx.Response(400, text="unknown parameter thinking_budget_tokens")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler)) as client:
+        assert client.chat([{"role": "user", "content": "oi"}], []).content == "ok"
+    assert len(payloads) == 2
+    assert "thinking_budget_tokens" not in payloads[1]
+
+
+def test_client_reports_sanitized_http_error() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="invalid request api_key=secret-value")
+
+    with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(LLMHTTPError, match=r"HTTP 400.*api_key=\[redacted\]"):
+            client.chat([{"role": "user", "content": "oi"}], [])

@@ -24,7 +24,7 @@ O Setup deve ser executado como usuário normal. Ele também cria uma instalaç�
 
 A configuração administrativa começa como uma cópia independente da configuração escolhida no Setup e fica em `/root/.config/jarvis/config.xml`. Estado, runtime, logs e auditoria ficam em `/root/.local/state/jarvis`. Use `sudo jarvis-config` para alterá-la sem afetar a configuração do usuário normal.
 
-Executar como root amplia o alcance das tools. O Tool Router, as confirmações, a blacklist, os paths críticos e a proibição de ações `PRIVILEGED` continuam ativos, mas use esse comando somente quando o acesso administrativo for necessário.
+Executar como root amplia o alcance das tools. Toda inicialização root exibe aviso e exige digitar `ciente`; Tool Router, confirmações, whitelist, blacklist, paths críticos e a proibição de ações `PRIVILEGED` continuam ativos. Use esse comando somente quando o acesso administrativo for necessário.
 
 O configurador possui dez entradas: Modelo e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Aparência, Persona e contexto, Salvar e sair, e Sair sem salvar. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
 
@@ -86,6 +86,7 @@ Os comandos locais possuem autocomplete com Tab e nunca são enviados ao modelo:
 - `/help`: mostra os comandos disponíveis.
 - `/reasoning`: consulta ou altera o reasoning.
 - `/model`: lista ou seleciona um GGUF da pasta configurada. A troca pode reiniciar o servidor imediatamente ou ficar pendente para a próxima execução.
+- `/permissions`: mostra o resumo das permissões globais. Use `/permissions exec confirmation`, `/permissions read allow` e pares equivalentes de categoria/decisão para alterar e salvar uma permissão imediatamente.
 - `/config`: mostra um resumo somente leitura.
 - `/clear`: limpa a tela sem apagar o contexto.
 - `/license`: exibe a GPL completa.
@@ -130,12 +131,16 @@ A mensagem inicial pode continuar no chat depois da primeira resposta, que é o 
 ## Permissões
 
 - `READ`: consultar arquivos e informações do sistema.
-- `CREATE`: criar arquivos e diretórios.
-- `MODIFY`: escrever, adicionar conteúdo, mover e renomear.
+- `CREATE`: criar arquivos novos, opcionalmente já com conteúdo, e diretórios.
+- `MODIFY`: substituir ou adicionar conteúdo em arquivos existentes, mover e renomear.
 - `DELETE`: apagar arquivos e diretórios vazios.
 - `EXECUTE`: executar um script `.sh` ou binário informado por path, sem shell genérico.
 
 Por padrão, `READ`, `CREATE` e `EXECUTE` não pedem confirmação. `MODIFY` e `DELETE` pedem. Paths críticos e ações privilegiadas permanecem bloqueados independentemente da configuração.
+
+Dentro de um chat, `/permissions` mostra os valores globais. Altere um deles com `/permissions CATEGORIA DECISÃO`; as categorias aceitam `read`, `create`, `modify` (ou `write`), `delete` e `exec` (ou `execute`), enquanto as decisões aceitam `allow`, `confirmation` (ou `confirm`) e `deny`. A mudança é salva e aplicada imediatamente à sessão atual. `PRIVILEGED` permanece fixo em `DENY`, e a `Blacklist.txt` junto das proteções internas ainda pode tornar a decisão efetiva para um path mais restritiva.
+
+Criar um script novo com seu conteúdo inicial é uma única ação `CREATE`. Ela não exige `MODIFY`, portanto ocorre sem confirmação quando `CREATE=ALLOW`; tentar substituir um arquivo existente continua sendo `MODIFY` e segue a decisão dessa categoria.
 
 O Jarvis não deve perguntar em texto se pode usar uma tool. Tools `READ` permitidas são chamadas diretamente; ações configuradas como `CONFIRM` produzem a confirmação vinculada aos argumentos exatos pelo Policy Engine. Pedidos de especificações locais obrigam a consulta de hardware real e, se ela falhar, nenhum componente é presumido. Arquivos grandes podem ser lidos em partes.
 
@@ -145,7 +150,11 @@ Durante uma geração ou execução em primeiro plano, `Ctrl+C` cancela somente 
 
 ### Permissões por arquivo ou pasta
 
-Edite [Blacklist.txt](Blacklist.txt) para tornar as permissões mais restritas em paths específicos. Cada linha contém um arquivo ou diretório seguido de um código com cinco posições nesta ordem:
+Os recursos editáveis são privados de cada instalação: `~/.config/jarvis/Persona.md`, `Context.md`, `WaitingMessages.txt`, `Blacklist.txt` e `Whitelist.txt` (ou seus equivalentes independentes em `/root/.config/jarvis/`). Use `jarvis --persona`, `--context`, `--waiting-messages`, `--blacklist` ou `--whitelist` para abrir exclusivamente o arquivo correspondente no `nano`.
+
+`Whitelist.txt` fecha as tools de filesystem por padrão: todo path precisa estar dentro de uma entrada absoluta permitida. As entradas iniciais são `$HOME` e `/mnt`. Paths fora dela são negados antes das regras da blacklist.
+
+Edite `Blacklist.txt` para tornar as permissões mais restritas em paths específicos. Cada linha contém um arquivo ou diretório seguido de um código com cinco posições nesta ordem:
 
 ```text
 caminho LER MODIFICAR CRIAR DELETAR EXECUTAR
@@ -160,7 +169,7 @@ O arquivo é verificado quando um novo chat começa. Se estiver ausente ou invá
 
 ## Contexto e memória local
 
-Edite [Context.md](Context.md) para ensinar referências e hábitos de trabalho ao Jarvis sem alterar sua personalidade. O contexto padrão orienta o assistente a localizar pastas como Documentos dentro da HOME, testar variações seguras de nomes e usar tools READ antes de fazer perguntas que ele consegue resolver localmente. As regras de segurança sempre possuem prioridade sobre esse arquivo.
+Edite o `Context.md` configurado com `jarvis --context` para ensinar referências e hábitos de trabalho ao Jarvis sem alterar sua personalidade. As regras de segurança sempre possuem prioridade sobre esse arquivo.
 
 O Jarvis salva um resumo privado e a conversa visível entre usuário e assistente em:
 
@@ -174,13 +183,13 @@ Por padrão, os logs são mantidos por 30 dias e a pasta possui limite de 100 MB
 
 O painel de atividade possui cinco níveis. `Minimal-Essential`, o padrão, mostra apenas tools e estados. `Essential` também mostra comandos, paths e o conteúdo alterado; leituras mostram somente alvo e metadados. `Server-Essential` acrescenta logs do servidor, `Full` inclui diagnóstico técnico completo e `None` mantém apenas a conversa e as mensagens de espera. As cores do terminal usam `always` por padrão; tanto o nível do painel quanto o modo de cores continuam configuráveis. Em `Full` e `Server-Essential`, o Jarvis pergunta no início da sessão se os logs devem ser salvos em `~/.local/state/jarvis/logs/runtime/`.
 
-Edite [WaitingMessages.txt](WaitingMessages.txt) para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Em terminais interativos, a mensagem atual substitui a anterior na mesma linha. Deixe o arquivo vazio para desativá-las.
+Edite o `WaitingMessages.txt` configurado com `jarvis --waiting-messages` para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Deixe o arquivo vazio para desativá-las.
 
 Cada interação permite até 128 ciclos de tools, possui 600 segundos de processamento ativo total e 120 segundos para cada chamada ao modelo. Esses valores configurados são informados ao modelo no início da sessão. O tempo aguardando uma confirmação humana não consome o limite total. Em `Essential`, `Server-Essential` e `Full`, a conclusão de cada tool mostra sua duração e, abaixo, o processamento acumulado, ambos comparados ao timeout total. Os ciclos podem ser alterados em `jarvis-config → Comportamento`, e os limites em `jarvis-config → Timeouts`.
 
 ## Personalidade
 
-Edite [Persona.md](Persona.md) para mudar o tom e o comportamento. O arquivo padrão está em inglês, mas pode receber instruções em qualquer idioma. O nome escolhido no Config sempre prevalece sobre nomes escritos na persona. O wizard também permite restaurar o conteúdo original mediante confirmação.
+Edite o `Persona.md` configurado com `jarvis --persona` para mudar o tom e o comportamento. O nome escolhido no Config sempre prevalece sobre nomes escritos na persona. O wizard também permite restaurar o conteúdo original mediante confirmação.
 
 ## Modelos sugeridos
 
@@ -199,7 +208,7 @@ Nunca inicie o modelo com `--tools all`; somente o Jarvis deve executar as tools
 
 Copyright (C) 2026 Jose Nunes.
 
-O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning` ou `/model` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
+O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
 
 Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
 

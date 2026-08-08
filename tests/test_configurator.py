@@ -67,6 +67,18 @@ def test_custom_command_replaces_owned_default_alias(tmp_path: Path, monkeypatch
     assert (local_bin / "bob").resolve() == launcher
 
 
+def test_root_configurator_does_not_manage_root_local_launchers(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("jarvis.configurator.os.geteuid", lambda: 0)
+    command = tmp_path / ".local/bin/jarvis"
+    command.parent.mkdir(parents=True)
+    command.symlink_to(tmp_path / "old/scripts/jarvis")
+
+    assert _inspect_command("jarvis") is None
+    _apply_command("jarvis", "jarvis")
+    assert command.is_symlink()
+
+
 def test_migrates_confirmed_broken_legacy_launcher(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("HOME", str(tmp_path))
     local_bin = tmp_path / ".local/bin"

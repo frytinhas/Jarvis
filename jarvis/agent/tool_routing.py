@@ -23,6 +23,8 @@ class ToolRoute:
 
 def route_user_request(text: str) -> ToolRoute:
     normalized = _normalize(text)
+    if _requests_broad_root_search(normalized):
+        return ToolRoute(frozenset(), True, label="broad_filesystem_search")
     if _matches_system_info(normalized):
         return ToolRoute(frozenset({"get_system_info"}), True, label="system_info")
     if re.search(r"\b(processos?|processes|process list)\b", normalized):
@@ -85,6 +87,12 @@ def _has_concrete_target(text: str) -> bool:
         r"(?:chamado|chamada|named)\s+[\w.-]+",
         text,
     ))
+
+
+def _requests_broad_root_search(text: str) -> bool:
+    searching = bool(re.search(r"\b(liste|listar|procure|procurar|busque|buscar|encontre|find|search|list)\b", text))
+    broad_path = bool(re.search(r"(?:^|\s)(?:/|/home)(?:\s|$)", text))
+    return searching and broad_path
 
 
 def _normalize(text: str) -> str:

@@ -42,6 +42,7 @@ jarvis "what are my computer specifications?"
 Basic commands inside Jarvis:
 
 - `/help` shows the available commands.
+- `/permissions` shows current permissions; for example, `/permissions exec confirmation` changes and saves one.
 - `/clear` clears the screen.
 - `/exit` closes the conversation.
 
@@ -51,15 +52,17 @@ To change the settings later, run:
 jarvis-config
 ```
 
+Private editable files can be opened with `jarvis --blacklist`, `--whitelist`, `--context`, `--persona`, or `--waiting-messages`.
+
 If you chose a different name during installation, use that name instead of `jarvis`.
 
-Jarvis may ask for confirmation before changing, deleting or running something. Read the displayed action before confirming it.
+Jarvis may ask for confirmation before changing, deleting or running something. Read the displayed action before confirming it. Path-specific restrictions may be stricter than the global values shown by `/permissions`.
 
 ## License
 
 Copyright (C) 2026 Jose Nunes.
 
-Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning` or `/model`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
+Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning`, `/model`, or `/permissions`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
 
 Distributions must retain the copyright and license notices, include the GPL, and make the corresponding source available as required by the license. Modified distributions must prominently identify their changes and the relevant dates. Models, `llama.cpp`, Python dependencies and other separately obtained third-party components remain governed by their own licenses.
 

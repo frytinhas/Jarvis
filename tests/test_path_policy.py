@@ -7,7 +7,7 @@ import pytest
 
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
-from jarvis.security.path_policy import PathPolicy, PathPolicyError, parse_path_rules
+from jarvis.security.path_policy import PathPolicy, PathPolicyError, parse_path_rules, parse_whitelist_rules
 from jarvis.security.policy import Decision, PolicyEngine, Risk
 from jarvis.tools.registry import ToolRegistry, build_registry
 
@@ -203,3 +203,28 @@ def test_audit_records_effective_path_decision(tmp_path: Path) -> None:
             "SELECT policy_result FROM tool_audit ORDER BY id DESC LIMIT 1"
         ).fetchone()[0]
     assert policy_result == "CONFIRM"
+
+
+def test_whitelist_is_required_and_blacklist_still_restricts(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    blocked = allowed / "blocked"
+    allowed.mkdir()
+    blocked.mkdir()
+    blacklist = tmp_path / "Blacklist.txt"
+    whitelist = tmp_path / "Whitelist.txt"
+    blacklist.write_text(f"{blocked} 0\n", encoding="utf-8")
+    whitelist.write_text(f"{allowed}\n", encoding="utf-8")
+    policy = PathPolicy.load(blacklist, project_directory=tmp_path / "project", whitelist_path=whitelist)
+
+    assert policy.decide(Decision.ALLOW, Risk.READ, [allowed]) is Decision.ALLOW
+    assert policy.decide(Decision.ALLOW, Risk.READ, [blocked]) is Decision.DENY
+    assert policy.decide(Decision.ALLOW, Risk.READ, [tmp_path / "outside"]) is Decision.DENY
+
+
+def test_missing_or_empty_whitelist_fails_closed(tmp_path: Path) -> None:
+    blacklist = tmp_path / "Blacklist.txt"
+    blacklist.write_text("# valid\n", encoding="utf-8")
+    missing = PathPolicy.load(blacklist, project_directory=tmp_path, whitelist_path=tmp_path / "missing")
+    assert not missing.valid
+    with pytest.raises(PathPolicyError):
+        parse_whitelist_rules("# no paths\n")

@@ -16,3 +16,24 @@ def test_configured_policy_can_disable_or_auto_allow_categories() -> None:
     assert policy.decide(Risk.READ) is Decision.DENY
     assert policy.decide(Risk.DELETE) is Decision.ALLOW
     assert policy.decide(Risk.PRIVILEGED) is Decision.DENY
+
+
+def test_policy_can_update_non_privileged_decision() -> None:
+    policy = PolicyEngine()
+
+    policy.set_decision(Risk.EXECUTE, Decision.CONFIRM)
+
+    assert policy.decide(Risk.EXECUTE) is Decision.CONFIRM
+
+
+def test_policy_rejects_privileged_update() -> None:
+    policy = PolicyEngine()
+
+    try:
+        policy.set_decision(Risk.PRIVILEGED, Decision.ALLOW)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("PRIVILEGED não pode ser alterado")
+
+    assert policy.decide(Risk.PRIVILEGED) is Decision.DENY

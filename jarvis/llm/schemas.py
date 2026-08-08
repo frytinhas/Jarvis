@@ -40,6 +40,10 @@ class PathInput(BaseModel):
     path: str
 
 
+class CreateFileInput(PathInput):
+    content: str = ""
+
+
 class ReadFileInput(PathInput):
     offset_bytes: int = Field(default=0, ge=0)
     max_bytes: int = Field(default=65_536, ge=1, le=1_000_000)

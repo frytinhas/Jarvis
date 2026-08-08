@@ -9,14 +9,31 @@ from jarvis.agent.orchestrator import Orchestrator
 from jarvis.config import JarvisConfig, config_path, save_config
 from jarvis.configurator import REASONING_LABELS, discover_models
 from jarvis.legal import license_text, schedule_license_notice
+from jarvis.security.policy import Decision, Risk
 from jarvis.settings import state_directory
 
 
 REASONING_LEVELS = {label.lower(): index for index, label in enumerate(REASONING_LABELS)}
+PERMISSION_RISKS = {
+    "read": Risk.READ,
+    "create": Risk.CREATE,
+    "modify": Risk.MODIFY,
+    "write": Risk.MODIFY,
+    "delete": Risk.DELETE,
+    "exec": Risk.EXECUTE,
+    "execute": Risk.EXECUTE,
+}
+PERMISSION_DECISIONS = {
+    "allow": Decision.ALLOW,
+    "confirm": Decision.CONFIRM,
+    "confirmation": Decision.CONFIRM,
+    "deny": Decision.DENY,
+}
+CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
 EXIT_COMMANDS = {"/exit", "/quit", "/sair"}
 LICENSE_COMMANDS = {"/license", "/licenca", "/licença"}
 COMMANDS = (
-    "/help", "/reasoning", "/model", "/config", "/clear", "/license", "/exit"
+    "/help", "/reasoning", "/model", "/permissions", "/config", "/clear", "/license", "/exit"
 )
 
 
@@ -57,6 +74,8 @@ class LocalCommands:
             return CommandResult(True, clear_screen=True)
         if command == "/config":
             return CommandResult(True, self._config_summary())
+        if command == "/permissions":
+            return self._permissions(argument)
         if command == "/reasoning":
             return self._reasoning(argument)
         if command == "/model":
@@ -72,6 +91,12 @@ class LocalCommands:
             candidates = [f"/reasoning {level}" for level in REASONING_LEVELS]
         elif lowered.startswith("/model "):
             candidates = [f"/model {label}" for label, _ in self._models()]
+        elif lowered.startswith("/permissions "):
+            candidates = [
+                f"/permissions {risk} {decision}"
+                for risk in ("read", "create", "modify", "delete", "exec")
+                for decision in ("allow", "confirmation", "deny")
+            ]
         else:
             candidates = list(COMMANDS)
         return [candidate for candidate in candidates if candidate.lower().startswith(lowered)]
@@ -142,11 +167,61 @@ class LocalCommands:
             ask_model_restart=True,
         )
 
+    def _permissions(self, argument: str) -> CommandResult:
+        if not argument:
+            rows = "\n".join(
+                f"- `{risk.value}`: **{self.config.settings.permissions[risk].value}**"
+                for risk in CONFIGURABLE_RISKS
+            )
+            return CommandResult(
+                True,
+                "## Permissões globais atuais\n\n"
+                f"{rows}\n"
+                "- `PRIVILEGED`: **DENY** (fixo)\n\n"
+                "A `Blacklist.txt` e os bloqueios internos podem tornar a decisão mais "
+                "restritiva para um path específico.",
+            )
+        try:
+            arguments = shlex.split(argument)
+        except ValueError as error:
+            return CommandResult(True, f"Parâmetros inválidos: {error}")
+        if len(arguments) != 2:
+            return CommandResult(
+                True,
+                "Uso: `/permissions read|create|modify|delete|exec "
+                "allow|confirmation|deny`.",
+            )
+        risk_name, decision_name = (value.lower() for value in arguments)
+        risk = PERMISSION_RISKS.get(risk_name)
+        if risk is None:
+            return CommandResult(
+                True,
+                "Categoria inválida. Use: read, create, modify, delete ou exec.",
+            )
+        decision = PERMISSION_DECISIONS.get(decision_name)
+        if decision is None:
+            return CommandResult(
+                True,
+                "Decisão inválida. Use: allow, confirmation ou deny.",
+            )
+        if self.config.settings.permissions[risk] is decision:
+            return CommandResult(True, f"`{risk.value}` já está como **{decision.value}**.")
+        permissions = dict(self.config.settings.permissions)
+        permissions[risk] = decision
+        self._persist_settings(permissions=permissions)
+        self.orchestrator.set_permission_decision(risk, decision)
+        return CommandResult(
+            True,
+            f"Permissão `{risk.value}` alterada para **{decision.value}**, aplicada nesta sessão "
+            f"e salva em `{config_path()}`.",
+        )
+
     def _help(self) -> str:
         return """## Comandos locais
 
 - `/reasoning off|low|medium|high|max` — altera e salva o reasoning.
 - `/model [modelo]` — lista ou seleciona um GGUF.
+- `/permissions [categoria decisão]` — consulta ou altera permissões.
 - `/config` — mostra a configuração atual.
 - `/clear` — limpa a tela sem apagar o contexto.
 - `/license` — mostra a licença completa.

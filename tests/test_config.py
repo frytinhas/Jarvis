@@ -8,6 +8,7 @@ from jarvis.config import CONFIG_VERSION, ConfigFileError, JarvisConfig, default
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import MessageMode
 from jarvis.settings import ColorMode
+from jarvis.resources import ensure_private_resources
 
 
 def test_xml_config_round_trip_with_comments_and_private_mode(tmp_path: Path) -> None:
@@ -129,11 +130,29 @@ def test_new_lifecycle_defaults() -> None:
     assert settings.permissions[Risk.PRIVILEGED] is Decision.DENY
 
 
+def test_private_resources_are_created_with_private_permissions(tmp_path: Path) -> None:
+    settings = default_config().settings.model_copy(update={
+        "persona_path": tmp_path / "config/Persona.md",
+        "context_path": tmp_path / "config/Context.md",
+        "waiting_messages_path": tmp_path / "config/WaitingMessages.txt",
+        "blacklist_path": tmp_path / "config/Blacklist.txt",
+        "whitelist_path": tmp_path / "config/Whitelist.txt",
+    })
+    ensure_private_resources(settings)
+    for path in (
+        settings.persona_path, settings.context_path, settings.waiting_messages_path,
+        settings.blacklist_path, settings.whitelist_path,
+    ):
+        assert path.is_file()
+        assert path.stat().st_mode & 0o777 == 0o600
+    assert "/mnt" in settings.whitelist_path.read_text(encoding="utf-8")
+
+
 def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path) -> None:
     path = tmp_path / "config.xml"
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
-    content = content.replace('<jarvis version="7">', '<jarvis version="5">')
+    content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="5">')
     start = content.index("  <behavior>")
     end = content.index("  </behavior>") + len("  </behavior>")
     content = content[:start] + """  <behavior>
@@ -148,6 +167,9 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
     appearance_start = content.index("  <appearance>")
     appearance_end = content.index("  </appearance>") + len("  </appearance>\n")
     content = content[:appearance_start] + content[appearance_end:]
+    paths_start = content.index("  <paths>")
+    paths_end = content.index("  </paths>") + len("  </paths>\n")
+    content = content[:paths_start] + "  <paths>\n    <persona>/tmp/Persona.md</persona>\n  </paths>\n" + content[paths_end:]
     path.write_text(content, encoding="utf-8")
 
     migrated = load_config(path)
@@ -159,7 +181,7 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
 
     save_config(migrated, path)
     upgraded = path.read_text(encoding="utf-8")
-    assert '<jarvis version="7">' in upgraded
+    assert f'<jarvis version="{CONFIG_VERSION}">' in upgraded
     assert "<display_level>Essential</display_level>" in upgraded
 
 
@@ -167,11 +189,17 @@ def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
     path = tmp_path / "config.xml"
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8").replace(
-        '<jarvis version="7">', '<jarvis version="6">'
+        f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="6">'
     )
     start = content.index("  <appearance>")
     end = content.index("  </appearance>") + len("  </appearance>\n")
-    path.write_text(content[:start] + content[end:], encoding="utf-8")
+    content = content[:start] + content[end:]
+    paths_start = content.index("  <paths>")
+    paths_end = content.index("  </paths>") + len("  </paths>\n")
+    path.write_text(
+        content[:paths_start] + "  <paths>\n    <persona>/tmp/Persona.md</persona>\n  </paths>\n" + content[paths_end:],
+        encoding="utf-8",
+    )
 
     migrated = load_config(path)
 

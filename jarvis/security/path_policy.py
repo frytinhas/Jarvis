@@ -31,10 +31,12 @@ class PathPolicy:
         rules: tuple[PathRule, ...] = (),
         *,
         project_directory: Path,
+        whitelist: tuple[Path, ...] | None = None,
         error: str | None = None,
     ) -> None:
         self.rules = rules
         self.project_directory = project_directory.expanduser().resolve(strict=False)
+        self.whitelist = whitelist
         self.error = error
 
     @property
@@ -42,13 +44,19 @@ class PathPolicy:
         return self.error is None
 
     @classmethod
-    def load(cls, path: Path, *, project_directory: Path) -> "PathPolicy":
+    def load(
+        cls, path: Path, *, project_directory: Path, whitelist_path: Path | None = None,
+    ) -> "PathPolicy":
         try:
             text = path.read_text(encoding="utf-8")
             rules = parse_path_rules(text)
+            whitelist = (
+                parse_whitelist_rules(whitelist_path.read_text(encoding="utf-8"))
+                if whitelist_path is not None else None
+            )
         except (OSError, UnicodeError, RuntimeError, PathPolicyError) as error:
             return cls(project_directory=project_directory, error=str(error))
-        return cls(rules, project_directory=project_directory)
+        return cls(rules, project_directory=project_directory, whitelist=whitelist)
 
     @classmethod
     def empty(cls, *, project_directory: Path) -> "PathPolicy":
@@ -66,6 +74,8 @@ class PathPolicy:
 
     def _path_decision(self, path: Path, risk: Risk) -> Decision:
         resolved = path.expanduser().resolve(strict=False)
+        if self.whitelist is not None and not any(_contains(root, resolved) for root in self.whitelist):
+            return Decision.DENY
         project_match = _contains(self.project_directory, resolved)
         if project_match and risk is not Risk.READ:
             return Decision.DENY
@@ -107,6 +117,21 @@ def parse_path_rules(text: str) -> tuple[PathRule, ...]:
         decisions = tuple(_DIGIT_DECISION.get(character) for character in padded)
         rules.append(PathRule(expanded.resolve(strict=False), decisions, line_number))
     return tuple(rules)
+
+
+def parse_whitelist_rules(text: str) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    for line_number, raw_line in enumerate(text.splitlines(), 1):
+        value = raw_line.strip()
+        if not value or value.startswith("#"):
+            continue
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            raise PathPolicyError(f"Whitelist.txt linha {line_number}: o path deve ser absoluto ou começar com ~")
+        roots.append(path.resolve(strict=False))
+    if not roots:
+        raise PathPolicyError("Whitelist.txt não possui nenhum path permitido")
+    return tuple(dict.fromkeys(roots))
 
 
 def more_restrictive(left: Decision, right: Decision) -> Decision:

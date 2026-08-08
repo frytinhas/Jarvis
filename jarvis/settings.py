@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -40,7 +41,7 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 7
+    version: int = 8
     model_directory: Path | None = None
     model_path: Path | None = None
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
@@ -57,7 +58,12 @@ class UserSettings(BaseModel):
     color_mode: ColorMode = ColorMode.ALWAYS
     log_max_size_mb: int = 100
     log_retention_days: int = 30
-    persona_path: Path
+    # These files are user-owned configuration, never repository resources at runtime.
+    persona_path: Path = Field(default_factory=lambda: editable_paths()["persona"])
+    context_path: Path = Field(default_factory=lambda: editable_paths()["context"])
+    waiting_messages_path: Path = Field(default_factory=lambda: editable_paths()["waiting_messages"])
+    blacklist_path: Path = Field(default_factory=lambda: editable_paths()["blacklist"])
+    whitelist_path: Path = Field(default_factory=lambda: editable_paths()["whitelist"])
 
 
 def project_root() -> Path:
@@ -68,9 +74,24 @@ def state_directory() -> Path:
     return Path.home() / ".local/state/jarvis"
 
 
+def configuration_directory() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")).expanduser() / "jarvis"
+
+
+def editable_paths(directory: Path | None = None) -> dict[str, Path]:
+    root = (directory or configuration_directory()).expanduser()
+    return {
+        "persona": root / "Persona.md",
+        "context": root / "Context.md",
+        "waiting_messages": root / "WaitingMessages.txt",
+        "blacklist": root / "Blacklist.txt",
+        "whitelist": root / "Whitelist.txt",
+    }
+
+
 def runtime_path() -> Path:
     return state_directory() / "runtime.env"
 
 
 def default_settings() -> UserSettings:
-    return UserSettings(persona_path=project_root() / "Persona.md")
+    return UserSettings()

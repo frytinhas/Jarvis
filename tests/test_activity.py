@@ -42,6 +42,21 @@ def test_essential_shows_write_diff_but_read_never_shows_content(tmp_path: Path)
     assert "7 bytes" in rendered
 
 
+def test_essential_shows_initial_content_for_created_file(tmp_path: Path) -> None:
+    event = ToolActivity(
+        "running",
+        "create_file",
+        Risk.CREATE,
+        {"path": str(tmp_path / "created.sh"), "content": "#!/bin/sh\nprintf created\n"},
+    )
+
+    rendered = _run_panel(DisplayLogLevel.ESSENTIAL, event, tmp_path)
+
+    assert "conteúdo criado" in rendered
+    assert "+ #!/bin/sh" in rendered
+    assert "+ printf created" in rendered
+
+
 @pytest.mark.parametrize("level", list(DisplayLogLevel))
 def test_activity_levels_never_disable_audit_contract(level: DisplayLogLevel) -> None:
     # O painel é somente observador; o registry captura suas exceções e audita separadamente.

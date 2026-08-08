@@ -117,11 +117,17 @@ def _entry(item: Path) -> dict[str, str]:
     }
 
 
-def create_file(path: str) -> dict[str, Any]:
+def create_file(path: str, content: str = "") -> dict[str, Any]:
     target = validate_write_path(path)
     target.parent.mkdir(parents=False, exist_ok=True)
-    target.touch(exist_ok=False)
-    return {"path": str(target), "created": True}
+    with target.open("x", encoding="utf-8") as stream:
+        written = stream.write(content)
+    return {
+        "path": str(target),
+        "created": True,
+        "bytes_written": len(content.encode("utf-8")),
+        "characters_written": written,
+    }
 
 
 def create_directory(path: str) -> dict[str, Any]:
@@ -132,12 +138,16 @@ def create_directory(path: str) -> dict[str, Any]:
 
 def write_file(path: str, content: str) -> dict[str, Any]:
     target = validate_write_path(path)
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
     target.write_text(content, encoding="utf-8")
     return {"path": str(target), "bytes_written": len(content.encode("utf-8"))}
 
 
 def append_file(path: str, content: str) -> dict[str, Any]:
     target = validate_write_path(path)
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
     with target.open("a", encoding="utf-8") as stream:
         written = stream.write(content)
     return {"path": str(target), "characters_written": written}

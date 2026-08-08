@@ -36,3 +36,8 @@ class PolicyEngine:
 
     def decide(self, risk: Risk) -> Decision:
         return self._policy[risk]
+
+    def set_decision(self, risk: Risk, decision: Decision) -> None:
+        if risk is Risk.PRIVILEGED:
+            raise ValueError("PRIVILEGED deve permanecer DENY")
+        self._policy[risk] = decision

@@ -4,7 +4,11 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 
 from jarvis.agent.orchestrator import Orchestrator
 from jarvis.agent.prompts import build_system_prompt
@@ -33,6 +37,7 @@ REASONING_BUDGETS = {0: 0, 1: 512, 2: 1024, 3: 2048, 4: -1}
 class Invocation:
     message: str | None
     reasoning_level: int
+    edit_resource: str | None = None
 
 
 def parse_invocation(
@@ -45,11 +50,52 @@ def parse_invocation(
         "--r", "--reasoning", type=int, choices=range(-1, 5), default=-1,
         metavar="N", help="reasoning: -1 padrão, 0 off, 1 low, 2 medium, 3 high, 4 max",
     )
+    edit_group = parser.add_mutually_exclusive_group()
+    for option, resource in (
+        ("--blacklist", "blacklist"), ("--whitelist", "whitelist"),
+        ("--context", "context"), ("--persona", "persona"),
+        ("--waiting-messages", "waiting_messages"),
+    ):
+        edit_group.add_argument(option, dest="edit_resource", action="store_const", const=resource)
     parser.add_argument("message", nargs="*", help="mensagem inicial para o Jarvis")
     parsed = parser.parse_args(arguments)
     message = " ".join(parsed.message).strip()
+    if parsed.edit_resource and message:
+        parser.error("as opções de edição não aceitam mensagem")
     level = default_reasoning_level if parsed.r == -1 else parsed.r
-    return Invocation(message or None, level)
+    return Invocation(message or None, level, parsed.edit_resource)
+
+
+def _edit_resource(config: object, resource: str) -> None:
+    settings = config.settings  # type: ignore[attr-defined]
+    paths = {
+        "blacklist": settings.blacklist_path,
+        "whitelist": settings.whitelist_path,
+        "context": settings.context_path,
+        "persona": settings.persona_path,
+        "waiting_messages": settings.waiting_messages_path,
+    }
+    editor = shutil.which("nano")
+    if editor is None:
+        raise SystemExit("O editor nano não está instalado.")
+    try:
+        completed = subprocess.run([editor, str(paths[resource])], check=False)
+    except OSError as error:
+        raise SystemExit(f"Não foi possível abrir nano: {error}") from error
+    if completed.returncode:
+        raise SystemExit(f"nano encerrou com código {completed.returncode}.")
+
+
+def _confirm_root_startup() -> None:
+    if os.geteuid() != 0:
+        return
+    warning = (
+        "AVISO: Jarvis está sendo executado como root. Qualquer ação permitida pode afetar "
+        "todo o sistema. As políticas e confirmações continuam ativas.\n"
+        "Digite 'ciente' para continuar: "
+    )
+    if not sys.stdin.isatty() or input(warning).strip().casefold() != "ciente":
+        raise SystemExit("Inicialização root cancelada.")
 
 
 def parse_initial_message(arguments: list[str] | None = None, prog: str = "jarvis") -> str | None:
@@ -64,6 +110,10 @@ def main(arguments: list[str] | None = None) -> None:
     invocation = parse_invocation(
         arguments, user_settings.command_name, user_settings.default_reasoning_level
     )
+    if invocation.edit_resource:
+        _edit_resource(config, invocation.edit_resource)
+        return
+    _confirm_root_startup()
     maintain_runtime_logs(
         Path.home() / ".local/state/jarvis/logs/runtime",
         user_settings.log_max_size_mb,
@@ -93,8 +143,9 @@ def main(arguments: list[str] | None = None) -> None:
     confirmations = ConfirmationManager(advanced.confirmation_timeout)
     policy_engine = PolicyEngine(user_settings.permissions)
     path_policy = PathPolicy.load(
-        project_root() / "Blacklist.txt",
+        user_settings.blacklist_path,
         project_directory=project_root(),
+        whitelist_path=user_settings.whitelist_path,
     )
     memory_store = ConversationLogStore(
         Path.home() / ".local/state/jarvis/logs",
@@ -139,7 +190,7 @@ def main(arguments: list[str] | None = None) -> None:
         user_settings.assistant_name,
         user_settings.persona_path,
         invocation_directory,
-        context_path=project_root() / "Context.md",
+        context_path=user_settings.context_path,
         home_directory=Path.home().resolve(),
         current_time=datetime.now().astimezone(),
         user_directories=user_directories,
@@ -148,7 +199,7 @@ def main(arguments: list[str] | None = None) -> None:
         llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
         max_tool_rounds=user_settings.max_tool_rounds,
     )
-    waiting_messages = load_waiting_messages(project_root() / "WaitingMessages.txt")
+    waiting_messages = load_waiting_messages(user_settings.waiting_messages_path)
     waiting_indicator = WaitingIndicator(waiting_messages)
     with LlamaClient(
         advanced.llm_base_url,
@@ -169,7 +220,7 @@ def main(arguments: list[str] | None = None) -> None:
         activity.total_seconds = lambda: orchestrator.active_seconds
         initial_message = invocation.message
         warning = (
-            f"Blacklist.txt inválido: {path_policy.error}. Tools de arquivos foram bloqueadas; "
+            f"Política de paths inválida: {path_policy.error}. Tools de arquivos foram bloqueadas; "
             "corrija o arquivo e abra um novo chat."
             if path_policy.error
             else None

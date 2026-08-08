@@ -29,6 +29,71 @@ def test_create_executes_without_confirmation_by_default(registry: ToolRegistry,
     assert target.is_file()
 
 
+def test_create_with_content_uses_create_permission_not_modify(tmp_path: Path) -> None:
+    target = tmp_path / "created.sh"
+    registry = build_registry(
+        PolicyEngine({Risk.CREATE: Decision.ALLOW, Risk.MODIFY: Decision.CONFIRM}),
+        ConfirmationManager(),
+        AuditLog(tmp_path / "create-content.db"),
+    )
+
+    result = registry.request(
+        "create_file",
+        {"path": str(target), "content": "#!/bin/sh\nprintf created\n"},
+    )
+
+    assert result.status == "ok"
+    assert result.pending is None
+    assert target.read_text(encoding="utf-8") == "#!/bin/sh\nprintf created\n"
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_status"),
+    [(Decision.CONFIRM, "confirmation_required"), (Decision.DENY, "denied")],
+)
+def test_create_with_content_obeys_restrictive_create_permissions(
+    tmp_path: Path, decision: Decision, expected_status: str
+) -> None:
+    target = tmp_path / f"{decision.value.lower()}.txt"
+    registry = build_registry(
+        PolicyEngine({Risk.CREATE: decision, Risk.MODIFY: Decision.ALLOW}),
+        ConfirmationManager(),
+        AuditLog(tmp_path / f"create-{decision.value.lower()}.db"),
+    )
+
+    result = registry.request("create_file", {"path": str(target), "content": "content"})
+
+    assert result.status == expected_status
+    assert not target.exists()
+
+
+def test_create_with_content_never_overwrites_existing_file(
+    registry: ToolRegistry, tmp_path: Path
+) -> None:
+    target = tmp_path / "existing.txt"
+    target.write_text("original", encoding="utf-8")
+
+    result = registry.request("create_file", {"path": str(target), "content": "replacement"})
+
+    assert result.status == "error"
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+@pytest.mark.parametrize("tool", ["write_file", "append_file"])
+def test_modify_tools_do_not_create_missing_files(tmp_path: Path, tool: str) -> None:
+    target = tmp_path / "missing.txt"
+    registry = build_registry(
+        PolicyEngine({Risk.MODIFY: Decision.ALLOW}),
+        ConfirmationManager(),
+        AuditLog(tmp_path / f"{tool}.db"),
+    )
+
+    result = registry.request(tool, {"path": str(target), "content": "content"})
+
+    assert result.status == "error"
+    assert not target.exists()
+
+
 @pytest.mark.parametrize("tool", ["write_file", "delete_file"])
 def test_mutation_never_executes_without_confirmation(
     registry: ToolRegistry, tmp_path: Path, tool: str

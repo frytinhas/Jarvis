@@ -4,6 +4,9 @@ import argparse
 from pathlib import Path
 
 from jarvis.config import load_config, save_config
+from jarvis.resources import ensure_private_resources
+from jarvis.security.policy import Decision, Risk
+from jarvis.settings import editable_paths
 
 
 def clone_config_for_root(
@@ -16,19 +19,35 @@ def clone_config_for_root(
 ) -> None:
     """Create an independent root configuration from a user's configuration."""
     if preserve_existing and target.is_file():
-        load_config(target)
+        existing = load_config(target)
+        ensure_private_resources(existing.settings)
+        save_config(existing, target)
         return
     config = load_config(source)
-    settings = config.settings.model_copy(
-        update={"persona_path": root_project / "Persona.md"}
-    )
+    paths = editable_paths(root_home / ".config/jarvis")
+    permissions = dict(config.settings.permissions)
+    permissions.update({
+        Risk.READ: Decision.ALLOW,
+        Risk.CREATE: Decision.ALLOW,
+        Risk.MODIFY: Decision.ALLOW,
+        Risk.DELETE: Decision.CONFIRM,
+        Risk.EXECUTE: Decision.ALLOW,
+        Risk.PRIVILEGED: Decision.DENY,
+    })
+    settings = config.settings.model_copy(update={
+        "permissions": permissions,
+        "persona_path": paths["persona"],
+        "context_path": paths["context"],
+        "waiting_messages_path": paths["waiting_messages"],
+        "blacklist_path": paths["blacklist"],
+        "whitelist_path": paths["whitelist"],
+    })
     advanced = config.advanced.model_copy(
         update={"audit_db_path": root_home / ".local/state/jarvis/audit.db"}
     )
-    save_config(
-        config.model_copy(update={"settings": settings, "advanced": advanced}),
-        target,
-    )
+    root_config = config.model_copy(update={"settings": settings, "advanced": advanced})
+    save_config(root_config, target)
+    ensure_private_resources(root_config.settings)
 
 
 def main() -> None:

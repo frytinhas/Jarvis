@@ -132,15 +132,6 @@ temporary="$(mktemp "$PROJECT_DIR/.install.XXXXXX")"
 chmod 600 "$temporary"
 mv "$temporary" "$PROJECT_DIR/.install"
 
-if [[ ! -f "$PROJECT_DIR/Persona.md" ]]; then
-    cp "$PROJECT_DIR/jarvis/agent/default_persona.md" "$PROJECT_DIR/Persona.md"
-fi
-if [[ ! -f "$PROJECT_DIR/Context.md" ]]; then
-    cp "$PROJECT_DIR/jarvis/agent/default_context.md" "$PROJECT_DIR/Context.md"
-fi
-if [[ ! -f "$PROJECT_DIR/WaitingMessages.txt" ]]; then
-    cp "$PROJECT_DIR/jarvis/ui/default_waiting_messages.txt" "$PROJECT_DIR/WaitingMessages.txt"
-fi
 chmod +x "$PROJECT_DIR/Config.sh" "$PROJECT_DIR/Uninstall.sh" \
     "$PROJECT_DIR/scripts/jarvis" "$PROJECT_DIR/scripts/jarvis-server" \
     "$PROJECT_DIR/scripts/jarvis-env"
@@ -204,10 +195,6 @@ sudo install -m 755 "$PROJECT_DIR/scripts/jarvis-server" "$root_stage/scripts/ja
 sudo install -m 755 "$PROJECT_DIR/scripts/jarvis-env" "$root_stage/scripts/jarvis-env"
 sudo install -m 644 "$PROJECT_DIR/pyproject.toml" "$PROJECT_DIR/README.md" \
     "$PROJECT_DIR/LICENSE" "$root_stage/"
-install_root_resource "$PROJECT_DIR/Blacklist.txt" "Blacklist.txt"
-install_root_resource "$PROJECT_DIR/Persona.md" "Persona.md"
-install_root_resource "$PROJECT_DIR/Context.md" "Context.md"
-install_root_resource "$PROJECT_DIR/WaitingMessages.txt" "WaitingMessages.txt"
 
 root_llama_name="llama-server"
 if [[ "$LLAMA_STYLE" == "subcommand" ]]; then

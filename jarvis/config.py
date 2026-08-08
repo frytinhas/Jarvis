@@ -8,10 +8,12 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import ColorMode, DisplayLogLevel, UserSettings, default_settings, project_root
+from jarvis.settings import (
+    ColorMode, DisplayLogLevel, UserSettings, default_settings, editable_paths, project_root,
+)
 
 
-CONFIG_VERSION = 7
+CONFIG_VERSION = 8
 
 
 class ConfigFileError(ValueError):
@@ -49,7 +51,14 @@ def config_path() -> Path:
 
 
 def default_config() -> JarvisConfig:
-    return JarvisConfig(settings=default_settings())
+    paths = editable_paths(config_path().parent)
+    return JarvisConfig(settings=default_settings().model_copy(update={
+        "persona_path": paths["persona"],
+        "context_path": paths["context"],
+        "waiting_messages_path": paths["waiting_messages"],
+        "blacklist_path": paths["blacklist"],
+        "whitelist_path": paths["whitelist"],
+    }))
 
 
 def load_config(path: Path | None = None, *, allow_legacy: bool = False) -> JarvisConfig:
@@ -161,11 +170,11 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, CONFIG_VERSION}:
-        raise ConfigFileError(path, f"versão {version} não suportada; esperada 5, 6 ou {CONFIG_VERSION}")
+    if version not in {5, 6, 7, CONFIG_VERSION}:
+        raise ConfigFileError(path, f"versão {version} não suportada; esperada 5, 6, 7 ou {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
-    if version == CONFIG_VERSION:
+    if version >= 7:
         sections.add("appearance")
     _validate_children(root, sections, path)
     expected = {
@@ -183,9 +192,12 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         "logs": ({"max_size_mb", "retention_days", "audit_db_path", "level"}
                  if version == 5 else
                  {"max_size_mb", "retention_days", "audit_db_path", "display_level"}),
-        "paths": {"persona"},
+        "paths": (
+            {"persona", "context", "waiting_messages", "blacklist", "whitelist"}
+            if version == CONFIG_VERSION else {"persona"}
+        ),
     }
-    if version == CONFIG_VERSION:
+    if version >= 7:
         expected["appearance"] = {"color_mode"}
     for name, children in expected.items():
         section = _section(root, name)
@@ -254,14 +266,29 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             display_log_level=(DisplayLogLevel.ESSENTIAL if version == 5 else DisplayLogLevel(
                 _text(logs, "display_level")
             )),
-            color_mode=(
-                ColorMode.AUTO
-                if version < CONFIG_VERSION
-                else ColorMode(_text(_section(root, "appearance"), "color_mode"))
-            ),
+            color_mode=(ColorMode.AUTO if version < 7 else ColorMode(_text(_section(root, "appearance"), "color_mode"))),
             log_max_size_mb=_integer(_text(logs, "max_size_mb"), "max_size_mb", path),
             log_retention_days=_integer(_text(logs, "retention_days"), "retention_days", path),
-            persona_path=Path(persona).expanduser(),
+            persona_path=(
+                Path(persona).expanduser()
+                if version == CONFIG_VERSION else editable_paths(path.parent)["persona"]
+            ),
+            context_path=(
+                Path(_text(paths, "context")).expanduser()
+                if version == CONFIG_VERSION else editable_paths(path.parent)["context"]
+            ),
+            waiting_messages_path=(
+                Path(_text(paths, "waiting_messages")).expanduser()
+                if version == CONFIG_VERSION else editable_paths(path.parent)["waiting_messages"]
+            ),
+            blacklist_path=(
+                Path(_text(paths, "blacklist")).expanduser()
+                if version == CONFIG_VERSION else editable_paths(path.parent)["blacklist"]
+            ),
+            whitelist_path=(
+                Path(_text(paths, "whitelist")).expanduser()
+                if version == CONFIG_VERSION else editable_paths(path.parent)["whitelist"]
+            ),
         )
         advanced = AdvancedConfig(
             llm_base_url=base_url,
@@ -293,7 +320,7 @@ def _new_tree() -> ET.ElementTree:
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
         ("logs", "Nível visual: Full, Server-Essential, Essential, Minimal-Essential ou None.", "Display level: Full, Server-Essential, Essential, Minimal-Essential, or None.", ("max_size_mb", "retention_days", "audit_db_path", "display_level")),
-        ("paths", "Caminhos podem usar ~ e são expandidos pelo Jarvis.", "Paths may use ~ and are expanded by Jarvis.", ("persona",)),
+        ("paths", "Arquivos privados editáveis desta instalação; caminhos podem usar ~.", "Private editable files for this installation; paths may use ~.", ("persona", "context", "waiting_messages", "blacklist", "whitelist")),
         ("appearance", "Modo de cores: auto, always ou never.", "Color mode: auto, always, or never.", ("color_mode",)),
     )
     for name, pt_br, en, children in definitions:
@@ -346,7 +373,12 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(logs, "retention_days", settings.log_retention_days)
     _set(logs, "audit_db_path", advanced.audit_db_path)
     _set(logs, "display_level", settings.display_log_level.value)
-    _set(_section(root, "paths"), "persona", settings.persona_path)
+    paths = _section(root, "paths")
+    _set(paths, "persona", settings.persona_path)
+    _set(paths, "context", settings.context_path)
+    _set(paths, "waiting_messages", settings.waiting_messages_path)
+    _set(paths, "blacklist", settings.blacklist_path)
+    _set(paths, "whitelist", settings.whitelist_path)
     _set(_section(root, "appearance"), "color_mode", settings.color_mode.value)
 
 

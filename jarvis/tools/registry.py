@@ -8,6 +8,7 @@ from typing import Any, Callable
 from pydantic import BaseModel, ValidationError
 
 from jarvis.llm.schemas import (
+    CreateFileInput,
     EmptyInput,
     ExecuteFileInput,
     ListDirectoryInput,
@@ -388,7 +389,13 @@ def build_registry(
             system.get_user_directories,
             fixed_paths=(system.user_directories_config_path(),),
         ),
-        Tool("create_file", "Cria um arquivo vazio", Risk.CREATE, PathInput, filesystem.create_file),
+        Tool(
+            "create_file",
+            "Cria um arquivo novo, opcionalmente já com conteúdo; falha se o path existir",
+            Risk.CREATE,
+            CreateFileInput,
+            filesystem.create_file,
+        ),
         Tool("create_directory", "Cria um diretório", Risk.CREATE, PathInput, filesystem.create_directory),
         Tool("write_file", "Substitui o conteúdo de um arquivo", Risk.MODIFY, WriteFileInput, filesystem.write_file),
         Tool("append_file", "Adiciona conteúdo a um arquivo", Risk.MODIFY, WriteFileInput, filesystem.append_file),

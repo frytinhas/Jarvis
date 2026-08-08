@@ -42,6 +42,7 @@ jarvis "quais são as especificações do meu computador?"
 Comandos básicos dentro do Jarvis:
 
 - `/help` mostra os comandos disponíveis.
+- `/permissions` mostra as permissões atuais; por exemplo, `/permissions exec confirmation` altera e salva uma delas.
 - `/clear` limpa a tela.
 - `/exit` ou `/sair` encerra a conversa.
 
@@ -51,15 +52,17 @@ Para mudar as configurações depois:
 jarvis-config
 ```
 
+Os arquivos privados editáveis podem ser abertos com `jarvis --blacklist`, `--whitelist`, `--context`, `--persona` ou `--waiting-messages`.
+
 Se você escolheu outro nome durante a instalação, use esse nome no lugar de `jarvis`.
 
-O Jarvis pode pedir confirmação antes de alterar, apagar ou executar algo. Leia a ação mostrada antes de confirmar.
+O Jarvis pode pedir confirmação antes de alterar, apagar ou executar algo. Leia a ação mostrada antes de confirmar. Restrições por path podem ser mais rígidas que os valores globais mostrados por `/permissions`.
 
 ## Licença
 
 Copyright (C) 2026 Jose Nunes.
 
-O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning` ou `/model` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
+O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
 
 Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
 

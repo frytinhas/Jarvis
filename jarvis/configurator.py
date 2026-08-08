@@ -10,6 +10,7 @@ import shlex
 from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.legal import schedule_license_notice
+from jarvis.resources import ensure_private_resources
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import ColorMode, DisplayLogLevel, MessageMode, UserSettings, project_root, runtime_path
 from jarvis.ui.selector import select_option, supports_arrow_selection
@@ -240,6 +241,10 @@ def _resolved_link_target(path: Path, link_target: str) -> Path:
 
 
 def _inspect_command(command: str) -> CommandReplacement | None:
+    # The administrative installation is exposed through /usr/local/bin.  It must
+    # not own, replace, or reject a root-local launcher left by an older release.
+    if os.geteuid() == 0:
+        return None
     target = Path.home() / ".local/bin" / command
     if not target.exists() and not target.is_symlink():
         return
@@ -295,7 +300,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     persona_status = "será restaurada" if reset_persona else "mantida"
     print(f"  Persona: {settings.persona_path} ({persona_status})")
     context_status = "será restaurado" if reset_context else "mantido"
-    print(f"  Contexto: {project_root() / 'Context.md'} ({context_status})")
+    print(f"  Contexto: {settings.context_path} ({context_status})")
     print(f"  Nome: {settings.assistant_name}")
     print(f"  Comando: {settings.command_name}")
     print(f"  Início automático: {'ativado' if settings.autostart else 'desativado'}")
@@ -404,14 +409,11 @@ def _changes_summary(
 
 
 def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
-    persona = project_root() / "Persona.md"
-    context = project_root() / "Context.md"
-    if not persona.is_file():
-        persona.write_bytes(default_persona_path().read_bytes())
-    if not context.is_file():
-        context.write_bytes(default_context_path().read_bytes())
     persisted_config = load_config(allow_legacy=True)
     persisted = persisted_config.settings
+    ensure_private_resources(persisted)
+    persona = persisted.persona_path
+    context = persisted.context_path
     if persisted.model_path is None:
         legacy = _legacy_model()
         if legacy:
@@ -554,6 +556,8 @@ def _apply_command(
     current: str,
     approved_replacement: CommandReplacement | None = None,
 ) -> None:
+    if os.geteuid() == 0:
+        return
     local_bin = Path.home() / ".local/bin"
     local_bin.mkdir(parents=True, exist_ok=True)
     launcher = _launcher_path()
@@ -610,7 +614,8 @@ def commit(result: ConfigurationResult) -> None:
     if result.reset_persona:
         result.settings.persona_path.write_bytes(default_persona_path().read_bytes())
     if result.reset_context:
-        (project_root() / "Context.md").write_bytes(default_context_path().read_bytes())
+        result.settings.context_path.write_bytes(default_context_path().read_bytes())
+    ensure_private_resources(result.settings)
     save_config(result.config)
     schedule_license_notice()
     _write_runtime(result.config)

@@ -181,7 +181,10 @@ class ActivityPanel:
             content = str(arguments.get("content", ""))
             return ["  conteúdo acrescentado:", *[f"  + {line}" for line in content.splitlines()]]
         if event.tool == "create_file":
-            return ["  conteúdo criado: arquivo vazio"]
+            content = str(arguments.get("content", ""))
+            if not content:
+                return ["  conteúdo criado: arquivo vazio"]
+            return ["  conteúdo criado:", *[f"  + {line}" for line in content.splitlines()]]
         if event.tool in {"move_file", "rename_file"}:
             return [f"  origem: {arguments.get('source', arguments.get('path', ''))}",
                     f"  destino: {arguments.get('destination', arguments.get('new_name', ''))}"]

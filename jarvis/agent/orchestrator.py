@@ -12,7 +12,7 @@ from jarvis.agent.tool_routing import ToolRoute, route_user_request
 from jarvis.llm.client import LLM, LLMTimeoutError
 from jarvis.llm.schemas import AssistantMessage, Message
 from jarvis.security.confirmation import ConfirmationError, PendingAction
-from jarvis.security.policy import Risk
+from jarvis.security.policy import Decision, Risk
 from jarvis.tools.registry import ToolRegistry, ToolResult
 
 
@@ -234,6 +234,9 @@ class Orchestrator:
     def set_thinking_budget_tokens(self, value: int) -> None:
         self.thinking_budget_tokens = value
 
+    def set_permission_decision(self, risk: Risk, decision: Decision) -> None:
+        self.registry.policy.set_decision(risk, decision)
+
     def _total_timeout_reply(self) -> AgentReply:
         seconds = f"{self.interaction_timeout_seconds:g}"
         return self._complete_reply(
@@ -258,6 +261,13 @@ class Orchestrator:
         required = {"execute_file"} if self._route.label == "execute" else set(self._route.tool_names)
         if available & required:
             return None
+        if self._route.label == "broad_filesystem_search":
+            text = (
+                "Não faço buscas indiscriminadas em `/` ou `/home`. Informe um diretório "
+                "permitido ou use uma localização dentro da whitelist."
+            )
+            self.messages.append({"role": "assistant", "content": text})
+            return self._complete_reply(text)
         text = (
             "Não posso atender essa solicitação porque a tool necessária está indisponível "
             "pela política ou pela configuração de paths atual."
