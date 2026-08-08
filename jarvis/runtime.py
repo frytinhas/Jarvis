@@ -51,6 +51,7 @@ def sync_runtime() -> None:
     model_changed = bool(previous) and (
         previous.get("MODEL_PATH") != str(settings.model_path)
         or previous.get("MODEL_ALIAS") != config.advanced.llm_model
+        or previous.get("CONTEXT_SIZE") != str(settings.context_size)
     )
     server_logging_changed = bool(previous) and (
         previous.get("DISPLAY_LOG_LEVEL") != settings.display_log_level.value

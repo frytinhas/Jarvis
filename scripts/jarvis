@@ -212,12 +212,12 @@ run_client_sessions() {
             return "$status"
         fi
         if ! "$PYTHON_BIN" -m jarvis.runtime; then
-            echo "Não foi possível aplicar o novo modelo."
+            echo "Não foi possível aplicar a nova configuração do servidor."
             return 1
         fi
         source "$RUNTIME_FILE"
         KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
-        server_message "Reiniciando com o novo modelo..."
+        server_message "Reiniciando com a nova configuração do servidor..."
         if user_systemd_available; then
             stop_owned_fallback_server || true
             systemctl --user restart "$UNIT_NAME" || return 1
@@ -233,7 +233,7 @@ run_client_sessions() {
             echo "O novo modelo não ficou pronto dentro de 3 minutos."
             return 1
         fi
-        server_message "Novo modelo pronto. Abrindo outra sessão..."
+        server_message "Servidor pronto. Abrindo outra sessão..."
         client_arguments=()
     done
 }

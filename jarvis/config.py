@@ -13,7 +13,7 @@ from jarvis.settings import (
 )
 
 
-CONFIG_VERSION = 8
+CONFIG_VERSION = 9
 
 
 class ConfigFileError(ValueError):
@@ -170,15 +170,15 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, 7, CONFIG_VERSION}:
-        raise ConfigFileError(path, f"versão {version} não suportada; esperada 5, 6, 7 ou {CONFIG_VERSION}")
+    if version not in {5, 6, 7, 8, CONFIG_VERSION}:
+        raise ConfigFileError(path, f"versão {version} não suportada; esperada entre 5 e {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
     if version >= 7:
         sections.add("appearance")
     _validate_children(root, sections, path)
     expected = {
-        "model": {"directory", "path"},
+        "model": {"directory", "path", "context_size"} if version >= 9 else {"directory", "path"},
         "identity": {"assistant_name", "command_name"},
         "behavior": ({
             "autostart", "keep_llm_running", "message_mode", "request_timeout_seconds"
@@ -194,7 +194,7 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                  {"max_size_mb", "retention_days", "audit_db_path", "display_level"}),
         "paths": (
             {"persona", "context", "waiting_messages", "blacklist", "whitelist"}
-            if version == CONFIG_VERSION else {"persona"}
+            if version >= 8 else {"persona"}
         ),
     }
     if version >= 7:
@@ -243,6 +243,9 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             version=CONFIG_VERSION,
             model_directory=_optional_path(_text(model, "directory")),
             model_path=_optional_path(_text(model, "path")),
+            context_size=(4096 if version < 9 else _integer(
+                _text(model, "context_size"), "context_size", path
+            )),
             permissions=permissions,
             assistant_name=assistant_name,
             command_name=command_name,
@@ -271,23 +274,23 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             log_retention_days=_integer(_text(logs, "retention_days"), "retention_days", path),
             persona_path=(
                 Path(persona).expanduser()
-                if version == CONFIG_VERSION else editable_paths(path.parent)["persona"]
+                if version >= 8 else editable_paths(path.parent)["persona"]
             ),
             context_path=(
                 Path(_text(paths, "context")).expanduser()
-                if version == CONFIG_VERSION else editable_paths(path.parent)["context"]
+                if version >= 8 else editable_paths(path.parent)["context"]
             ),
             waiting_messages_path=(
                 Path(_text(paths, "waiting_messages")).expanduser()
-                if version == CONFIG_VERSION else editable_paths(path.parent)["waiting_messages"]
+                if version >= 8 else editable_paths(path.parent)["waiting_messages"]
             ),
             blacklist_path=(
                 Path(_text(paths, "blacklist")).expanduser()
-                if version == CONFIG_VERSION else editable_paths(path.parent)["blacklist"]
+                if version >= 8 else editable_paths(path.parent)["blacklist"]
             ),
             whitelist_path=(
                 Path(_text(paths, "whitelist")).expanduser()
-                if version == CONFIG_VERSION else editable_paths(path.parent)["whitelist"]
+                if version >= 8 else editable_paths(path.parent)["whitelist"]
             ),
         )
         advanced = AdvancedConfig(
@@ -314,7 +317,7 @@ def _comment(parent: ET.Element, pt_br: str, en: str) -> None:
 def _new_tree() -> ET.ElementTree:
     root = ET.Element("jarvis", {"version": str(CONFIG_VERSION)})
     definitions = (
-        ("model", "Modelo GGUF local selecionado pelo Jarvis.", "Local GGUF model selected by Jarvis.", ("directory", "path")),
+        ("model", "Modelo GGUF e contexto em tokens usados pelo servidor local.", "Local GGUF model and token context used by the local server.", ("directory", "path", "context_size")),
         ("identity", "Nome exibido e comando público do assistente.", "Assistant display name and public command.", ("assistant_name", "command_name")),
         ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
@@ -349,6 +352,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     model = _section(root, "model")
     _set(model, "directory", settings.model_directory)
     _set(model, "path", settings.model_path)
+    _set(model, "context_size", settings.context_size)
     identity = _section(root, "identity")
     _set(identity, "assistant_name", settings.assistant_name)
     _set(identity, "command_name", settings.command_name)

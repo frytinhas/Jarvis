@@ -41,9 +41,10 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 8
+    version: int = 9
     model_directory: Path | None = None
     model_path: Path | None = None
+    context_size: int = Field(default=4096, gt=0, multiple_of=1024)
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
     assistant_name: str = "Jarvis"
     command_name: str = "jarvis"

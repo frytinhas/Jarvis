@@ -124,6 +124,7 @@ def test_new_lifecycle_defaults() -> None:
     assert settings.interaction_timeout_seconds == 600
     assert settings.llm_request_timeout_seconds == 120
     assert settings.default_reasoning_level == 2
+    assert settings.context_size == 4096
     assert settings.display_log_level.value == "Minimal-Essential"
     assert settings.color_mode is ColorMode.ALWAYS
     assert settings.permissions[Risk.EXECUTE] is Decision.ALLOW
@@ -153,6 +154,7 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="5">')
+    content = content.replace("    <context_size>4096</context_size>\n", "")
     start = content.index("  <behavior>")
     end = content.index("  </behavior>") + len("  </behavior>")
     content = content[:start] + """  <behavior>
@@ -191,6 +193,7 @@ def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
     content = path.read_text(encoding="utf-8").replace(
         f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="6">'
     )
+    content = content.replace("    <context_size>4096</context_size>\n", "")
     start = content.index("  <appearance>")
     end = content.index("  </appearance>") + len("  </appearance>\n")
     content = content[:start] + content[end:]
@@ -205,3 +208,36 @@ def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
 
     assert migrated.version == CONFIG_VERSION
     assert migrated.settings.color_mode is ColorMode.AUTO
+
+
+def test_v8_xml_migrates_context_with_fallback_and_preserves_private_paths(tmp_path: Path) -> None:
+    path = tmp_path / "config.xml"
+    original = default_config()
+    settings = original.settings.model_copy(update={
+        "persona_path": tmp_path / "custom/Persona.md",
+        "context_path": tmp_path / "custom/Context.md",
+    })
+    save_config(original.model_copy(update={"settings": settings}), path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="8">')
+    content = content.replace("    <context_size>4096</context_size>\n", "")
+    path.write_text(content, encoding="utf-8")
+
+    migrated = load_config(path)
+
+    assert migrated.settings.context_size == 4096
+    assert migrated.settings.persona_path == tmp_path / "custom/Persona.md"
+    assert migrated.settings.context_path == tmp_path / "custom/Context.md"
+
+
+@pytest.mark.parametrize("value", ["0", "123", "4097"])
+def test_context_size_must_be_positive_multiple_of_1024(tmp_path: Path, value: str) -> None:
+    path = tmp_path / "config.xml"
+    save_config(default_config(), path)
+    content = path.read_text(encoding="utf-8").replace(
+        "<context_size>4096</context_size>", f"<context_size>{value}</context_size>"
+    )
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ConfigFileError):
+        load_config(path)

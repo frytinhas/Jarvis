@@ -8,6 +8,7 @@ import shlex
 from jarvis.agent.orchestrator import Orchestrator
 from jarvis.config import JarvisConfig, config_path, save_config
 from jarvis.configurator import REASONING_LABELS, discover_models
+from jarvis.hardware import recommended_context_size
 from jarvis.legal import license_text, schedule_license_notice
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import state_directory
@@ -33,7 +34,7 @@ CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXE
 EXIT_COMMANDS = {"/exit", "/quit", "/sair"}
 LICENSE_COMMANDS = {"/license", "/licenca", "/licença"}
 COMMANDS = (
-    "/help", "/reasoning", "/model", "/permissions", "/config", "/clear", "/license", "/exit"
+    "/help", "/reasoning", "/model", "/context", "/permissions", "/config", "/clear", "/license", "/exit"
 )
 
 
@@ -80,6 +81,8 @@ class LocalCommands:
             return self._reasoning(argument)
         if command == "/model":
             return self._model(argument)
+        if command == "/context":
+            return self._context(argument)
         suggestion = next((item for item in COMMANDS if item.startswith(command)), None)
         suffix = f" Você quis dizer `{suggestion}`?" if suggestion else " Use `/help`."
         return CommandResult(True, f"Comando local desconhecido: `{command}`.{suffix}")
@@ -91,6 +94,8 @@ class LocalCommands:
             candidates = [f"/reasoning {level}" for level in REASONING_LEVELS]
         elif lowered.startswith("/model "):
             candidates = [f"/model {label}" for label, _ in self._models()]
+        elif lowered.startswith("/context "):
+            candidates = ["/context reset"]
         elif lowered.startswith("/permissions "):
             candidates = [
                 f"/permissions {risk} {decision}"
@@ -157,13 +162,47 @@ class LocalCommands:
         label, selected = exact[0]
         if selected == current:
             return CommandResult(True, f"`{label}` já é o modelo configurado.")
-        self._persist_settings(model_path=selected)
+        context_size = recommended_context_size()
+        self._persist_settings(model_path=selected, context_size=context_size)
         marker = state_directory() / "restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
         return CommandResult(
             True,
-            f"Modelo **{label}** salvo. A troca só será aplicada após reiniciar o servidor.",
+            f"Modelo **{label}** e contexto automático de **{context_size} tokens** salvos. "
+            "A troca só será aplicada após reiniciar o servidor.",
+            ask_model_restart=True,
+        )
+
+    def _context(self, argument: str) -> CommandResult:
+        current = self.config.settings.context_size
+        recommended = recommended_context_size()
+        if not argument:
+            return CommandResult(
+                True,
+                f"Contexto atual: **{current} tokens**. Recomendação automática: "
+                f"**{recommended} tokens**. Use `/context N` ou `/context reset`.",
+            )
+        if argument.lower() == "reset":
+            context_size = recommended
+        else:
+            try:
+                context_size = int(argument)
+            except ValueError:
+                return CommandResult(True, "Uso: `/context N` ou `/context reset`; N deve ser inteiro.")
+            if context_size <= 0 or context_size % 1024:
+                return CommandResult(True, "O contexto deve ser um inteiro positivo múltiplo de 1024.")
+        if context_size == current:
+            return CommandResult(True, f"O contexto já está em **{context_size} tokens**.")
+        self._persist_settings(context_size=context_size)
+        marker = state_directory() / "restart-required"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+        source = "automático" if argument.lower() == "reset" else "manual"
+        return CommandResult(
+            True,
+            f"Contexto {source} de **{context_size} tokens** salvo. A mudança só será aplicada "
+            "após reiniciar o servidor.",
             ask_model_restart=True,
         )
 
@@ -221,6 +260,7 @@ class LocalCommands:
 
 - `/reasoning off|low|medium|high|max` — altera e salva o reasoning.
 - `/model [modelo]` — lista ou seleciona um GGUF.
+- `/context [tokens|reset]` — consulta ou altera o contexto do modelo.
 - `/permissions [categoria decisão]` — consulta ou altera permissões.
 - `/config` — mostra a configuração atual.
 - `/clear` — limpa a tela sem apagar o contexto.
@@ -232,6 +272,7 @@ class LocalCommands:
         return (
             "## Configuração atual\n\n"
             f"- Modelo: `{settings.model_path}`\n"
+            f"- Contexto: **{settings.context_size} tokens**\n"
             f"- Reasoning: **{REASONING_LABELS[settings.default_reasoning_level]}**\n"
             f"- Timeout do LLM: {settings.llm_request_timeout_seconds}s\n"
             f"- Timeout total: {settings.interaction_timeout_seconds}s\n"

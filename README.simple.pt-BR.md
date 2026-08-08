@@ -43,6 +43,7 @@ Comandos básicos dentro do Jarvis:
 
 - `/help` mostra os comandos disponíveis.
 - `/permissions` mostra as permissões atuais; por exemplo, `/permissions exec confirmation` altera e salva uma delas.
+- `/context` mostra o contexto do modelo; use `/context reset` para a recomendação automática.
 - `/clear` limpa a tela.
 - `/exit` ou `/sair` encerra a conversa.
 
@@ -62,7 +63,7 @@ O Jarvis pode pedir confirmação antes de alterar, apagar ou executar algo. Lei
 
 Copyright (C) 2026 Jose Nunes.
 
-O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
+O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model`, `/context` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
 
 Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
 

@@ -43,6 +43,7 @@ Basic commands inside Jarvis:
 
 - `/help` shows the available commands.
 - `/permissions` shows current permissions; for example, `/permissions exec confirmation` changes and saves one.
+- `/context` shows the model context; use `/context reset` for the automatic recommendation.
 - `/clear` clears the screen.
 - `/exit` closes the conversation.
 
@@ -62,7 +63,7 @@ Jarvis may ask for confirmation before changing, deleting or running something. 
 
 Copyright (C) 2026 Jose Nunes.
 
-Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning`, `/model`, or `/permissions`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
+Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning`, `/model`, `/context`, or `/permissions`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
 
 Distributions must retain the copyright and license notices, include the GPL, and make the corresponding source available as required by the license. Modified distributions must prominently identify their changes and the relevant dates. Models, `llama.cpp`, Python dependencies and other separately obtained third-party components remain governed by their own licenses.
 

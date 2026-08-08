@@ -254,7 +254,7 @@ def test_menu_choice_keeps_default_and_rejects_invalid_values(monkeypatch) -> No
 
 def test_menu_has_appearance_and_separate_timeouts() -> None:
     assert MENU_OPTIONS == (
-        "Modelo e reasoning",
+        "Modelo, contexto e reasoning",
         "Identidade",
         "Comportamento",
         "Timeouts",
@@ -329,11 +329,13 @@ def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None: 
     monkeypatch.setattr("jarvis.configurator._choose_model", lambda current: (tmp_path, model))
     monkeypatch.setattr("jarvis.configurator.ask_choice", lambda *args, **kwargs: next(choices))
     monkeypatch.setattr("jarvis.configurator.ask_yes_no", lambda *args, **kwargs: True)
+    monkeypatch.setattr("jarvis.configurator.ask_positive_integer", lambda *args, **kwargs: 4096)
 
     result = run_wizard()
 
     assert result is not None
     assert result.settings.default_reasoning_level == 3
+    assert result.settings.context_size == 4096
     assert result.settings.interaction_timeout_seconds == settings.interaction_timeout_seconds
 
 

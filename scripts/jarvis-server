@@ -61,6 +61,7 @@ exec "${server_command[@]}" \
     --alias "$MODEL_ALIAS" \
     --host "$SERVER_HOST" \
     --port "$SERVER_PORT" \
+    --ctx-size "${CONTEXT_SIZE:-4096}" \
     --jinja \
     --n-gpu-layers auto \
     "${server_log_args[@]}"

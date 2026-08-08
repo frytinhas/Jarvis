@@ -9,6 +9,7 @@ import shlex
 
 from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
+from jarvis.hardware import recommended_context_size
 from jarvis.legal import schedule_license_notice
 from jarvis.resources import ensure_private_resources
 from jarvis.security.policy import Decision, Risk
@@ -27,7 +28,7 @@ CATEGORY_LABELS = {
 COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 REASONING_LABELS = ("Off", "Low", "Medium", "High", "Max")
 MENU_OPTIONS = (
-    "Modelo e reasoning",
+    "Modelo, contexto e reasoning",
     "Identidade",
     "Comportamento",
     "Timeouts",
@@ -289,6 +290,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     print("\nResumo da configuração")
     print(f"  Pasta de modelos: {settings.model_directory}")
     print(f"  Modelo: {settings.model_path}")
+    print(f"  Contexto do modelo: {settings.context_size} tokens")
     print(
         "  Reasoning padrão: "
         f"{REASONING_LABELS[settings.default_reasoning_level]} "
@@ -364,6 +366,7 @@ def _changes_summary(
     fields: tuple[tuple[str, str, object], ...] = (
         ("Pasta de modelos", "model_directory", str),
         ("Modelo", "model_path", str),
+        ("Contexto do modelo", "context_size", lambda value: f"{value} tokens"),
         ("Reasoning padrão", "default_reasoning_level", _reasoning_label),
         ("Nome", "assistant_name", str),
         ("Comando", "command_name", str),
@@ -431,10 +434,22 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
     while True:
         print("\n=== Jarvis · Configuração ===")
         print(f"Modelo: {draft.model_path.name if draft.model_path else 'não selecionado'}")
-        print(f"Reasoning: nível {draft.default_reasoning_level} · Painel: {draft.display_log_level.value}")
+        print(
+            f"Contexto: {draft.context_size} tokens · Reasoning: nível "
+            f"{draft.default_reasoning_level} · Painel: {draft.display_log_level.value}"
+        )
         choice = ask_choice("Categorias", list(MENU_OPTIONS), 9)
         if choice == 1:
             directory, model = _choose_model(draft)
+            recommended_context = recommended_context_size()
+            context_size = ask_positive_integer(
+                "Contexto do modelo em tokens (múltiplo de 1024)", recommended_context
+            )
+            while context_size % 1024:
+                print("O contexto deve ser múltiplo de 1024.")
+                context_size = ask_positive_integer(
+                    "Contexto do modelo em tokens (múltiplo de 1024)", recommended_context
+                )
             reasoning = ask_choice(
                 "Reasoning padrão",
                 list(REASONING_LABELS),
@@ -443,6 +458,7 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
             draft = draft.model_copy(update={
                 "model_directory": directory,
                 "model_path": model,
+                "context_size": context_size,
                 "default_reasoning_level": reasoning,
             })
         elif choice == 2:
@@ -536,6 +552,7 @@ def _write_runtime(config: JarvisConfig) -> None:
     content = "\n".join(
         (
             f"MODEL_PATH={shlex.quote(str(settings.model_path))}",
+            f"CONTEXT_SIZE={settings.context_size}",
             f"MODEL_ALIAS={shlex.quote(config.advanced.llm_model)}",
             f"COMMAND_NAME={shlex.quote(settings.command_name)}",
             f"ASSISTANT_NAME={shlex.quote(settings.assistant_name)}",
@@ -625,7 +642,7 @@ def commit(result: ConfigurationResult) -> None:
         result.command_replacement,
     )
     _apply_desktop_entry(result.settings)
-    if old.model_path != result.settings.model_path:
+    if old.model_path != result.settings.model_path or old.context_size != result.settings.context_size:
         marker = runtime_path().parent / "restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()

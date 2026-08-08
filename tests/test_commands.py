@@ -53,13 +53,35 @@ def test_model_command_persists_and_requests_restart(tmp_path: Path, monkeypatch
     commands, _, config_file = _commands(tmp_path, monkeypatch)
     selected = tmp_path / "models/other model.gguf"
     selected.write_bytes(b"gguf")
+    monkeypatch.setattr("jarvis.ui.commands.recommended_context_size", lambda: 6144)
 
     result = commands.handle('/model "other model.gguf"')
 
     assert result.ask_model_restart
     assert load_config(config_file).settings.model_path == selected.resolve()
+    assert load_config(config_file).settings.context_size == 6144
     assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
     assert "/model other model.gguf" in commands.completion_candidates("/model oth")
+
+
+def test_context_command_persists_reset_and_validates_values(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    commands, _, config_file = _commands(tmp_path, monkeypatch)
+    monkeypatch.setattr("jarvis.ui.commands.recommended_context_size", lambda: 6144)
+
+    summary = commands.handle("/context")
+    invalid = commands.handle("/context 123")
+    changed = commands.handle("/context 8192")
+    assert load_config(config_file).settings.context_size == 8192
+    reset = commands.handle("/context reset")
+
+    assert "4096" in summary.text
+    assert "6144" in summary.text
+    assert "múltiplo de 1024" in invalid.text
+    assert changed.ask_model_restart
+    assert load_config(config_file).settings.context_size == 6144
+    assert reset.ask_model_restart
+    assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
+    assert "/context reset" in commands.completion_candidates("/context r")
 
 
 def test_unknown_slash_command_is_local(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

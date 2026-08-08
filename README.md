@@ -28,7 +28,7 @@ The administrative configuration starts as an independent copy of the Setup conf
 
 Running as root increases the reach of tools. Every root startup displays a warning and requires typing `ciente`; the Tool Router, confirmations, whitelist, blacklist, critical-path protections, and `PRIVILEGED` denial remain active. Use this command only when administrative access is required.
 
-The configurator has ten entries: Model and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Appearance, Persona and context, Save and exit, and Exit without saving. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
+The configurator has ten entries: Model, context and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Appearance, Persona and context, Save and exit, and Exit without saving. After selecting a model it proposes a context size based on detected GPU VRAM; you can keep or replace it. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
 
 When using `jarvis-config`, the review shows only modified fields as `previous value → new value`. During `Setup.sh`, it shows the complete initial configuration summary. Exiting without saving writes nothing.
 
@@ -87,7 +87,8 @@ Local commands support Tab completion and are never sent to the model:
 
 - `/help`: show available commands.
 - `/reasoning`: inspect or change reasoning.
-- `/model`: list or select a GGUF from the configured directory. The server can restart immediately or apply the change on the next launch.
+- `/model`: list or select a GGUF from the configured directory. Selecting a new model resets its context to the automatic recommendation. The server can restart immediately or apply the change on the next launch.
+- `/context [tokens|reset]`: show or change the model context. `tokens` must be a positive multiple of 1024; `reset` restores the automatic recommendation for the current GPU.
 - `/permissions`: show the global permission summary. Use `/permissions exec confirmation`, `/permissions read allow`, and equivalent category/decision pairs to change and save a permission immediately.
 - `/config`: show a read-only configuration summary.
 - `/clear`: clear the screen without deleting conversation context.
@@ -125,6 +126,8 @@ jarvis "summarize this project"
 ```
 
 A command-line message can remain in the conversation after the first answer, which is the default, or answer once and close. Choose the behavior in `jarvis-config`.
+
+The managed server receives the saved context as `--ctx-size`. Jarvis recommends half of the total VRAM, in MiB, of the largest detected GPU, rounded to the nearest 1024 tokens (minimum 1024). If VRAM cannot be detected, the recommendation is 4096 tokens. Context changes require restarting the server; accepting the immediate restart opens a new chat, while the prior visible transcript remains in local memory. A `llama-server` error about parsing a grammar or initializing samplers is separate from context size and normally indicates a model/chat-template or server compatibility issue.
 
 ## Permissions
 
@@ -208,7 +211,7 @@ Never start the model with `--tools all`; Jarvis must remain the only layer allo
 
 Copyright (C) 2026 Jose Nunes.
 
-Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning`, `/model`, or `/permissions`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
+Jarvis-CLI is free software licensed under the [GNU General Public License version 3](LICENSE), version 3 only (`GPL-3.0-only`). You may use, study, modify and redistribute it under that license. Every configurator save—and settings persisted by `/reasoning`, `/model`, `/context`, or `/permissions`—schedules the short notice once for the next session. Type `/license` at any time to read the complete bundled license.
 
 Distributions must retain the copyright and license notices, include the GPL, and make the corresponding source available as required by the license. Modified distributions must prominently identify their changes and the relevant dates. Models, `llama.cpp`, Python dependencies and other separately obtained third-party components remain governed by their own licenses.
 

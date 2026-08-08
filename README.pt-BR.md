@@ -26,7 +26,7 @@ A configuração administrativa começa como uma cópia independente da configur
 
 Executar como root amplia o alcance das tools. Toda inicialização root exibe aviso e exige digitar `ciente`; Tool Router, confirmações, whitelist, blacklist, paths críticos e a proibição de ações `PRIVILEGED` continuam ativos. Use esse comando somente quando o acesso administrativo for necessário.
 
-O configurador possui dez entradas: Modelo e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Aparência, Persona e contexto, Salvar e sair, e Sair sem salvar. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
+O configurador possui dez entradas: Modelo, contexto e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Aparência, Persona e contexto, Salvar e sair, e Sair sem salvar. Após selecionar um modelo, ele propõe um contexto baseado na VRAM detectada; você pode manter ou substituir o valor. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
 
 Ao usar `jarvis-config`, a revisão mostra somente os campos modificados, sempre como `valor anterior → valor novo`. Durante o `Setup.sh`, a revisão mostra o resumo completo da configuração inicial. Sair sem salvar não grava nenhuma mudança.
 
@@ -85,7 +85,8 @@ Os comandos locais possuem autocomplete com Tab e nunca são enviados ao modelo:
 
 - `/help`: mostra os comandos disponíveis.
 - `/reasoning`: consulta ou altera o reasoning.
-- `/model`: lista ou seleciona um GGUF da pasta configurada. A troca pode reiniciar o servidor imediatamente ou ficar pendente para a próxima execução.
+- `/model`: lista ou seleciona um GGUF da pasta configurada. Selecionar outro modelo restaura o contexto para a recomendação automática. A troca pode reiniciar o servidor imediatamente ou ficar pendente para a próxima execução.
+- `/context [tokens|reset]`: mostra ou altera o contexto do modelo. `tokens` deve ser múltiplo positivo de 1024; `reset` restaura a recomendação automática para a GPU atual.
 - `/permissions`: mostra o resumo das permissões globais. Use `/permissions exec confirmation`, `/permissions read allow` e pares equivalentes de categoria/decisão para alterar e salvar uma permissão imediatamente.
 - `/config`: mostra um resumo somente leitura.
 - `/clear`: limpa a tela sem apagar o contexto.
@@ -127,6 +128,8 @@ jarvis "resuma este projeto"
 ```
 
 A mensagem inicial pode continuar no chat depois da primeira resposta, que é o padrão, ou receber uma única resposta e encerrar. Escolha o comportamento no `jarvis-config`.
+
+O servidor gerenciado recebe o contexto salvo por `--ctx-size`. O Jarvis recomenda metade da VRAM total, em MiB, da maior GPU detectada, arredondada para o múltiplo de 1024 tokens mais próximo (mínimo 1024). Quando não é possível detectar VRAM, a recomendação é 4096 tokens. Alterar o contexto exige reiniciar o servidor; aceitar o reinício imediato abre um chat novo, mas o transcript visível anterior permanece na memória local. Um erro do `llama-server` sobre parsing de grammar ou inicialização de samplers é independente do tamanho do contexto e em geral indica incompatibilidade do modelo/chat template ou do servidor.
 
 ## Permissões
 
@@ -208,7 +211,7 @@ Nunca inicie o modelo com `--tools all`; somente o Jarvis deve executar as tools
 
 Copyright (C) 2026 Jose Nunes.
 
-O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
+O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model`, `/context` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
 
 Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
 

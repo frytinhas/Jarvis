@@ -40,7 +40,22 @@ def test_manual_model_edit_regenerates_runtime_and_marks_restart(
 
     content = runtime.read_text(encoding="utf-8")
     assert "MODEL_PATH='/tmp/new model.gguf'" in content
+    assert "CONTEXT_SIZE=4096" in content
     assert "DISPLAY_LOG_LEVEL=Minimal-Essential" in content
+    assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
+
+
+def test_manual_context_edit_regenerates_runtime_and_marks_restart(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    config_path, runtime = _prepare_runtime(tmp_path, monkeypatch)
+    original = default_config()
+    settings = original.settings.model_copy(update={"context_size": 8192})
+    save_config(original.model_copy(update={"settings": settings}), config_path)
+
+    sync_runtime()
+
+    assert "CONTEXT_SIZE=8192" in runtime.read_text(encoding="utf-8")
     assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
 
 
