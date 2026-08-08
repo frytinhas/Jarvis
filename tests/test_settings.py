@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import UserSettings, load_settings, save_settings
+from jarvis.settings import MessageMode, UserSettings, default_settings, load_settings, save_settings
 
 
 def test_settings_round_trip(tmp_path: Path) -> None:
@@ -18,3 +18,24 @@ def test_settings_round_trip(tmp_path: Path) -> None:
     save_settings(settings, path)
     assert load_settings(path) == settings
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_new_lifecycle_defaults() -> None:
+    settings = default_settings()
+    assert settings.keep_llm_running is False
+    assert settings.message_mode is MessageMode.INTERACTIVE
+
+
+def test_version_one_settings_are_migrated(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        '{"version":1,"assistant_name":"Jarvis","command_name":"jarvis",'
+        '"autostart":true,"persona_path":"/tmp/Persona.md"}',
+        encoding="utf-8",
+    )
+
+    settings = load_settings(path)
+
+    assert settings.version == 2
+    assert settings.keep_llm_running is False
+    assert settings.message_mode is MessageMode.INTERACTIVE

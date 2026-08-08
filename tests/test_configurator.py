@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from jarvis.configurator import _apply_command, discover_models, normalize_command_name
+from jarvis.configurator import _apply_command, _apply_desktop_entry, discover_models, normalize_command_name
+from jarvis.settings import UserSettings
 
 
 def test_discovers_gguf_recursively_and_ignores_mmproj(tmp_path: Path) -> None:
@@ -45,3 +46,21 @@ def test_custom_command_replaces_owned_default_alias(tmp_path: Path, monkeypatch
 
     assert not (local_bin / "jarvis").exists()
     assert (local_bin / "bob").resolve() == launcher
+
+
+def test_desktop_entry_uses_custom_identity_and_icon(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    settings = UserSettings(
+        assistant_name="Bob",
+        command_name="bob",
+        persona_path=tmp_path / "Persona.md",
+    )
+
+    _apply_desktop_entry(settings)
+
+    desktop = (tmp_path / "data/applications/jarvis-local.desktop").read_text(encoding="utf-8")
+    assert "Name=Bob" in desktop
+    assert f'Exec="{tmp_path}/.local/bin/bob"' in desktop
+    assert f"Icon={tmp_path}/data/icons/jarvis-local.png" in desktop
+    assert (tmp_path / "data/icons/jarvis-local.png").read_bytes().startswith(b"\x89PNG")

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import re
 import shlex
 
 from jarvis.agent.prompts import default_persona_path
 from jarvis.security.policy import Decision, Risk
-from jarvis.settings import UserSettings, default_settings, load_settings, project_root, save_settings, settings_path
+from jarvis.settings import MessageMode, UserSettings, load_settings, project_root, save_settings
 
 
 CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
@@ -186,6 +187,10 @@ def _summary(settings: UserSettings, reset_persona: bool) -> None:
     print(f"  Nome: {settings.assistant_name}")
     print(f"  Comando: {settings.command_name}")
     print(f"  Início automático: {'ativado' if settings.autostart else 'desativado'}")
+    server_state = "continuará ligado" if settings.keep_llm_running else "encerrará com o último chat"
+    print(f"  Ao fechar o chat: o servidor {server_state}")
+    message_state = "continuar no chat" if settings.message_mode is MessageMode.INTERACTIVE else "responder e sair"
+    print(f"  Mensagem no comando: {message_state}")
     if any(settings.permissions.get(risk) is Decision.ALLOW for risk in (Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)):
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
@@ -213,6 +218,14 @@ def run_wizard() -> ConfigurationResult:
             reset_default = ask_yes_no("Restaurar a personalidade padrão?", False)
         assistant_name, command_name = _choose_identity(draft)
         autostart = ask_yes_no("Iniciar o servidor automaticamente ao entrar no usuário?", draft.autostart)
+        keep_llm_running = ask_yes_no(
+            "Manter o servidor da IA ligado depois que o chat for fechado?",
+            draft.keep_llm_running,
+        )
+        continue_after_message = ask_yes_no(
+            "Ao chamar o assistente com uma mensagem, continuar no chat após a resposta?",
+            draft.message_mode is MessageMode.INTERACTIVE,
+        )
         candidate = UserSettings(
             model_directory=model_directory,
             model_path=model_path,
@@ -220,6 +233,8 @@ def run_wizard() -> ConfigurationResult:
             assistant_name=assistant_name,
             command_name=command_name,
             autostart=autostart,
+            keep_llm_running=keep_llm_running,
+            message_mode=(MessageMode.INTERACTIVE if continue_after_message else MessageMode.ONE_SHOT),
             persona_path=persona,
         )
         _summary(candidate, reset_default)
@@ -238,6 +253,8 @@ def _write_runtime(settings: UserSettings) -> None:
             f"COMMAND_NAME={shlex.quote(settings.command_name)}",
             f"ASSISTANT_NAME={shlex.quote(settings.assistant_name)}",
             f"AUTOSTART={'true' if settings.autostart else 'false'}",
+            f"KEEP_LLM_RUNNING={'true' if settings.keep_llm_running else 'false'}",
+            f"MESSAGE_MODE={shlex.quote(settings.message_mode.value)}",
         )
     ) + "\n"
     temporary = runtime.with_suffix(".tmp")
@@ -260,6 +277,40 @@ def _apply_command(previous: str, current: str) -> None:
             old_command.unlink()
 
 
+def _desktop_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("\n", " ").replace("\r", " ")
+
+
+def _apply_desktop_entry(settings: UserSettings) -> None:
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")).expanduser()
+    icon_source = project_root() / "jarvis/ui/Icon.png"
+    icon_target = data_home / "icons/jarvis-local.png"
+    applications = data_home / "applications"
+    desktop_file = applications / "jarvis-local.desktop"
+    icon_target.parent.mkdir(parents=True, exist_ok=True)
+    applications.mkdir(parents=True, exist_ok=True)
+    icon_target.write_bytes(icon_source.read_bytes())
+    command = Path.home() / ".local/bin" / settings.command_name
+    content = "\n".join(
+        (
+            "[Desktop Entry]",
+            "Type=Application",
+            f"Name={_desktop_value(settings.assistant_name)}",
+            "Comment=Local AI assistant",
+            f'Exec="{_desktop_value(str(command))}"',
+            f"Icon={_desktop_value(str(icon_target))}",
+            "Terminal=true",
+            "Categories=Utility;",
+            "StartupNotify=false",
+            "",
+        )
+    )
+    temporary = desktop_file.with_suffix(".tmp")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.chmod(0o644)
+    temporary.replace(desktop_file)
+
+
 def commit(result: ConfigurationResult) -> None:
     old = load_settings()
     if result.reset_persona:
@@ -267,6 +318,7 @@ def commit(result: ConfigurationResult) -> None:
     save_settings(result.settings)
     _write_runtime(result.settings)
     _apply_command(result.previous_command, result.settings.command_name)
+    _apply_desktop_entry(result.settings)
     if old.model_path != result.settings.model_path:
         marker = Path.home() / ".local/state/jarvis/restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
@@ -281,4 +333,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

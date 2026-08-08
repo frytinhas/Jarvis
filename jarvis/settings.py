@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,16 +20,23 @@ DEFAULT_DECISIONS: dict[Risk, Decision] = {
 }
 
 
+class MessageMode(StrEnum):
+    INTERACTIVE = "interactive"
+    ONE_SHOT = "one_shot"
+
+
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 1
+    version: int = 2
     model_directory: Path | None = None
     model_path: Path | None = None
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
     assistant_name: str = "Jarvis"
     command_name: str = "jarvis"
     autostart: bool = True
+    keep_llm_running: bool = False
+    message_mode: MessageMode = MessageMode.INTERACTIVE
     persona_path: Path
 
 
@@ -49,7 +57,10 @@ def load_settings(path: Path | None = None) -> UserSettings:
     target = path or settings_path()
     if not target.is_file():
         return default_settings()
-    return UserSettings.model_validate_json(target.read_text(encoding="utf-8"))
+    settings = UserSettings.model_validate_json(target.read_text(encoding="utf-8"))
+    if settings.version < 2:
+        settings = settings.model_copy(update={"version": 2})
+    return settings
 
 
 def save_settings(settings: UserSettings, path: Path | None = None) -> None:
@@ -62,4 +73,3 @@ def save_settings(settings: UserSettings, path: Path | None = None) -> None:
     )
     temporary.chmod(0o600)
     temporary.replace(target)
-

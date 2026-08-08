@@ -56,3 +56,26 @@ def test_terminal_sends_initial_message_and_stays_interactive(monkeypatch, capsy
 
     assert orchestrator.received == ["mensagem inicial", "segunda mensagem"]
     assert "Bob local" in capsys.readouterr().out
+
+
+def test_terminal_one_shot_does_not_request_another_message(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.received: list[str] = []
+
+        def handle(self, message: str):  # type: ignore[no-untyped-def]
+            self.received.append(message)
+            from jarvis.agent.orchestrator import AgentReply
+
+            return AgentReply("Resposta")
+
+    orchestrator = FakeOrchestrator()
+
+    def unexpected_input(_: str) -> str:
+        raise AssertionError("one-shot não deve abrir outro prompt")
+
+    monkeypatch.setattr("builtins.input", unexpected_input)
+
+    TerminalUI(orchestrator, "Bob").run("mensagem inicial", continue_after_initial=False)  # type: ignore[arg-type]
+
+    assert orchestrator.received == ["mensagem inicial"]

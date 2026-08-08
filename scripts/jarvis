@@ -11,12 +11,8 @@ SERVER_SCRIPT="$PROJECT_DIR/scripts/jarvis-server"
 STATE_DIR="$HOME/.local/state/jarvis"
 PID_FILE="$STATE_DIR/llama-server.pid"
 RESTART_MARKER="$STATE_DIR/restart-required"
+SESSION_DIR="$STATE_DIR/sessions"
 UNIT_NAME="jarvis-llm.service"
-
-cd "$PROJECT_DIR" || {
-    echo "Não foi possível acessar o projeto em $PROJECT_DIR."
-    exit 1
-}
 
 if [[ ! -f "$INSTALL_FILE" || ! -f "$RUNTIME_FILE" || ! -x "$JARVIS_BIN" ]]; then
     echo "A instalação do Jarvis não está completa."
@@ -27,8 +23,10 @@ fi
 # Arquivo local gerado exclusivamente por Setup.sh ou Config.sh.
 source "$INSTALL_FILE"
 source "$RUNTIME_FILE"
+KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
 SERVER_URL="http://$SERVER_HOST:$SERVER_PORT"
 server_start_requested=false
+session_registered=false
 
 server_healthy() {
     curl --silent --fail --max-time 2 "$SERVER_URL/health" >/dev/null 2>&1
@@ -45,7 +43,7 @@ user_systemd_available() {
         && systemctl --user cat "$UNIT_NAME" >/dev/null 2>&1
 }
 
-stop_owned_legacy_server() {
+stop_owned_fallback_server() {
     [[ -f "$PID_FILE" ]] || return 1
     local pid cmdline
     pid="$(<"$PID_FILE")"
@@ -63,19 +61,87 @@ stop_owned_legacy_server() {
     rm -f "$PID_FILE"
 }
 
+stop_managed_server() {
+    local stopped=false
+    if user_systemd_available && systemctl --user is-active --quiet "$UNIT_NAME"; then
+        systemctl --user stop "$UNIT_NAME"
+        stopped=true
+    fi
+    if stop_owned_fallback_server; then
+        stopped=true
+    fi
+    [[ "$stopped" == true ]]
+}
+
+prune_sessions() {
+    local marker pid
+    mkdir -p "$SESSION_DIR"
+    chmod 700 "$SESSION_DIR"
+    shopt -s nullglob
+    for marker in "$SESSION_DIR"/*; do
+        pid="$(<"$marker")"
+        if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$marker"
+        fi
+    done
+    shopt -u nullglob
+}
+
+has_active_sessions() {
+    prune_sessions
+    compgen -G "$SESSION_DIR/*" >/dev/null
+}
+
+cleanup_session() {
+    [[ "$session_registered" == true ]] || return
+    rm -f "$SESSION_DIR/$$"
+    session_registered=false
+    if [[ "$KEEP_LLM_RUNNING" != true ]] && ! has_active_sessions; then
+        stop_managed_server || true
+    fi
+}
+
+register_session() {
+    prune_sessions
+    printf '%s\n' "$$" >"$SESSION_DIR/$$"
+    session_registered=true
+    trap cleanup_session EXIT
+}
+
+run_client() {
+    "$JARVIS_BIN" "$@"
+}
+
 start_with_fallback() {
     mkdir -p "$STATE_DIR"
     nohup "$SERVER_SCRIPT" </dev/null >/dev/null 2>&1 &
     printf '%s\n' "$!" >"$PID_FILE"
 }
 
+if [[ "${1:-}" == "--full-stop" ]]; then
+    if (($# != 1)); then
+        echo "Use --full-stop sem uma mensagem adicional."
+        exit 2
+    fi
+    if stop_managed_server; then
+        echo "Servidor da IA encerrado. A configuração de início automático foi mantida."
+    elif server_healthy; then
+        echo "O servidor ativo não foi iniciado pelo Jarvis e foi mantido."
+    else
+        echo "O servidor da IA já está desligado."
+    fi
+    exit 0
+fi
+
+register_session
+
 if [[ -f "$RESTART_MARKER" ]]; then
     if user_systemd_available; then
-        stop_owned_legacy_server || true
+        stop_owned_fallback_server || true
         systemctl --user restart "$UNIT_NAME"
         server_start_requested=true
     else
-        stop_owned_legacy_server || true
+        stop_owned_fallback_server || true
         if server_healthy; then
             echo "A porta $SERVER_PORT está sendo usada por outro servidor."
             exit 1
@@ -85,9 +151,10 @@ if [[ -f "$RESTART_MARKER" ]]; then
     fi
 elif correct_model_loaded; then
     rm -f "$RESTART_MARKER"
-    exec "$JARVIS_BIN" "$@"
+    run_client "$@"
+    exit $?
 elif server_healthy; then
-    if ! stop_owned_legacy_server; then
+    if ! stop_owned_fallback_server; then
         echo "A porta $SERVER_PORT está sendo usada por outro modelo ou servidor."
         echo "Encerre esse processo ou altere sua configuração."
         exit 1
@@ -109,7 +176,8 @@ for _ in $(seq 1 180); do
     if correct_model_loaded; then
         rm -f "$RESTART_MARKER"
         echo "Modelo pronto. Abrindo o Jarvis..."
-        exec "$JARVIS_BIN" "$@"
+        run_client "$@"
+        exit $?
     fi
     sleep 1
 done

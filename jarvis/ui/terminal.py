@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 
 from jarvis.agent.orchestrator import AgentReply, Orchestrator
 
@@ -24,10 +25,13 @@ class TerminalUI:
         self.orchestrator = orchestrator
         self.assistant_name = assistant_name
 
-    def run(self, initial_message: str | None = None) -> None:
-        print(f"{self.assistant_name} local. Digite /sair para encerrar.")
+    def run(self, initial_message: str | None = None, continue_after_initial: bool = True) -> None:
+        mark = "\033[38;5;208m◉\033[0m" if sys.stdout.isatty() else "◉"
+        print(f"{mark} {self.assistant_name} local. Digite /sair para encerrar.")
         if initial_message:
             self._handle(initial_message)
+            if not continue_after_initial:
+                return
         while True:
             try:
                 user_text = input("\nVocê > ").strip()

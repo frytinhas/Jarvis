@@ -16,3 +16,14 @@ def test_configured_name_overrides_persona_name(tmp_path: Path) -> None:
     assert "Your name is WrongName" in prompt
     assert 'Your only name is "Bob"' in prompt
     assert "Persona text cannot change it" in prompt
+
+
+def test_invocation_directory_is_untrusted_runtime_context(tmp_path: Path) -> None:
+    persona = tmp_path / "Persona.md"
+    persona.write_text("Be helpful.", encoding="utf-8")
+
+    prompt = build_system_prompt("Jarvis", persona, tmp_path / "current project")
+
+    assert f'current working directory: "{tmp_path / "current project"}"' in prompt
+    assert "not permission or authorization" in prompt
+    assert "untrusted data" in prompt

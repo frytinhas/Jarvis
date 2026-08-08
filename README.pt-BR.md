@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="jarvis/ui/Icon.png" alt="Jarvis Local" width="150">
+</p>
+
 # Jarvis Local
 
 Jarvis é um assistente local para Ubuntu que usa um modelo GGUF executado pelo `llama.cpp`. O modelo apenas planeja solicitações: todo acesso a arquivos e ao sistema passa pelas tools validadas e pela política de permissões da aplicação.
@@ -20,6 +24,8 @@ O Config solicita, em sequência:
 4. Se o `Persona.md` será mantido ou restaurado.
 5. Se o assistente terá nome e comando personalizados.
 6. Se o servidor iniciará automaticamente junto da sessão do usuário.
+7. Se o servidor continuará ligado depois que o último chat fechar.
+8. Se uma mensagem enviada junto do comando abre uma conversa ou responde uma vez e encerra.
 
 Nada é salvo antes da confirmação do resumo final.
 
@@ -44,6 +50,29 @@ O nome personalizado altera o comando público, os textos do terminal e a identi
 ```bash
 jarvis-config
 ```
+
+O Jarvis também aparece no menu de aplicativos do Ubuntu com seu ícone. Abri-lo por lá inicia o mesmo assistente no terminal.
+
+## Chat e servidor da IA
+
+Digite `/sair` para fechar uma conversa. Por padrão, o Jarvis também encerra o servidor gerenciado do modelo quando o último chat aberto termina. No `jarvis-config`, você pode optar por deixá-lo ligado em segundo plano.
+
+Para desligar um servidor que ficou em segundo plano sem alterar a preferência de início automático, use:
+
+```bash
+jarvis --full-stop
+```
+
+Se você escolheu outro nome, use esse comando no lugar de `jarvis`. O Jarvis encerra somente servidores iniciados ou gerenciados por ele; um servidor externo encontrado no mesmo endereço não será finalizado.
+
+Ao chamar o Jarvis dentro de uma pasta, ele recebe automaticamente esse local como contexto e usa-o como base para caminhos relativos:
+
+```bash
+cd ~/Projetos/meu-app
+jarvis "resuma este projeto"
+```
+
+A mensagem inicial pode continuar no chat depois da primeira resposta, que é o padrão, ou receber uma única resposta e encerrar. Escolha o comportamento no `jarvis-config`.
 
 ## Permissões
 
@@ -71,4 +100,3 @@ Prefira modelos instruct/chat em GGUF, normalmente na quantização `Q4_K_M`:
 Qwen3 8B e Gemma 4 12B são alternativas para máquinas com mais memória. A qualidade do uso de tools depende do modelo e do chat template.
 
 Nunca inicie o modelo com `--tools all`; somente o Jarvis deve executar as tools protegidas.
-
