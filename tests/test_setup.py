@@ -12,6 +12,8 @@ def test_setup_is_local_and_never_invokes_sudo() -> None:
     assert 'APP_DIR="$DATA_DIR/app"' in setup
     assert 'LOCAL_BIN="$INSTALL_HOME/.local/bin"' in setup
     assert "INSTALL_UID=%s" in setup
+    assert '"$APP_DIR/.venv/bin/python" -P -m jarvis.installer' in setup
+    assert '"$APP_DIR/.venv/bin/python" -P -m jarvis.runtime' in setup
 
 
 def test_root_setup_warns_and_uses_direct_package_manager() -> None:

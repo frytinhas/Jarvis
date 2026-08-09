@@ -125,11 +125,22 @@ class LocalCommands:
             accepted = ", ".join(REASONING_LEVELS)
             return CommandResult(True, f"Nível inválido. Use: {accepted}.")
         level = REASONING_LEVELS[normalized]
+        previous_level = self.config.settings.default_reasoning_level
         self._persist_settings(default_reasoning_level=level)
         self.orchestrator.set_thinking_budget_tokens((0, 512, 1024, 2048, -1)[level])
+        template_changed = (previous_level == 0) != (level == 0)
+        if template_changed:
+            marker = state_directory() / "restart-required"
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
         return CommandResult(
             True,
-            f"Reasoning alterado para **{REASONING_LABELS[level]}** e salvo em `{config_path()}`.",
+            f"Reasoning alterado para **{REASONING_LABELS[level]}** e salvo em `{config_path()}`."
+            + (
+                " O thinking do template será atualizado ao reiniciar o servidor."
+                if template_changed else ""
+            ),
+            ask_model_restart=template_changed,
         )
 
     def _models(self) -> list[tuple[str, Path]]:

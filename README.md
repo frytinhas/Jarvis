@@ -45,7 +45,7 @@ jarvis "list the files in this directory"
 jarvis --r 3 "analyze this project"
 ```
 
-`--r` accepts `-1` (configured), `0` (Off), `1` (Low), `2` (Medium), `3` (High), and `4` (Max). The initial default is Off. Template thinking is configured per GGUF and starts disabled.
+`--r` accepts `-1` (configured), `0` (Off), `1` (Low), `2` (Medium), `3` (High), and `4` (Max). The initial default is Off. The configured reasoning level also controls template thinking: level `0` disables it and levels `1` through `4` enable it. Changing between Off and an active level with `/reasoning` offers to restart the server so the template change is applied.
 
 | Local command | Purpose |
 | --- | --- |

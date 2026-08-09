@@ -45,6 +45,8 @@ def test_reasoning_command_applies_persists_and_completes(tmp_path: Path, monkey
     assert result.handled
     assert orchestrator.budget == 2048
     assert load_config(config_file).settings.default_reasoning_level == 3
+    assert result.ask_model_restart
+    assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
     assert (tmp_path / ".local/state/jarvis/license-notice.pending").is_file()
     assert "/reasoning medium" in commands.completion_candidates("/reasoning m")
 

@@ -246,7 +246,7 @@ fi
 
 if [[ "$INSTALL_KIND" == repair && -f "$USER_CONFIG" ]]; then
     info "Reparando a configuração existente e seus recursos ausentes"
-    run_as_install_user "$APP_DIR/.venv/bin/python" -m jarvis.installer \
+    run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.installer \
         --repair-user "$USER_CONFIG"
 else
     info "Instalação concluída. Iniciando a configuração"
@@ -255,10 +255,10 @@ fi
 
 [[ -f "$USER_CONFIG" ]] \
     || fail "A configuração não foi salva. Execute jarvis-config e rode o Setup novamente."
-command_name="$(run_as_install_user "$APP_DIR/.venv/bin/python" -c \
+command_name="$(run_as_install_user "$APP_DIR/.venv/bin/python" -P -c \
     'from jarvis.config import load_config; from jarvis.configurator import normalize_command_name; print(normalize_command_name(load_config().settings.command_name))')"
 install_local_link "$APP_DIR/scripts/jarvis" "$LOCAL_BIN/$command_name" /scripts/jarvis
-run_as_install_user "$APP_DIR/.venv/bin/python" -m jarvis.runtime
+run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.runtime
 rm -rf -- "$app_previous"
 trap cleanup EXIT
 info "Jarvis instalado somente para o usuário atual em $APP_DIR"

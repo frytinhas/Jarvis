@@ -17,7 +17,7 @@ if [[ ! -f "$INSTALL_FILE" || ! -x "$PYTHON_BIN" ]]; then
     exit 1
 fi
 
-"$PYTHON_BIN" -m jarvis.runtime || exit 1
+"$PYTHON_BIN" -P -m jarvis.runtime || exit 1
 if [[ ! -f "$RUNTIME_FILE" ]]; then
     echo "Não foi possível gerar a configuração interna do Jarvis." >&2
     exit 1

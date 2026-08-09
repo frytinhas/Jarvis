@@ -35,7 +35,7 @@ if [[ ! -f "$INSTALL_FILE" || ! -x "$JARVIS_BIN" || ! -x "$PYTHON_BIN" ]]; then
     exit 1
 fi
 
-if ! "$PYTHON_BIN" -m jarvis.runtime; then
+if ! "$PYTHON_BIN" -P -m jarvis.runtime; then
     echo "Execute jarvis-config para criar ou corrigir o config.xml."
     exit 1
 fi
@@ -216,7 +216,7 @@ run_client_sessions() {
         if ((status != 75)); then
             return "$status"
         fi
-        if ! "$PYTHON_BIN" -m jarvis.runtime; then
+        if ! "$PYTHON_BIN" -P -m jarvis.runtime; then
             echo "Não foi possível aplicar a nova configuração do servidor."
             return 1
         fi

@@ -327,6 +327,10 @@ def _reasoning_label(value: int) -> str:
     return f"{REASONING_LABELS[value]} (nível {value})"
 
 
+def template_thinking_enabled(settings: UserSettings) -> bool:
+    return settings.default_reasoning_level > 0
+
+
 def _message_mode_label(value: MessageMode) -> str:
     return "continuar no chat" if value is MessageMode.INTERACTIVE else "responder e sair"
 
@@ -412,7 +416,6 @@ def _changes_summary(
 def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
     persisted_config = load_config(allow_legacy=True)
     persisted = persisted_config.settings
-    template_profiles = dict(persisted_config.advanced.model_template_thinking)
     ensure_private_resources(persisted)
     persona = persisted.persona_path
     context = persisted.context_path
@@ -430,7 +433,6 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
         print("\nVamos começar escolhendo o modelo local. Depois você poderá revisar o restante com calma.")
         model_directory, model_path = _choose_model(draft)
         draft = draft.model_copy(update={"model_directory": model_directory, "model_path": model_path})
-        template_profiles.setdefault(str(model_path.resolve(strict=False)), False)
     while True:
         print("\n=== Jarvis · Configuração ===")
         print(f"Modelo: {draft.model_path.name if draft.model_path else 'não selecionado'}")
@@ -455,10 +457,6 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                 list(REASONING_LABELS),
                 draft.default_reasoning_level + 1,
             ) - 1
-            model_key = str(model.resolve(strict=False))
-            template_profiles[model_key] = ask_yes_no(
-                "Permitir thinking no template deste modelo?", template_profiles.get(model_key, False)
-            )
             draft = draft.model_copy(update={
                 "model_directory": directory,
                 "model_path": model,
@@ -540,12 +538,7 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                 )
             if ask_yes_no("Salvar esta configuração?", True):
                 return ConfigurationResult(
-                    persisted_config.model_copy(update={
-                        "settings": draft,
-                        "advanced": persisted_config.advanced.model_copy(
-                            update={"model_template_thinking": template_profiles}
-                        ),
-                    }),
+                    persisted_config.model_copy(update={"settings": draft}),
                     persisted.command_name,
                     reset_default,
                     reset_context,
@@ -562,8 +555,7 @@ def _write_runtime(config: JarvisConfig) -> None:
     runtime = runtime_path()
     runtime.parent.mkdir(parents=True, exist_ok=True)
     runtime.parent.chmod(0o700)
-    model_key = str(settings.model_path.expanduser().resolve(strict=False)) if settings.model_path else ""
-    template_thinking = config.advanced.model_template_thinking.get(model_key, False)
+    template_thinking = template_thinking_enabled(settings)
     content = "\n".join(
         (
             f"MODEL_PATH={shlex.quote(str(settings.model_path))}",

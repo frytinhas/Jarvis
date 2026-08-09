@@ -33,7 +33,7 @@ class AdvancedConfig(BaseModel):
     audit_db_path: Path = Field(
         default_factory=lambda: Path("~/.local/state/jarvis/audit.db").expanduser()
     )
-    # Canonical GGUF path -> whether its chat template may emit thinking.
+    # Retained for strict version-12 round trips; runtime thinking now follows reasoning.
     model_template_thinking: dict[str, bool] = Field(default_factory=dict)
 
 
@@ -351,7 +351,7 @@ def _new_tree() -> ET.ElementTree:
     root = ET.Element("jarvis", {"version": str(CONFIG_VERSION)})
     definitions = (
         ("model", "Modelo GGUF e contexto em tokens usados pelo servidor local.", "Local GGUF model and token context used by the local server.", ("directory", "path", "context_size")),
-        ("model_profiles", "Preferências por GGUF; thinking do template começa desligado.", "Per-GGUF preferences; template thinking starts disabled.", ("template_thinking",)),
+        ("model_profiles", "Preferências legadas por GGUF; o thinking agora segue o reasoning.", "Legacy per-GGUF preferences; thinking now follows reasoning.", ("template_thinking",)),
         ("identity", "Nome exibido e comando público do assistente.", "Assistant display name and public command.", ("assistant_name", "command_name")),
         ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),

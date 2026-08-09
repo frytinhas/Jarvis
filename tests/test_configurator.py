@@ -21,6 +21,7 @@ from jarvis.configurator import (
     main as configurator_main,
     normalize_command_name,
     run_wizard,
+    template_thinking_enabled,
 )
 from jarvis.settings import UserSettings, editable_paths
 
@@ -335,7 +336,11 @@ def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None: 
     monkeypatch.setattr("jarvis.configurator.load_config", lambda **kwargs: config)
     monkeypatch.setattr("jarvis.configurator._choose_model", lambda current: (tmp_path, model))
     monkeypatch.setattr("jarvis.configurator.ask_choice", lambda *args, **kwargs: next(choices))
-    monkeypatch.setattr("jarvis.configurator.ask_yes_no", lambda *args, **kwargs: True)
+    yes_no_prompts: list[str] = []
+    monkeypatch.setattr(
+        "jarvis.configurator.ask_yes_no",
+        lambda prompt, *args, **kwargs: yes_no_prompts.append(prompt) or True,
+    )
     monkeypatch.setattr("jarvis.configurator.ask_positive_integer", lambda *args, **kwargs: 4096)
 
     result = run_wizard()
@@ -344,6 +349,16 @@ def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None: 
     assert result.settings.default_reasoning_level == 3
     assert result.settings.context_size == 4096
     assert result.settings.interaction_timeout_seconds == settings.interaction_timeout_seconds
+    assert template_thinking_enabled(result.settings)
+    assert all("thinking" not in prompt.lower() for prompt in yes_no_prompts)
+
+
+def test_template_thinking_follows_reasoning_level() -> None:
+    off = UserSettings(default_reasoning_level=0)
+
+    assert not template_thinking_enabled(off)
+    for level in range(1, 5):
+        assert template_thinking_enabled(off.model_copy(update={"default_reasoning_level": level}))
 
 
 def test_setup_mode_requests_full_summary(monkeypatch) -> None:  # type: ignore[no-untyped-def]

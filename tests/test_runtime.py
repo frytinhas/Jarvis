@@ -59,6 +59,20 @@ def test_manual_context_edit_regenerates_runtime_and_marks_restart(
     assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
 
 
+@pytest.mark.parametrize("level, expected", [(0, "false"), (1, "true"), (4, "true")])
+def test_runtime_derives_template_thinking_from_reasoning(
+    tmp_path: Path, monkeypatch, level: int, expected: str
+) -> None:  # type: ignore[no-untyped-def]
+    config_path, runtime = _prepare_runtime(tmp_path, monkeypatch)
+    original = default_config()
+    settings = original.settings.model_copy(update={"default_reasoning_level": level})
+    save_config(original.model_copy(update={"settings": settings}), config_path)
+
+    sync_runtime()
+
+    assert f"TEMPLATE_THINKING={expected}" in runtime.read_text(encoding="utf-8")
+
+
 def test_manual_command_edit_refuses_existing_unowned_command(
     tmp_path: Path, monkeypatch
 ) -> None:  # type: ignore[no-untyped-def]
