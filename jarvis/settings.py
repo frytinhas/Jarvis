@@ -41,7 +41,7 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 9
+    version: int = 10
     model_directory: Path | None = None
     model_path: Path | None = None
     context_size: int = Field(default=4096, gt=0, multiple_of=1024)
@@ -63,6 +63,7 @@ class UserSettings(BaseModel):
     persona_path: Path = Field(default_factory=lambda: editable_paths()["persona"])
     context_path: Path = Field(default_factory=lambda: editable_paths()["context"])
     waiting_messages_path: Path = Field(default_factory=lambda: editable_paths()["waiting_messages"])
+    goodbye_messages_path: Path = Field(default_factory=lambda: editable_paths()["goodbye_messages"])
     blacklist_path: Path = Field(default_factory=lambda: editable_paths()["blacklist"])
     whitelist_path: Path = Field(default_factory=lambda: editable_paths()["whitelist"])
 
@@ -85,6 +86,7 @@ def editable_paths(directory: Path | None = None) -> dict[str, Path]:
         "persona": root / "Persona.md",
         "context": root / "Context.md",
         "waiting_messages": root / "WaitingMessages.txt",
+        "goodbye_messages": root / "GoodbyeMessages.txt",
         "blacklist": root / "Blacklist.txt",
         "whitelist": root / "Whitelist.txt",
     }

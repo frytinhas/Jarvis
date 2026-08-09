@@ -136,12 +136,14 @@ def test_private_resources_are_created_with_private_permissions(tmp_path: Path) 
         "persona_path": tmp_path / "config/Persona.md",
         "context_path": tmp_path / "config/Context.md",
         "waiting_messages_path": tmp_path / "config/WaitingMessages.txt",
+        "goodbye_messages_path": tmp_path / "config/GoodbyeMessages.txt",
         "blacklist_path": tmp_path / "config/Blacklist.txt",
         "whitelist_path": tmp_path / "config/Whitelist.txt",
     })
     ensure_private_resources(settings)
     for path in (
         settings.persona_path, settings.context_path, settings.waiting_messages_path,
+        settings.goodbye_messages_path,
         settings.blacklist_path, settings.whitelist_path,
     ):
         assert path.is_file()
@@ -154,6 +156,9 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="5">')
+    content = content.replace(
+        f"    <goodbye_messages>{default_config().settings.goodbye_messages_path}</goodbye_messages>\n", ""
+    )
     content = content.replace("    <context_size>4096</context_size>\n", "")
     start = content.index("  <behavior>")
     end = content.index("  </behavior>") + len("  </behavior>")
@@ -193,6 +198,9 @@ def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
     content = path.read_text(encoding="utf-8").replace(
         f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="6">'
     )
+    content = content.replace(
+        f"    <goodbye_messages>{default_config().settings.goodbye_messages_path}</goodbye_messages>\n", ""
+    )
     content = content.replace("    <context_size>4096</context_size>\n", "")
     start = content.index("  <appearance>")
     end = content.index("  </appearance>") + len("  </appearance>\n")
@@ -220,6 +228,9 @@ def test_v8_xml_migrates_context_with_fallback_and_preserves_private_paths(tmp_p
     save_config(original.model_copy(update={"settings": settings}), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="8">')
+    content = content.replace(
+        f"    <goodbye_messages>{original.settings.goodbye_messages_path}</goodbye_messages>\n", ""
+    )
     content = content.replace("    <context_size>4096</context_size>\n", "")
     path.write_text(content, encoding="utf-8")
 
@@ -228,6 +239,20 @@ def test_v8_xml_migrates_context_with_fallback_and_preserves_private_paths(tmp_p
     assert migrated.settings.context_size == 4096
     assert migrated.settings.persona_path == tmp_path / "custom/Persona.md"
     assert migrated.settings.context_path == tmp_path / "custom/Context.md"
+    assert migrated.settings.goodbye_messages_path == tmp_path / "GoodbyeMessages.txt"
+
+
+def test_v9_xml_migrates_goodbye_messages_path(tmp_path: Path) -> None:
+    path = tmp_path / "config.xml"
+    save_config(default_config(), path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="9">')
+    content = content.replace("    <goodbye_messages>" + str(default_config().settings.goodbye_messages_path) + "</goodbye_messages>\n", "")
+    path.write_text(content, encoding="utf-8")
+
+    migrated = load_config(path)
+
+    assert migrated.settings.goodbye_messages_path == tmp_path / "GoodbyeMessages.txt"
 
 
 @pytest.mark.parametrize("value", ["0", "123", "4097"])

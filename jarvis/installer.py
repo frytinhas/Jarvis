@@ -39,6 +39,7 @@ def clone_config_for_root(
         "persona_path": paths["persona"],
         "context_path": paths["context"],
         "waiting_messages_path": paths["waiting_messages"],
+        "goodbye_messages_path": paths["goodbye_messages"],
         "blacklist_path": paths["blacklist"],
         "whitelist_path": paths["whitelist"],
     })
@@ -50,14 +51,27 @@ def clone_config_for_root(
     ensure_private_resources(root_config.settings)
 
 
+def repair_user_config(target: Path) -> None:
+    """Migrate a retained user configuration and create only missing resources."""
+    config = load_config(target)
+    ensure_private_resources(config.settings)
+    save_config(config, target)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--preserve-existing", action="store_true")
-    parser.add_argument("source", type=Path)
-    parser.add_argument("target", type=Path)
-    parser.add_argument("root_home", type=Path)
-    parser.add_argument("root_project", type=Path)
+    parser.add_argument("--repair-user", type=Path)
+    parser.add_argument("source", type=Path, nargs="?")
+    parser.add_argument("target", type=Path, nargs="?")
+    parser.add_argument("root_home", type=Path, nargs="?")
+    parser.add_argument("root_project", type=Path, nargs="?")
     args = parser.parse_args()
+    if args.repair_user is not None:
+        repair_user_config(args.repair_user)
+        return
+    if None in (args.source, args.target, args.root_home, args.root_project):
+        parser.error("source, target, root_home e root_project são obrigatórios")
     clone_config_for_root(
         args.source,
         args.target,

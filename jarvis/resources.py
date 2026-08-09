@@ -7,6 +7,10 @@ from jarvis.settings import UserSettings
 from jarvis.ui.waiting import default_waiting_messages_path
 
 
+def default_goodbye_messages_path() -> Path:
+    return Path(__file__).with_name("ui").joinpath("default_goodbye_messages.txt")
+
+
 def ensure_private_resources(settings: UserSettings) -> None:
     """Create missing editable resources without ever replacing user content."""
     config_directory = settings.whitelist_path.expanduser().parent
@@ -19,6 +23,7 @@ def ensure_private_resources(settings: UserSettings) -> None:
         (settings.persona_path, default_persona_path().read_bytes()),
         (settings.context_path, default_context_path().read_bytes()),
         (settings.waiting_messages_path, default_waiting_messages_path().read_bytes()),
+        (settings.goodbye_messages_path, default_goodbye_messages_path().read_bytes()),
         (settings.blacklist_path, b"# path READ MODIFY CREATE DELETE EXECUTE\n"),
         (settings.whitelist_path, f"{installation_home}\n/mnt\n".encode()),
     )

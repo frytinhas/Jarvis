@@ -14,8 +14,8 @@ from jarvis.agent.orchestrator import Orchestrator
 from jarvis.agent.prompts import build_system_prompt
 from jarvis.config import load_config
 from jarvis.legal import consume_license_notice
-from jarvis.llm.client import LlamaClient
-from jarvis.memory import ConversationLogStore, summarize_conversation
+from jarvis.llm.client import LLMNotice, LlamaClient
+from jarvis.memory import ConversationLogStore
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
@@ -55,6 +55,7 @@ def parse_invocation(
         ("--blacklist", "blacklist"), ("--whitelist", "whitelist"),
         ("--context", "context"), ("--persona", "persona"),
         ("--waiting-messages", "waiting_messages"),
+        ("--goodbye-messages", "goodbye_messages"),
     ):
         edit_group.add_argument(option, dest="edit_resource", action="store_const", const=resource)
     parser.add_argument("message", nargs="*", help="mensagem inicial para o Jarvis")
@@ -74,6 +75,7 @@ def _edit_resource(config: object, resource: str) -> None:
         "context": settings.context_path,
         "persona": settings.persona_path,
         "waiting_messages": settings.waiting_messages_path,
+        "goodbye_messages": settings.goodbye_messages_path,
     }
     editor = shutil.which("nano")
     if editor is None:
@@ -200,13 +202,20 @@ def main(arguments: list[str] | None = None) -> None:
         max_tool_rounds=user_settings.max_tool_rounds,
     )
     waiting_messages = load_waiting_messages(user_settings.waiting_messages_path)
+    goodbye_messages = load_waiting_messages(user_settings.goodbye_messages_path)
     waiting_indicator = WaitingIndicator(waiting_messages)
+    def show_llm_notice(notice: LLMNotice) -> None:
+        level = "ERRO" if notice.critical else "AVISO"
+        role = "error" if notice.critical else "warning"
+        print(theme.paint(f"{level}: {notice.message}", role), file=sys.stderr)
+
     with LlamaClient(
         advanced.llm_base_url,
         advanced.llm_model,
         advanced.llm_api_key,
         timeout=user_settings.llm_request_timeout_seconds,
         thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
+        notice=show_llm_notice,
     ) as llm:
         orchestrator = Orchestrator(
             llm,
@@ -230,6 +239,7 @@ def main(arguments: list[str] | None = None) -> None:
             user_settings.assistant_name,
             warning,
             waiting_indicator=waiting_indicator,
+            goodbye_messages=goodbye_messages,
             config=config,
             theme=theme,
             show_license_notice=consume_license_notice(),
@@ -245,13 +255,7 @@ def main(arguments: list[str] | None = None) -> None:
             invocation_directory=invocation_directory,
         )
         if log_path is not None and outcome is not SessionExit.RESTART_MODEL:
-            try:
-                with waiting_indicator.active():
-                    summary = summarize_conversation(llm, orchestrator.transcript)
-                memory_store.update_summary(log_path, summary)
-            except Exception:
-                pass
-            memory_store.maintain()
+            memory_store.schedule_summary(log_path)
         if outcome is SessionExit.RESTART_MODEL:
             raise SystemExit(75)
 

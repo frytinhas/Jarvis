@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import random
 import re
 import sys
 from typing import Iterator
@@ -36,6 +37,7 @@ class TerminalUI:
         assistant_name: str = "Jarvis",
         startup_warning: str | None = None,
         waiting_messages: list[str] | None = None,
+        goodbye_messages: list[str] | None = None,
         waiting_indicator: WaitingIndicator | None = None,
         config: JarvisConfig | None = None,
         theme: Theme = PLAIN_THEME,
@@ -45,6 +47,7 @@ class TerminalUI:
         self.assistant_name = assistant_name
         self.startup_warning = startup_warning
         self.waiting = waiting_indicator or WaitingIndicator(waiting_messages or [])
+        self.goodbye_messages = goodbye_messages or []
         self.theme = theme
         self.show_license_notice = show_license_notice
         self.commands = LocalCommands(orchestrator, config) if config is not None else None
@@ -73,18 +76,23 @@ class TerminalUI:
                     prompt = self.theme.paint("Você > ", "user", strong=True)
                     user_text = input(f"\n{prompt}").strip()
                 except (EOFError, KeyboardInterrupt):
-                    print("\nAté logo.")
-                    return SessionExit.EXIT
+                    return self._exit()
                 if not user_text:
                     continue
                 if user_text.lower() in {"/sair", "/exit", "/quit"}:
-                    return SessionExit.EXIT
+                    return self._exit()
                 action = self._handle_local_command(user_text)
                 if action is not None:
                     if action is not SessionExit.CONTINUE:
                         return action
                     continue
                 self._handle(user_text)
+
+    def _exit(self) -> SessionExit:
+        message = random.choice(self.goodbye_messages) if self.goodbye_messages else "Até logo."
+        label = self.theme.paint(f"{self.assistant_name}:", "assistant", strong=True)
+        print(f"\n{label}\n{render_markdown(message, self.theme)}")
+        return SessionExit.EXIT
 
     def _handle_local_command(self, user_text: str) -> SessionExit | None:
         if self.commands is None:

@@ -22,3 +22,10 @@ def test_normal_conversation_does_not_authorize_execution() -> None:
 
     assert route.execution_authorized is False
     assert route.require_tool is False
+
+
+def test_portuguese_xdg_directory_request_requires_a_real_tool() -> None:
+    route = route_user_request("leia a minha pasta documentos e liste todos os diretorios nela")
+
+    assert route.require_tool
+    assert "list_directory" in (route.tool_names or set())

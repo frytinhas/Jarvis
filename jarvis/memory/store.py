@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
+import sys
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -119,6 +121,48 @@ class ConversationLogStore:
                 "UPDATE conversations SET summary = ? WHERE id = ?",
                 (cleaned, identifier),
             )
+
+    def transcript_for_summary(self, identifier: str) -> list[dict[str, str]] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT transcript FROM conversations WHERE id = ?", (identifier,)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row["transcript"])
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, list):
+            return None
+        return [
+            {"role": str(item["role"]), "content": str(item["content"])}
+            for item in payload
+            if isinstance(item, dict) and item.get("role") in {"user", "assistant"}
+        ]
+
+    def schedule_summary(self, identifier: str) -> None:
+        """Request an optional summary without holding the interactive terminal open."""
+        try:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "jarvis.memory.worker",
+                    "--database",
+                    str(self.database_path),
+                    "--conversation",
+                    identifier,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError:
+            # The transcript and fallback summary are already committed.
+            return
 
     def recent_summaries(
         self,

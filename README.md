@@ -22,7 +22,7 @@ The setup only installs Jarvis, its Python environment, the llama server and the
 
 The automatic installer is officially supported on Debian, Ubuntu and their derivatives. Jarvis may work on other Linux distributions, but that setup path has not been tested and system dependencies may need to be installed manually.
 
-Run Setup as a regular user. It also creates an isolated, root-owned administrative installation under `/usr/local/lib/jarvis-local`. `sudo jarvis` runs the assistant as root while preserving the directory from which it was invoked.
+Run Setup as a regular user. If it detects an existing installation, it asks whether to repair it while preserving configuration and history, or reinstall from scratch by removing local user and root data first. The source repository and GGUF models are preserved. It also creates an isolated, root-owned administrative installation under `/usr/local/lib/jarvis-local`. `sudo jarvis` runs the assistant as root while preserving the directory from which it was invoked.
 
 The administrative configuration starts as an independent copy of the Setup configuration at `/root/.config/jarvis/config.xml`. Its state, runtime, logs, and audit database live under `/root/.local/state/jarvis`. Use `sudo jarvis-config` to change it without affecting the regular user.
 
@@ -93,7 +93,7 @@ Local commands support Tab completion and are never sent to the model:
 - `/config`: show a read-only configuration summary.
 - `/clear`: clear the screen without deleting conversation context.
 - `/license`: show the complete GPL text.
-- `/exit`: close the session; `/quit` and `/sair` are aliases.
+- `/exit`: close the session; `/quit` and `/sair` are aliases. Each immediately displays a farewell.
 
 If you choose a custom name such as Bob, use:
 
@@ -108,7 +108,7 @@ On compatible desktop environments, Jarvis also appears in the application menu 
 
 ## Chat and model server
 
-Use `/sair` to close a chat. By default, Jarvis keeps its managed model server ready in the background after the last open chat closes. You can change this in `jarvis-config` so the server stops instead.
+Use `/sair` to close a chat. The transcript is stored before the prompt returns; the detailed LLM summary is updated in the background so closing is not delayed. By default, Jarvis keeps its managed model server ready in the background after the last open chat closes. You can change this in `jarvis-config` so the server stops instead.
 
 To stop a server kept in the background without changing its automatic-start preference, run:
 
@@ -127,7 +127,7 @@ jarvis "summarize this project"
 
 A command-line message can remain in the conversation after the first answer, which is the default, or answer once and close. Choose the behavior in `jarvis-config`.
 
-The managed server receives the saved context as `--ctx-size`. Jarvis recommends half of the total VRAM, in MiB, of the largest detected GPU, rounded to the nearest 1024 tokens (minimum 1024). If VRAM cannot be detected, the recommendation is 4096 tokens. Context changes require restarting the server; accepting the immediate restart opens a new chat, while the prior visible transcript remains in local memory. If `llama-server` cannot parse its tool-call grammar, Jarvis retries ordinary chat without tools; requests that require real system or file data still fail clearly rather than inventing results or bypassing the Tool Router.
+The managed server receives the saved context as `--ctx-size`. Jarvis recommends half of the total VRAM, in MiB, of the largest detected GPU, rounded to the nearest 1024 tokens (minimum 1024). If VRAM cannot be detected, the recommendation is 4096 tokens. Context changes require restarting the server; accepting the immediate restart opens a new chat, while the prior visible transcript remains in local memory. Model fallbacks are shown in yellow; final failures, timeouts, and invalid model responses are shown in red. If `llama-server` cannot parse its tool-call grammar, Jarvis retries ordinary chat without tools; requests that require real system or file data still fail clearly rather than inventing results or bypassing the Tool Router.
 
 ## Permissions
 
@@ -153,7 +153,7 @@ During foreground generation or execution, `Ctrl+C` cancels only the current ope
 
 ### Permissions by file or folder
 
-Editable resources are private to each installation: `~/.config/jarvis/Persona.md`, `Context.md`, `WaitingMessages.txt`, `Blacklist.txt`, and `Whitelist.txt` (or their independent `/root/.config/jarvis/` equivalents). Use `jarvis --persona`, `--context`, `--waiting-messages`, `--blacklist`, or `--whitelist` to open the corresponding file in `nano`.
+Editable resources are private to each installation: `~/.config/jarvis/Persona.md`, `Context.md`, `WaitingMessages.txt`, `GoodbyeMessages.txt`, `Blacklist.txt`, and `Whitelist.txt` (or their independent `/root/.config/jarvis/` equivalents). Use `jarvis --persona`, `--context`, `--waiting-messages`, `--goodbye-messages`, `--blacklist`, or `--whitelist` to open the corresponding file in `nano`.
 
 `Whitelist.txt` is fail-closed: every filesystem tool path must be within one of its absolute path entries. The initial entries are `$HOME` and `/mnt`. Paths outside it are denied before blacklist rules are considered.
 
@@ -187,6 +187,8 @@ By default, logs are kept for 30 days and the folder is limited to 100 MB. Run `
 The activity panel has five levels. `Minimal-Essential`, the default, shows only tools and states. `Essential` also shows commands, paths, and changed content; reads show only their target and metadata. `Server-Essential` adds server logs, `Full` includes complete technical diagnostics, and `None` keeps only the conversation and waiting messages. Terminal colors default to `always`; both the panel level and color mode remain configurable. In `Full` and `Server-Essential`, Jarvis asks at session startup whether logs should be saved under `~/.local/state/jarvis/logs/runtime/`.
 
 Edit the configured `WaitingMessages.txt` with `jarvis --waiting-messages` to customize the short messages shown while the model is working. On startup, Jarvis randomly selects a non-empty line and then advances through the list in circular order every 5–10 seconds. Leave the file empty to disable them.
+
+Edit `GoodbyeMessages.txt` with `jarvis --goodbye-messages` to customize the farewell. Jarvis selects a random non-empty line when a chat ends by command or Ctrl+C; if the file is empty or unavailable, it uses “Até logo.”.
 
 Each interaction allows up to 128 tool cycles, 600 seconds of total active processing, and 120 seconds per model request. The configured values are disclosed to the model at session startup. Time spent waiting for human confirmation does not consume the total. In `Essential`, `Server-Essential`, and `Full`, completed tools show their duration followed by the interaction's accumulated active time, both against the total timeout. Change tool cycles under `jarvis-config → Behavior` and time limits under `jarvis-config → Timeouts`.
 

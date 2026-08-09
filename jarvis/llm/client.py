@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Any, Callable, Protocol
 import re
 
 import httpx
@@ -27,6 +28,12 @@ class LLMHTTPError(RuntimeError):
     """HTTP failure with a small, sanitized server diagnostic."""
 
 
+@dataclass(frozen=True)
+class LLMNotice:
+    message: str
+    critical: bool = False
+
+
 class LlamaClient:
     def __init__(
         self,
@@ -36,10 +43,12 @@ class LlamaClient:
         timeout: float = 120.0,
         thinking_budget_tokens: int = 1024,
         transport: httpx.BaseTransport | None = None,
+        notice: Callable[[LLMNotice], None] | None = None,
     ) -> None:
         self.model = model
         self.timeout = timeout
         self.thinking_budget_tokens = thinking_budget_tokens
+        self._notice_handler = notice
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.Client(
             base_url=f"{base_url.rstrip('/')}/", headers=headers, timeout=timeout, transport=transport
@@ -66,6 +75,9 @@ class LlamaClient:
         if response.is_error:
             incompatible = _incompatible_field(response, request_payload)
             if incompatible is not None:
+                self._notice(
+                    "O servidor não aceita um campo opcional do modelo; tentando uma alternativa compatível."
+                )
                 retry_payload = dict(request_payload)
                 retry_payload.pop(incompatible, None)
                 request_payload = retry_payload
@@ -74,17 +86,32 @@ class LlamaClient:
             # Some llama-server/template combinations cannot compile the grammar that
             # enforces OpenAI tool calls. A plain response is safe for ordinary chat:
             # no tool request reaches the model, registry, or operating system.
+            self._notice(
+                "Este modelo ou chat template não suporta tool calling estruturado. "
+                "Pedidos que exigem dados locais serão bloqueados nesta sessão."
+            )
             retry_payload = dict(request_payload)
             retry_payload.pop("tools", None)
             retry_payload.pop("tool_choice", None)
             request_payload = retry_payload
             response = self._post(request_payload, timeout)
         if response.is_error:
-            raise LLMHTTPError(_http_error_message(response))
-        completion = ChatCompletion.model_validate(response.json())
+            message = _http_error_message(response)
+            self._notice(message, critical=True)
+            raise LLMHTTPError(message)
+        try:
+            completion = ChatCompletion.model_validate(response.json())
+        except ValueError as error:
+            self._notice("O servidor retornou uma resposta inválida do modelo.", critical=True)
+            raise ValueError("O servidor retornou uma resposta inválida do modelo") from error
         if not completion.choices:
+            self._notice("O servidor não retornou uma resposta do modelo.", critical=True)
             raise ValueError("O servidor não retornou escolhas")
         return completion.choices[0].message
+
+    def _notice(self, message: str, *, critical: bool = False) -> None:
+        if self._notice_handler is not None:
+            self._notice_handler(LLMNotice(message, critical))
 
     def close(self) -> None:
         self._client.close()
@@ -102,6 +129,7 @@ class LlamaClient:
                 timeout=self.timeout if timeout is None else timeout,
             )
         except httpx.TimeoutException as error:
+            self._notice("O llama-server excedeu o tempo limite da chamada.", critical=True)
             raise LLMTimeoutError("O llama-server excedeu o tempo limite") from error
 
 

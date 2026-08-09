@@ -127,6 +127,27 @@ def test_no_messages_do_not_create_log(tmp_path: Path) -> None:
     assert store.create([], started_at=NOW, invocation_directory=tmp_path) is None
 
 
+def test_summary_is_scheduled_after_the_fallback_record_is_committed(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    store = ConversationLogStore(tmp_path / "logs", now=lambda: NOW)
+    identifier = store.create(_transcript(), started_at=NOW, invocation_directory=tmp_path)
+    observed: dict[str, object] = {}
+
+    def spawn(arguments, **kwargs):  # type: ignore[no-untyped-def]
+        observed["arguments"] = arguments
+        observed.update(kwargs)
+
+    monkeypatch.setattr("jarvis.memory.store.subprocess.Popen", spawn)
+    assert identifier is not None
+    assert store.transcript_for_summary(identifier) == _transcript()
+
+    store.schedule_summary(identifier)
+
+    assert observed["arguments"][-1] == identifier
+    assert observed["start_new_session"] is True
+
+
 def test_fallback_summary_uses_recent_user_requests() -> None:
     assert "Brain" in fallback_summary(_transcript())
 

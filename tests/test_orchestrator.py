@@ -59,6 +59,16 @@ def test_terminal_sends_initial_message_and_stays_interactive(monkeypatch, capsy
     assert "Bob local" in capsys.readouterr().out
 
 
+def test_terminal_prints_goodbye_for_exit_command(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    class FakeOrchestrator:
+        pass
+
+    monkeypatch.setattr("builtins.input", lambda _: "/sair")
+    TerminalUI(FakeOrchestrator(), "Bob", goodbye_messages=["Até amanhã!"]).run()  # type: ignore[arg-type]
+
+    assert "Até amanhã!" in capsys.readouterr().out
+
+
 def test_terminal_one_shot_does_not_request_another_message(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     class FakeOrchestrator:
         def __init__(self) -> None:

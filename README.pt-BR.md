@@ -20,7 +20,7 @@ O Setup apenas instala o Jarvis, o ambiente Python, o servidor llama e o comando
 
 O instalador automático possui suporte oficial para Debian, Ubuntu e seus derivados. O Jarvis pode funcionar em outras distribuições Linux, mas esse processo ainda não foi testado e talvez seja necessário instalar as dependências do sistema manualmente.
 
-O Setup deve ser executado como usuário normal. Ele também cria uma instalação administrativa isolada e pertencente ao root em `/usr/local/lib/jarvis-local`. Assim, `sudo jarvis` executa o assistente como root e mantém como diretório de trabalho a pasta onde foi chamado.
+O Setup deve ser executado como usuário normal. Quando detecta uma instalação existente, ele pergunta entre repará-la preservando configuração e histórico ou reinstalar do zero, removendo antes os dados locais de usuário e root. O repositório-fonte e os modelos GGUF são preservados. Ele também cria uma instalação administrativa isolada e pertencente ao root em `/usr/local/lib/jarvis-local`. Assim, `sudo jarvis` executa o assistente como root e mantém como diretório de trabalho a pasta onde foi chamado.
 
 A configuração administrativa começa como uma cópia independente da configuração escolhida no Setup e fica em `/root/.config/jarvis/config.xml`. Estado, runtime, logs e auditoria ficam em `/root/.local/state/jarvis`. Use `sudo jarvis-config` para alterá-la sem afetar a configuração do usuário normal.
 
@@ -91,7 +91,7 @@ Os comandos locais possuem autocomplete com Tab e nunca são enviados ao modelo:
 - `/config`: mostra um resumo somente leitura.
 - `/clear`: limpa a tela sem apagar o contexto.
 - `/license`: exibe a GPL completa.
-- `/exit`: encerra a sessão; `/quit` e `/sair` são aliases.
+- `/exit`: encerra a sessão; `/quit` e `/sair` são aliases. Todos mostram uma despedida imediatamente.
 
 Se o nome escolhido for Bob:
 
@@ -110,7 +110,7 @@ Em ambientes desktop compatíveis, o Jarvis também aparece no menu de aplicativ
 
 ## Chat e servidor da IA
 
-Digite `/sair` para fechar uma conversa. Por padrão, o Jarvis mantém o servidor gerenciado do modelo pronto em segundo plano quando o último chat aberto termina. No `jarvis-config`, você pode optar por encerrá-lo.
+Digite `/sair` para fechar uma conversa. O transcript é salvo antes de o terminal voltar; o resumo detalhado por LLM é atualizado em segundo plano para não atrasar a saída. Por padrão, o Jarvis mantém o servidor gerenciado do modelo pronto em segundo plano quando o último chat aberto termina. No `jarvis-config`, você pode optar por encerrá-lo.
 
 Para desligar um servidor que ficou em segundo plano sem alterar a preferência de início automático, use:
 
@@ -129,7 +129,7 @@ jarvis "resuma este projeto"
 
 A mensagem inicial pode continuar no chat depois da primeira resposta, que é o padrão, ou receber uma única resposta e encerrar. Escolha o comportamento no `jarvis-config`.
 
-O servidor gerenciado recebe o contexto salvo por `--ctx-size`. O Jarvis recomenda metade da VRAM total, em MiB, da maior GPU detectada, arredondada para o múltiplo de 1024 tokens mais próximo (mínimo 1024). Quando não é possível detectar VRAM, a recomendação é 4096 tokens. Alterar o contexto exige reiniciar o servidor; aceitar o reinício imediato abre um chat novo, mas o transcript visível anterior permanece na memória local. Quando o `llama-server` não consegue interpretar a grammar de tool calling, o Jarvis repete conversas comuns sem tools; pedidos que exigem dados reais de sistema ou arquivos continuam falhando claramente, sem inventar resultados ou contornar o Tool Router.
+O servidor gerenciado recebe o contexto salvo por `--ctx-size`. O Jarvis recomenda metade da VRAM total, em MiB, da maior GPU detectada, arredondada para o múltiplo de 1024 tokens mais próximo (mínimo 1024). Quando não é possível detectar VRAM, a recomendação é 4096 tokens. Alterar o contexto exige reiniciar o servidor; aceitar o reinício imediato abre um chat novo, mas o transcript visível anterior permanece na memória local. Fallbacks do modelo são mostrados em amarelo; falhas finais, timeouts e respostas inválidas aparecem em vermelho. Quando o `llama-server` não consegue interpretar a grammar de tool calling, o Jarvis repete conversas comuns sem tools, mas bloqueia claramente pedidos que exigem dados reais de sistema ou arquivos.
 
 ## Permissões
 
@@ -153,7 +153,7 @@ Durante uma geração ou execução em primeiro plano, `Ctrl+C` cancela somente 
 
 ### Permissões por arquivo ou pasta
 
-Os recursos editáveis são privados de cada instalação: `~/.config/jarvis/Persona.md`, `Context.md`, `WaitingMessages.txt`, `Blacklist.txt` e `Whitelist.txt` (ou seus equivalentes independentes em `/root/.config/jarvis/`). Use `jarvis --persona`, `--context`, `--waiting-messages`, `--blacklist` ou `--whitelist` para abrir exclusivamente o arquivo correspondente no `nano`.
+Os recursos editáveis são privados de cada instalação: `~/.config/jarvis/Persona.md`, `Context.md`, `WaitingMessages.txt`, `GoodbyeMessages.txt`, `Blacklist.txt` e `Whitelist.txt` (ou seus equivalentes independentes em `/root/.config/jarvis/`). Use `jarvis --persona`, `--context`, `--waiting-messages`, `--goodbye-messages`, `--blacklist` ou `--whitelist` para abrir exclusivamente o arquivo correspondente no `nano`.
 
 `Whitelist.txt` fecha as tools de filesystem por padrão: todo path precisa estar dentro de uma entrada absoluta permitida. As entradas iniciais são `$HOME` e `/mnt`. Paths fora dela são negados antes das regras da blacklist.
 
@@ -187,6 +187,8 @@ Por padrão, os logs são mantidos por 30 dias e a pasta possui limite de 100 MB
 O painel de atividade possui cinco níveis. `Minimal-Essential`, o padrão, mostra apenas tools e estados. `Essential` também mostra comandos, paths e o conteúdo alterado; leituras mostram somente alvo e metadados. `Server-Essential` acrescenta logs do servidor, `Full` inclui diagnóstico técnico completo e `None` mantém apenas a conversa e as mensagens de espera. As cores do terminal usam `always` por padrão; tanto o nível do painel quanto o modo de cores continuam configuráveis. Em `Full` e `Server-Essential`, o Jarvis pergunta no início da sessão se os logs devem ser salvos em `~/.local/state/jarvis/logs/runtime/`.
 
 Edite o `WaitingMessages.txt` configurado com `jarvis --waiting-messages` para personalizar as mensagens curtas mostradas enquanto o modelo trabalha. Ao iniciar, o Jarvis escolhe aleatoriamente uma linha não vazia e, a cada intervalo de 5–10 segundos, avança pela lista em ordem circular. Deixe o arquivo vazio para desativá-las.
+
+Edite o `GoodbyeMessages.txt` com `jarvis --goodbye-messages` para personalizar a despedida. O Jarvis escolhe aleatoriamente uma linha não vazia ao encerrar por comando ou `Ctrl+C`; se o arquivo estiver vazio ou indisponível, usa “Até logo.”.
 
 Cada interação permite até 128 ciclos de tools, possui 600 segundos de processamento ativo total e 120 segundos para cada chamada ao modelo. Esses valores configurados são informados ao modelo no início da sessão. O tempo aguardando uma confirmação humana não consome o limite total. Em `Essential`, `Server-Essential` e `Full`, a conclusão de cada tool mostra sua duração e, abaixo, o processamento acumulado, ambos comparados ao timeout total. Os ciclos podem ser alterados em `jarvis-config → Comportamento`, e os limites em `jarvis-config → Timeouts`.
 

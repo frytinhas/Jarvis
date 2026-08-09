@@ -32,6 +32,32 @@ if [[ -z "$ROOT_HOME" || "$ROOT_HOME" != /* ]]; then
     ROOT_HOME=/root
 fi
 
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+USER_CONFIG="$CONFIG_HOME/jarvis/config.xml"
+INSTALL_KIND="new"
+if [[ -f "$PROJECT_DIR/.install" || -f "$USER_CONFIG" || -d "$HOME/.local/state/jarvis" \
+    || -d "$HOME/.local/share/jarvis" || -d "$ROOT_INSTALL_DIR" ]]; then
+    INSTALL_KIND="repair"
+    info "Uma instalação existente do Jarvis foi detectada."
+    while true; do
+        read -r -p "Escolha [r]eparar preservando seus dados ou [z]erar tudo e reinstalar: " setup_choice
+        case "${setup_choice,,}" in
+            r|reparar|repair)
+                break
+                ;;
+            z|zerar|reinstalar|reinstall)
+                info "Removendo a instalação e os dados locais atuais antes da reinstalação"
+                printf 'jarvis purge\n' | "$PROJECT_DIR/Uninstall.sh" --purge
+                INSTALL_KIND="clean"
+                break
+                ;;
+            *)
+                echo "Digite r para reparar ou z para reinstalar do zero."
+                ;;
+        esac
+    done
+fi
+
 validate_privileged_link() {
     local link="$1" expected="$2" legacy="$3" resolved=""
     if sudo test -e "$link" || sudo test -L "$link"; then
@@ -174,8 +200,13 @@ if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
         || printf '\n# Jarvis Local\n%s\n' "$path_line" >>"$shell_config"
 fi
 
-info "Instalação concluída. Iniciando a configuração"
-"$PROJECT_DIR/Config.sh" --setup
+if [[ "$INSTALL_KIND" == "repair" && -f "$USER_CONFIG" ]]; then
+    info "Reparando a configuração existente e seus recursos ausentes"
+    "$VENV_DIR/bin/python" -m jarvis.installer --repair-user "$USER_CONFIG"
+else
+    info "Instalação concluída. Iniciando a configuração"
+    "$PROJECT_DIR/Config.sh" --setup
+fi
 
 user_config="$("$VENV_DIR/bin/python" -c 'from jarvis.config import config_path; print(config_path())')"
 [[ -f "$user_config" ]] \

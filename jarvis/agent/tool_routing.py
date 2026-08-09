@@ -82,6 +82,17 @@ def _has_concrete_target(text: str) -> bool:
         return True
     if re.search(r"[\"'][^\"']{2,}[\"']", text):
         return True
+    if re.search(
+        r"\b(?:minha|meu|suas?|seus?|the)\s+(?:pasta|diretorio|folder|directory)\s+"
+        r"(?:documentos|documents|downloads|imagens|pictures|musica|music|videos?|desktop|area de trabalho)\b",
+        text,
+    ):
+        return True
+    if re.search(
+        r"\b(?:documentos|documents|downloads|imagens|pictures|musica|music|videos?|desktop)\b",
+        text,
+    ):
+        return True
     return bool(re.search(
         r"\b(?:arquivo|script|binario|executavel|file|folder|directory)\s+"
         r"(?:chamado|chamada|named)\s+[\w.-]+",

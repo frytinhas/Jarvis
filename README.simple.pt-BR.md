@@ -53,7 +53,7 @@ Para mudar as configurações depois:
 jarvis-config
 ```
 
-Os arquivos privados editáveis podem ser abertos com `jarvis --blacklist`, `--whitelist`, `--context`, `--persona` ou `--waiting-messages`.
+Os arquivos privados editáveis podem ser abertos com `jarvis --blacklist`, `--whitelist`, `--context`, `--persona`, `--waiting-messages` ou `--goodbye-messages`.
 
 Se você escolheu outro nome durante a instalação, use esse nome no lugar de `jarvis`.
 

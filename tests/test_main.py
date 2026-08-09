@@ -33,5 +33,6 @@ def test_invalid_reasoning_level_is_rejected() -> None:
 
 def test_editor_options_are_global_and_exclusive() -> None:
     assert parse_invocation(["--whitelist"]).edit_resource == "whitelist"
+    assert parse_invocation(["--goodbye-messages"]).edit_resource == "goodbye_messages"
     with pytest.raises(SystemExit):
         parse_invocation(["--persona", "hello"])

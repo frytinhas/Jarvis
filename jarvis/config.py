@@ -13,7 +13,7 @@ from jarvis.settings import (
 )
 
 
-CONFIG_VERSION = 9
+CONFIG_VERSION = 10
 
 
 class ConfigFileError(ValueError):
@@ -56,6 +56,7 @@ def default_config() -> JarvisConfig:
         "persona_path": paths["persona"],
         "context_path": paths["context"],
         "waiting_messages_path": paths["waiting_messages"],
+        "goodbye_messages_path": paths["goodbye_messages"],
         "blacklist_path": paths["blacklist"],
         "whitelist_path": paths["whitelist"],
     }))
@@ -170,7 +171,7 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, 7, 8, CONFIG_VERSION}:
+    if version not in {5, 6, 7, 8, 9, CONFIG_VERSION}:
         raise ConfigFileError(path, f"versão {version} não suportada; esperada entre 5 e {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
@@ -193,8 +194,11 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                  if version == 5 else
                  {"max_size_mb", "retention_days", "audit_db_path", "display_level"}),
         "paths": (
-            {"persona", "context", "waiting_messages", "blacklist", "whitelist"}
-            if version >= 8 else {"persona"}
+            {"persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist"}
+            if version >= 10 else (
+                {"persona", "context", "waiting_messages", "blacklist", "whitelist"}
+                if version >= 8 else {"persona"}
+            )
         ),
     }
     if version >= 7:
@@ -284,6 +288,10 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                 Path(_text(paths, "waiting_messages")).expanduser()
                 if version >= 8 else editable_paths(path.parent)["waiting_messages"]
             ),
+            goodbye_messages_path=(
+                Path(_text(paths, "goodbye_messages")).expanduser()
+                if version >= 10 else editable_paths(path.parent)["goodbye_messages"]
+            ),
             blacklist_path=(
                 Path(_text(paths, "blacklist")).expanduser()
                 if version >= 8 else editable_paths(path.parent)["blacklist"]
@@ -323,7 +331,7 @@ def _new_tree() -> ET.ElementTree:
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
         ("logs", "Nível visual: Full, Server-Essential, Essential, Minimal-Essential ou None.", "Display level: Full, Server-Essential, Essential, Minimal-Essential, or None.", ("max_size_mb", "retention_days", "audit_db_path", "display_level")),
-        ("paths", "Arquivos privados editáveis desta instalação; caminhos podem usar ~.", "Private editable files for this installation; paths may use ~.", ("persona", "context", "waiting_messages", "blacklist", "whitelist")),
+        ("paths", "Arquivos privados editáveis desta instalação; caminhos podem usar ~.", "Private editable files for this installation; paths may use ~.", ("persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist")),
         ("appearance", "Modo de cores: auto, always ou never.", "Color mode: auto, always, or never.", ("color_mode",)),
     )
     for name, pt_br, en, children in definitions:
@@ -381,6 +389,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(paths, "persona", settings.persona_path)
     _set(paths, "context", settings.context_path)
     _set(paths, "waiting_messages", settings.waiting_messages_path)
+    _set(paths, "goodbye_messages", settings.goodbye_messages_path)
     _set(paths, "blacklist", settings.blacklist_path)
     _set(paths, "whitelist", settings.whitelist_path)
     _set(_section(root, "appearance"), "color_mode", settings.color_mode.value)

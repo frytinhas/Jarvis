@@ -141,6 +141,22 @@ def test_client_retries_without_tools_after_llama_grammar_failure() -> None:
     assert "tool_choice" not in payloads[1]
 
 
+def test_client_reports_tool_grammar_fallback_to_the_ui() -> None:
+    notices = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "tools" in json.loads(request.read()):
+            return httpx.Response(400, text="Failed to parse grammar")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    tool = {"type": "function", "function": {"name": "get_system_info", "parameters": {}}}
+    with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler), notice=notices.append) as client:
+        client.chat([{"role": "user", "content": "oi"}], [tool])
+
+    assert notices and not notices[0].critical
+    assert "tool calling" in notices[0].message
+
+
 def test_client_reports_sanitized_http_error() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(400, text="invalid request api_key=secret-value")
