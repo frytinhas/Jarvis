@@ -129,7 +129,7 @@ jarvis "resuma este projeto"
 
 A mensagem inicial pode continuar no chat depois da primeira resposta, que é o padrão, ou receber uma única resposta e encerrar. Escolha o comportamento no `jarvis-config`.
 
-O servidor gerenciado recebe o contexto salvo por `--ctx-size`. O Jarvis recomenda metade da VRAM total, em MiB, da maior GPU detectada, arredondada para o múltiplo de 1024 tokens mais próximo (mínimo 1024). Quando não é possível detectar VRAM, a recomendação é 4096 tokens. Alterar o contexto exige reiniciar o servidor; aceitar o reinício imediato abre um chat novo, mas o transcript visível anterior permanece na memória local. Um erro do `llama-server` sobre parsing de grammar ou inicialização de samplers é independente do tamanho do contexto e em geral indica incompatibilidade do modelo/chat template ou do servidor.
+O servidor gerenciado recebe o contexto salvo por `--ctx-size`. O Jarvis recomenda metade da VRAM total, em MiB, da maior GPU detectada, arredondada para o múltiplo de 1024 tokens mais próximo (mínimo 1024). Quando não é possível detectar VRAM, a recomendação é 4096 tokens. Alterar o contexto exige reiniciar o servidor; aceitar o reinício imediato abre um chat novo, mas o transcript visível anterior permanece na memória local. Quando o `llama-server` não consegue interpretar a grammar de tool calling, o Jarvis repete conversas comuns sem tools; pedidos que exigem dados reais de sistema ou arquivos continuam falhando claramente, sem inventar resultados ou contornar o Tool Router.
 
 ## Permissões
 

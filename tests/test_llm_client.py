@@ -119,6 +119,28 @@ def test_client_retries_once_without_known_incompatible_thinking_field() -> None
     assert "thinking_budget_tokens" not in payloads[1]
 
 
+def test_client_retries_without_tools_after_llama_grammar_failure() -> None:
+    payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.read())
+        payloads.append(payload)
+        if "tools" in payload:
+            return httpx.Response(400, text="Failed to initialize samplers: failed to parse grammar")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Boa noite!"}}]})
+
+    tool = {
+        "type": "function",
+        "function": {"name": "get_system_info", "description": "specs", "parameters": {}},
+    }
+    with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler)) as client:
+        assert client.chat([{"role": "user", "content": "boa noite"}], [tool]).content == "Boa noite!"
+
+    assert len(payloads) == 2
+    assert "tools" not in payloads[1]
+    assert "tool_choice" not in payloads[1]
+
+
 def test_client_reports_sanitized_http_error() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(400, text="invalid request api_key=secret-value")

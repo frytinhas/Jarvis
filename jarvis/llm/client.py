@@ -61,15 +61,26 @@ class LlamaClient:
         )
         if tools:
             payload.update({"tools": tools, "tool_choice": tool_choice})
-        response = self._post(payload, timeout)
+        request_payload = payload
+        response = self._post(request_payload, timeout)
         if response.is_error:
-            incompatible = _incompatible_field(response, payload)
+            incompatible = _incompatible_field(response, request_payload)
             if incompatible is not None:
-                retry_payload = dict(payload)
+                retry_payload = dict(request_payload)
                 retry_payload.pop(incompatible, None)
-                response = self._post(retry_payload, timeout)
-            if response.is_error:
-                raise LLMHTTPError(_http_error_message(response))
+                request_payload = retry_payload
+                response = self._post(request_payload, timeout)
+        if response.is_error and _grammar_failure(response) and "tools" in request_payload:
+            # Some llama-server/template combinations cannot compile the grammar that
+            # enforces OpenAI tool calls. A plain response is safe for ordinary chat:
+            # no tool request reaches the model, registry, or operating system.
+            retry_payload = dict(request_payload)
+            retry_payload.pop("tools", None)
+            retry_payload.pop("tool_choice", None)
+            request_payload = retry_payload
+            response = self._post(request_payload, timeout)
+        if response.is_error:
+            raise LLMHTTPError(_http_error_message(response))
         completion = ChatCompletion.model_validate(response.json())
         if not completion.choices:
             raise ValueError("O servidor não retornou escolhas")
@@ -105,6 +116,13 @@ def _incompatible_field(response: httpx.Response, payload: dict[str, Any]) -> st
     ):
         return "tool_choice"
     return None
+
+
+def _grammar_failure(response: httpx.Response) -> bool:
+    if response.status_code != 400:
+        return False
+    body = response.text.casefold()
+    return "failed to parse grammar" in body or "failed to initialize samplers" in body
 
 
 def _http_error_message(response: httpx.Response) -> str:

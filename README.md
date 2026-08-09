@@ -127,7 +127,7 @@ jarvis "summarize this project"
 
 A command-line message can remain in the conversation after the first answer, which is the default, or answer once and close. Choose the behavior in `jarvis-config`.
 
-The managed server receives the saved context as `--ctx-size`. Jarvis recommends half of the total VRAM, in MiB, of the largest detected GPU, rounded to the nearest 1024 tokens (minimum 1024). If VRAM cannot be detected, the recommendation is 4096 tokens. Context changes require restarting the server; accepting the immediate restart opens a new chat, while the prior visible transcript remains in local memory. A `llama-server` error about parsing a grammar or initializing samplers is separate from context size and normally indicates a model/chat-template or server compatibility issue.
+The managed server receives the saved context as `--ctx-size`. Jarvis recommends half of the total VRAM, in MiB, of the largest detected GPU, rounded to the nearest 1024 tokens (minimum 1024). If VRAM cannot be detected, the recommendation is 4096 tokens. Context changes require restarting the server; accepting the immediate restart opens a new chat, while the prior visible transcript remains in local memory. If `llama-server` cannot parse its tool-call grammar, Jarvis retries ordinary chat without tools; requests that require real system or file data still fail clearly rather than inventing results or bypassing the Tool Router.
 
 ## Permissions
 
