@@ -41,7 +41,7 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 10
+    version: int = 11
     model_directory: Path | None = None
     model_path: Path | None = None
     context_size: int = Field(default=4096, gt=0, multiple_of=1024)
@@ -59,6 +59,7 @@ class UserSettings(BaseModel):
     color_mode: ColorMode = ColorMode.ALWAYS
     log_max_size_mb: int = 100
     log_retention_days: int = 30
+    notes_max_size_mb: int = Field(default=1, gt=0)
     # These files are user-owned configuration, never repository resources at runtime.
     persona_path: Path = Field(default_factory=lambda: editable_paths()["persona"])
     context_path: Path = Field(default_factory=lambda: editable_paths()["context"])
@@ -89,6 +90,7 @@ def editable_paths(directory: Path | None = None) -> dict[str, Path]:
         "goodbye_messages": root / "GoodbyeMessages.txt",
         "blacklist": root / "Blacklist.txt",
         "whitelist": root / "Whitelist.txt",
+        "notes": root / "jarvis-notes",
     }
 
 

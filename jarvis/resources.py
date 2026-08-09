@@ -26,6 +26,7 @@ def ensure_private_resources(settings: UserSettings) -> None:
         (settings.goodbye_messages_path, default_goodbye_messages_path().read_bytes()),
         (settings.blacklist_path, b"# path READ MODIFY CREATE DELETE EXECUTE\n"),
         (settings.whitelist_path, f"{installation_home}\n/mnt\n".encode()),
+        (settings.whitelist_path.parent / "jarvis-notes", b""),
     )
     for path, content in resources:
         path = path.expanduser()

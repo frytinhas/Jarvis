@@ -318,6 +318,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     size = "sem limite" if settings.log_max_size_mb <= 0 else f"{settings.log_max_size_mb} MB"
     retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
     print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
+    print(f"  Notas de perfil para IA: limite {settings.notes_max_size_mb} MB")
     if any(settings.permissions.get(risk) is Decision.ALLOW for risk in (Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)):
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
@@ -380,6 +381,7 @@ def _changes_summary(
         ("Cores", "color_mode", _color_mode_label),
         ("Limite dos logs", "log_max_size_mb", _log_size_label),
         ("Retenção dos logs", "log_retention_days", _retention_label),
+        ("Limite das notas de perfil", "notes_max_size_mb", lambda value: f"{value} MB"),
     )
     for label, attribute, formatter in fields:
         old_value = getattr(previous, attribute)
@@ -499,10 +501,14 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
             ]
             size = ask_integer("Tamanho máximo dos logs em MB (<= 0 sem limite)", draft.log_max_size_mb)
             retention = ask_integer("Retenção dos logs em dias (<= 0 sem limite)", draft.log_retention_days)
+            notes_size = ask_positive_integer(
+                "Tamanho máximo das notas de perfil em MB", draft.notes_max_size_mb
+            )
             draft = draft.model_copy(update={
                 "display_log_level": level,
                 "log_max_size_mb": size,
                 "log_retention_days": retention,
+                "notes_max_size_mb": notes_size,
             })
         elif choice == 7:
             modes = list(ColorMode)

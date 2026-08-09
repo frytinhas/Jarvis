@@ -164,6 +164,30 @@ class ConversationLogStore:
             # The transcript and fallback summary are already committed.
             return
 
+    def schedule_profile_notes(self, identifier: str, notes_path: Path) -> None:
+        """Update profile notes after exit without delaying the terminal."""
+        try:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "jarvis.memory.notes_worker",
+                    "--database",
+                    str(self.database_path),
+                    "--conversation",
+                    identifier,
+                    "--notes",
+                    str(notes_path),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError:
+            return
+
     def recent_summaries(
         self,
         limit: int = 5,

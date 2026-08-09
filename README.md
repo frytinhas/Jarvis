@@ -28,7 +28,7 @@ The administrative configuration starts as an independent copy of the Setup conf
 
 Running as root increases the reach of tools. Every root startup displays a warning and requires typing `ciente`; the Tool Router, confirmations, whitelist, blacklist, critical-path protections, and `PRIVILEGED` denial remain active. Use this command only when administrative access is required.
 
-The configurator has ten entries: Model, context and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Appearance, Persona and context, Save and exit, and Exit without saving. After selecting a model it proposes a context size based on detected GPU VRAM; you can keep or replace it. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
+The configurator has ten entries: Model, context and reasoning, Identity, Behavior, Timeouts, Permissions, Logs and panel, Appearance, Persona and context, Save and exit, and Exit without saving. The Logs and panel entry also configures the profile-notes limit. After selecting a model it proposes a context size based on detected GPU VRAM; you can keep or replace it. In an interactive terminal, use the arrow keys and Enter for menus, lists, and yes/no questions; text and numbers are still typed normally. Incompatible terminals automatically receive the numbered fallback.
 
 When using `jarvis-config`, the review shows only modified fields as `previous value → new value`. During `Setup.sh`, it shows the complete initial configuration summary. Exiting without saving writes nothing.
 
@@ -181,6 +181,10 @@ Jarvis saves a private summary and the visible user/assistant conversation in:
 ```
 
 Conversations are stored in a local SQLite database. The five newest summaries are available as recent context. For older conversations, Jarvis can use its controlled `search_conversation_logs` READ tool. This makes requests such as “remember the code we worked on yesterday?” possible without a vector database or external service.
+
+Jarvis also maintains a separate private profile file at `~/.config/jarvis/jarvis-notes`. At the end of a conversation, a background task keeps only durable preferences, recurring projects, constraints, and open tasks that can help future chats; it does not retain credentials, tool results, or ordinary transient chat. The compact line-oriented content is intended only for Jarvis and future models, not for people or analysis, and is always treated as untrusted historical data.
+
+The profile-notes limit defaults to 1 MB and is configurable in `jarvis-config → Logs and panel`. On startup Jarvis compacts notes that exceed that limit or its safe share of the selected model context. If a compacted result still exceeds the configured file limit, Jarvis doubles and saves the limit automatically, then reports it. The notes file is private (`0600`) but not encrypted; do not treat it as a password vault.
 
 By default, logs are kept for 30 days and the folder is limited to 100 MB. Run `jarvis-config` to change either value. A value less than or equal to zero means unlimited. Expired and oldest logs are removed locally when needed. The database is private to your user account but is not encrypted, so conversations should not be treated as a password vault.
 

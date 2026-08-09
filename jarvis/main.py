@@ -12,10 +12,10 @@ import sys
 
 from jarvis.agent.orchestrator import Orchestrator
 from jarvis.agent.prompts import build_system_prompt
-from jarvis.config import load_config
+from jarvis.config import config_path, load_config, save_config
 from jarvis.legal import consume_license_notice
 from jarvis.llm.client import LLMNotice, LlamaClient
-from jarvis.memory import ConversationLogStore
+from jarvis.memory import ConversationLogStore, ProfileNotesStore
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
@@ -188,19 +188,12 @@ def main(arguments: list[str] | None = None) -> None:
             )
             is Decision.ALLOW
         )
-    system_prompt = build_system_prompt(
-        user_settings.assistant_name,
-        user_settings.persona_path,
-        invocation_directory,
-        context_path=user_settings.context_path,
-        home_directory=Path.home().resolve(),
-        current_time=datetime.now().astimezone(),
-        user_directories=user_directories,
-        recent_memories=recent_memories,
-        interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
-        llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
-        max_tool_rounds=user_settings.max_tool_rounds,
-    )
+    notes_store: ProfileNotesStore | None = None
+    notes_store_error: str | None = None
+    try:
+        notes_store = ProfileNotesStore(config_path().parent / "jarvis-notes")
+    except OSError as error:
+        notes_store_error = str(error)
     waiting_messages = load_waiting_messages(user_settings.waiting_messages_path)
     goodbye_messages = load_waiting_messages(user_settings.goodbye_messages_path)
     waiting_indicator = WaitingIndicator(waiting_messages)
@@ -217,6 +210,43 @@ def main(arguments: list[str] | None = None) -> None:
         thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
         notice=show_llm_notice,
     ) as llm:
+        notes = ""
+        notes_warning: str | None = notes_store_error
+        if notes_store is not None:
+            try:
+                notes, doubled = notes_store.prepare(
+                    llm,
+                    max_size_mb=user_settings.notes_max_size_mb,
+                    context_size=user_settings.context_size,
+                    lock_timeout_seconds=user_settings.llm_request_timeout_seconds,
+                )
+                if doubled:
+                    updated_settings = user_settings.model_copy(
+                        update={"notes_max_size_mb": user_settings.notes_max_size_mb * 2}
+                    )
+                    config = config.model_copy(update={"settings": updated_settings})
+                    save_config(config)
+                    user_settings = updated_settings
+                    notes_warning = (
+                        "As notas de perfil continuaram acima do limite após a compactação; "
+                        f"o limite foi dobrado para {user_settings.notes_max_size_mb} MB."
+                    )
+            except (OSError, RuntimeError, TimeoutError) as error:
+                notes_warning = f"Não foi possível preparar as notas de perfil: {error}"
+        system_prompt = build_system_prompt(
+            user_settings.assistant_name,
+            user_settings.persona_path,
+            invocation_directory,
+            context_path=user_settings.context_path,
+            home_directory=Path.home().resolve(),
+            current_time=datetime.now().astimezone(),
+            user_directories=user_directories,
+            recent_memories=recent_memories,
+            jarvis_notes=notes,
+            interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
+            llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
+            max_tool_rounds=user_settings.max_tool_rounds,
+        )
         orchestrator = Orchestrator(
             llm,
             registry,
@@ -234,6 +264,8 @@ def main(arguments: list[str] | None = None) -> None:
             if path_policy.error
             else None
         )
+        if notes_warning:
+            warning = f"{warning}\n{notes_warning}" if warning else notes_warning
         outcome = TerminalUI(
             orchestrator,
             user_settings.assistant_name,
@@ -256,6 +288,8 @@ def main(arguments: list[str] | None = None) -> None:
         )
         if log_path is not None and outcome is not SessionExit.RESTART_MODEL:
             memory_store.schedule_summary(log_path)
+        if log_path is not None and notes_store is not None:
+            memory_store.schedule_profile_notes(log_path, notes_store.path)
         if outcome is SessionExit.RESTART_MODEL:
             raise SystemExit(75)
 

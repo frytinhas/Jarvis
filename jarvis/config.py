@@ -13,7 +13,7 @@ from jarvis.settings import (
 )
 
 
-CONFIG_VERSION = 10
+CONFIG_VERSION = 11
 
 
 class ConfigFileError(ValueError):
@@ -171,7 +171,7 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, 7, 8, 9, CONFIG_VERSION}:
+    if version not in {5, 6, 7, 8, 9, 10, CONFIG_VERSION}:
         raise ConfigFileError(path, f"versão {version} não suportada; esperada entre 5 e {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
@@ -192,7 +192,8 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         "llm": {"base_url", "model", "api_key", "confirmation_timeout"},
         "logs": ({"max_size_mb", "retention_days", "audit_db_path", "level"}
                  if version == 5 else
-                 {"max_size_mb", "retention_days", "audit_db_path", "display_level"}),
+                 ({"max_size_mb", "retention_days", "notes_max_size_mb", "audit_db_path", "display_level"}
+                  if version >= 11 else {"max_size_mb", "retention_days", "audit_db_path", "display_level"})),
         "paths": (
             {"persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist"}
             if version >= 10 else (
@@ -276,6 +277,9 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             color_mode=(ColorMode.AUTO if version < 7 else ColorMode(_text(_section(root, "appearance"), "color_mode"))),
             log_max_size_mb=_integer(_text(logs, "max_size_mb"), "max_size_mb", path),
             log_retention_days=_integer(_text(logs, "retention_days"), "retention_days", path),
+            notes_max_size_mb=(1 if version < 11 else _integer(
+                _text(logs, "notes_max_size_mb"), "notes_max_size_mb", path
+            )),
             persona_path=(
                 Path(persona).expanduser()
                 if version >= 8 else editable_paths(path.parent)["persona"]
@@ -330,7 +334,7 @@ def _new_tree() -> ET.ElementTree:
         ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
-        ("logs", "Nível visual: Full, Server-Essential, Essential, Minimal-Essential ou None.", "Display level: Full, Server-Essential, Essential, Minimal-Essential, or None.", ("max_size_mb", "retention_days", "audit_db_path", "display_level")),
+        ("logs", "Nível visual e limites privados de logs e notas de perfil.", "Display level and private limits for logs and profile notes.", ("max_size_mb", "retention_days", "notes_max_size_mb", "audit_db_path", "display_level")),
         ("paths", "Arquivos privados editáveis desta instalação; caminhos podem usar ~.", "Private editable files for this installation; paths may use ~.", ("persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist")),
         ("appearance", "Modo de cores: auto, always ou never.", "Color mode: auto, always, or never.", ("color_mode",)),
     )
@@ -383,6 +387,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     logs = _section(root, "logs")
     _set(logs, "max_size_mb", settings.log_max_size_mb)
     _set(logs, "retention_days", settings.log_retention_days)
+    _set(logs, "notes_max_size_mb", settings.notes_max_size_mb)
     _set(logs, "audit_db_path", advanced.audit_db_path)
     _set(logs, "display_level", settings.display_log_level.value)
     paths = _section(root, "paths")

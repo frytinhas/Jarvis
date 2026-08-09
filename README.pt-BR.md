@@ -26,7 +26,7 @@ A configuração administrativa começa como uma cópia independente da configur
 
 Executar como root amplia o alcance das tools. Toda inicialização root exibe aviso e exige digitar `ciente`; Tool Router, confirmações, whitelist, blacklist, paths críticos e a proibição de ações `PRIVILEGED` continuam ativos. Use esse comando somente quando o acesso administrativo for necessário.
 
-O configurador possui dez entradas: Modelo, contexto e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Aparência, Persona e contexto, Salvar e sair, e Sair sem salvar. Após selecionar um modelo, ele propõe um contexto baseado na VRAM detectada; você pode manter ou substituir o valor. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
+O configurador possui dez entradas: Modelo, contexto e reasoning, Identidade, Comportamento, Timeouts, Permissões, Logs e painel, Aparência, Persona e contexto, Salvar e sair, e Sair sem salvar. A entrada Logs e painel também configura o limite das notas de perfil. Após selecionar um modelo, ele propõe um contexto baseado na VRAM detectada; você pode manter ou substituir o valor. Em um terminal interativo, use as setas e Enter nos menus, listas e perguntas sim/não; texto e números continuam sendo digitados normalmente. Terminais incompatíveis recebem automaticamente o menu numerado.
 
 Ao usar `jarvis-config`, a revisão mostra somente os campos modificados, sempre como `valor anterior → valor novo`. Durante o `Setup.sh`, a revisão mostra o resumo completo da configuração inicial. Sair sem salvar não grava nenhuma mudança.
 
@@ -181,6 +181,10 @@ O Jarvis salva um resumo privado e a conversa visível entre usuário e assisten
 ```
 
 As conversas ficam em um banco SQLite local. Os cinco resumos mais recentes ficam disponíveis como contexto. Para conversas mais antigas, o Jarvis pode usar a tool READ controlada `search_conversation_logs`. Isso permite pedidos como “lembra do código em que trabalhamos ontem?” sem banco vetorial ou serviço externo.
+
+O Jarvis também mantém um perfil privado separado em `~/.config/jarvis/jarvis-notes`. Ao fim de uma conversa, uma tarefa em segundo plano conserva apenas preferências duráveis, projetos recorrentes, restrições e pendências que possam ajudar chats futuros; ela não guarda credenciais, resultados de tools nem detalhes passageiros de conversa. O conteúdo compacto, orientado por linhas, é destinado somente ao Jarvis e a modelos futuros, não a pessoas ou análise, e sempre é tratado como dado histórico não confiável.
+
+O limite das notas de perfil começa em 1 MB e pode ser configurado em `jarvis-config → Logs e painel`. Na inicialização, o Jarvis compacta notas que excederem esse limite ou a parcela segura do contexto do modelo selecionado. Se o resultado compactado ainda exceder o limite configurado do arquivo, o Jarvis dobra e salva o limite automaticamente e informa o usuário. O arquivo possui permissão privada (`0600`), mas não é criptografado; não o trate como cofre de senhas.
 
 Por padrão, os logs são mantidos por 30 dias e a pasta possui limite de 100 MB. Use `jarvis-config` para alterar os dois valores. Um número menor ou igual a zero significa sem limite. Logs vencidos e os mais antigos são removidos localmente quando necessário. O banco é privado para o usuário local, mas não é criptografado; portanto, as conversas não devem ser tratadas como um cofre de senhas.
 

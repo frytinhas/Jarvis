@@ -127,6 +127,7 @@ def test_new_lifecycle_defaults() -> None:
     assert settings.context_size == 4096
     assert settings.display_log_level.value == "Minimal-Essential"
     assert settings.color_mode is ColorMode.ALWAYS
+    assert settings.notes_max_size_mb == 1
     assert settings.permissions[Risk.EXECUTE] is Decision.ALLOW
     assert settings.permissions[Risk.PRIVILEGED] is Decision.DENY
 
@@ -144,7 +145,7 @@ def test_private_resources_are_created_with_private_permissions(tmp_path: Path) 
     for path in (
         settings.persona_path, settings.context_path, settings.waiting_messages_path,
         settings.goodbye_messages_path,
-        settings.blacklist_path, settings.whitelist_path,
+        settings.blacklist_path, settings.whitelist_path, settings.whitelist_path.parent / "jarvis-notes",
     ):
         assert path.is_file()
         assert path.stat().st_mode & 0o777 == 0o600
@@ -159,6 +160,7 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
     content = content.replace(
         f"    <goodbye_messages>{default_config().settings.goodbye_messages_path}</goodbye_messages>\n", ""
     )
+    content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
     content = content.replace("    <context_size>4096</context_size>\n", "")
     start = content.index("  <behavior>")
     end = content.index("  </behavior>") + len("  </behavior>")
@@ -201,6 +203,7 @@ def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
     content = content.replace(
         f"    <goodbye_messages>{default_config().settings.goodbye_messages_path}</goodbye_messages>\n", ""
     )
+    content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
     content = content.replace("    <context_size>4096</context_size>\n", "")
     start = content.index("  <appearance>")
     end = content.index("  </appearance>") + len("  </appearance>\n")
@@ -231,6 +234,7 @@ def test_v8_xml_migrates_context_with_fallback_and_preserves_private_paths(tmp_p
     content = content.replace(
         f"    <goodbye_messages>{original.settings.goodbye_messages_path}</goodbye_messages>\n", ""
     )
+    content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
     content = content.replace("    <context_size>4096</context_size>\n", "")
     path.write_text(content, encoding="utf-8")
 
@@ -248,11 +252,25 @@ def test_v9_xml_migrates_goodbye_messages_path(tmp_path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="9">')
     content = content.replace("    <goodbye_messages>" + str(default_config().settings.goodbye_messages_path) + "</goodbye_messages>\n", "")
+    content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
     path.write_text(content, encoding="utf-8")
 
     migrated = load_config(path)
 
     assert migrated.settings.goodbye_messages_path == tmp_path / "GoodbyeMessages.txt"
+
+
+def test_v10_xml_migrates_profile_notes_limit(tmp_path: Path) -> None:
+    path = tmp_path / "config.xml"
+    save_config(default_config(), path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="10">')
+    content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
+    path.write_text(content, encoding="utf-8")
+
+    migrated = load_config(path)
+
+    assert migrated.settings.notes_max_size_mb == 1
 
 
 @pytest.mark.parametrize("value", ["0", "123", "4097"])

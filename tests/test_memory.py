@@ -7,6 +7,7 @@ import sqlite3
 
 from jarvis.llm.schemas import AssistantMessage
 from jarvis.memory.store import ConversationLogStore, fallback_summary, summarize_conversation
+from jarvis.memory.notes import ProfileNotesStore, prompt_note_limit
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy, parse_path_rules
@@ -148,6 +149,27 @@ def test_summary_is_scheduled_after_the_fallback_record_is_committed(
     assert observed["start_new_session"] is True
 
 
+def test_profile_notes_update_is_scheduled_after_the_record_is_committed(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    store = ConversationLogStore(tmp_path / "logs", now=lambda: NOW)
+    identifier = store.create(_transcript(), started_at=NOW, invocation_directory=tmp_path)
+    observed: dict[str, object] = {}
+
+    def spawn(arguments, **kwargs):  # type: ignore[no-untyped-def]
+        observed["arguments"] = arguments
+        observed.update(kwargs)
+
+    monkeypatch.setattr("jarvis.memory.store.subprocess.Popen", spawn)
+    assert identifier is not None
+
+    store.schedule_profile_notes(identifier, tmp_path / "config/jarvis-notes")
+
+    assert "jarvis.memory.notes_worker" in observed["arguments"]
+    assert observed["arguments"][-1] == str(tmp_path / "config/jarvis-notes")
+    assert observed["start_new_session"] is True
+
+
 def test_fallback_summary_uses_recent_user_requests() -> None:
     assert "Brain" in fallback_summary(_transcript())
 
@@ -171,6 +193,39 @@ def test_llm_summary_treats_transcript_as_untrusted() -> None:
 
     assert summary == "Resumo seguro"
     assert "untrusted data" in llm.messages[0]["content"]
+
+
+def test_profile_notes_are_private_compact_and_exclude_secrets(tmp_path: Path) -> None:
+    class NotesLLM:
+        def chat(self, messages, tools, timeout=None, thinking_budget_tokens=None):  # type: ignore[no-untyped-def]
+            assert tools == []
+            assert thinking_budget_tokens == 0
+            return AssistantMessage(content="pref: concise\npassword: never save this")
+
+    path = tmp_path / "config/jarvis-notes"
+    notes = ProfileNotesStore(path)
+    notes.merge_session(NotesLLM(), _transcript(), max_size_mb=1, context_size=4096)  # type: ignore[arg-type]
+
+    assert "pref: concise" in path.read_text(encoding="utf-8")
+    assert "password" not in path.read_text(encoding="utf-8").casefold()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert prompt_note_limit(4096) == 4096
+
+
+def test_profile_notes_compact_before_they_overflow_prompt(tmp_path: Path) -> None:
+    class CompactLLM:
+        def chat(self, messages, tools, timeout=None, thinking_budget_tokens=None):  # type: ignore[no-untyped-def]
+            assert "untrusted data" in messages[0]["content"]
+            return AssistantMessage(content="project: Jarvis")
+
+    path = tmp_path / "config/jarvis-notes"
+    notes = ProfileNotesStore(path)
+    path.write_text("x" * 5000, encoding="utf-8")
+
+    prepared, doubled = notes.prepare(CompactLLM(), max_size_mb=1, context_size=1024)  # type: ignore[arg-type]
+
+    assert prepared == "project: Jarvis"
+    assert not doubled
 
 
 def test_memory_search_is_a_controlled_read_tool(tmp_path: Path) -> None:
