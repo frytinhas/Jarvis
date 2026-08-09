@@ -22,7 +22,7 @@ from jarvis.configurator import (
     normalize_command_name,
     run_wizard,
 )
-from jarvis.settings import UserSettings
+from jarvis.settings import UserSettings, editable_paths
 
 
 def test_discovers_gguf_recursively_and_ignores_mmproj(tmp_path: Path) -> None:
@@ -67,16 +67,17 @@ def test_custom_command_replaces_owned_default_alias(tmp_path: Path, monkeypatch
     assert (local_bin / "bob").resolve() == launcher
 
 
-def test_root_configurator_does_not_manage_root_local_launchers(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_root_configurator_manages_its_local_launcher(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("jarvis.configurator.os.geteuid", lambda: 0)
     command = tmp_path / ".local/bin/jarvis"
     command.parent.mkdir(parents=True)
     command.symlink_to(tmp_path / "old/scripts/jarvis")
 
-    assert _inspect_command("jarvis") is None
-    _apply_command("jarvis", "jarvis")
-    assert command.is_symlink()
+    replacement = _inspect_command("jarvis")
+    assert replacement is not None
+    _apply_command("jarvis", "jarvis", replacement)
+    assert command.resolve() == (Path(__file__).resolve().parent.parent / "scripts/jarvis").resolve()
 
 
 def test_migrates_confirmed_broken_legacy_launcher(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -317,10 +318,16 @@ def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None: 
     project.mkdir()
     (project / "Persona.md").write_text("persona", encoding="utf-8")
     (project / "Context.md").write_text("context", encoding="utf-8")
+    paths = editable_paths(tmp_path / "config")
     settings = UserSettings(
         model_directory=tmp_path,
         model_path=model,
-        persona_path=project / "Persona.md",
+        persona_path=paths["persona"],
+        context_path=paths["context"],
+        waiting_messages_path=paths["waiting_messages"],
+        goodbye_messages_path=paths["goodbye_messages"],
+        blacklist_path=paths["blacklist"],
+        whitelist_path=paths["whitelist"],
     )
     config = JarvisConfig(settings=settings)
     choices = iter([1, 4, 9])

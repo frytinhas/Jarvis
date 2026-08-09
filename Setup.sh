@@ -2,276 +2,263 @@
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$PROJECT_DIR/.venv"
-LOCAL_BIN="$HOME/.local/bin"
-DATA_DIR="$HOME/.local/share/jarvis"
-ROOT_INSTALL_DIR="/usr/local/lib/jarvis-local"
-GLOBAL_BIN="/usr/local/bin"
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_UID="$(id -u)"
+if ((INSTALL_UID == 0)); then
+    passwd_entry="$(getent passwd 0 2>/dev/null || true)"
+    IFS=: read -r _ _ _ _ _ INSTALL_HOME _ <<<"$passwd_entry"
+    [[ -n "$INSTALL_HOME" && "$INSTALL_HOME" == /* ]] || INSTALL_HOME=/root
+    printf '\nAVISO: o Setup está sendo executado como root.\n'
+    printf 'O Jarvis será instalado somente para root em %s.\n' "$INSTALL_HOME"
+    DATA_HOME="$INSTALL_HOME/.local/share"
+    CONFIG_HOME="$INSTALL_HOME/.config"
+else
+    INSTALL_HOME="${HOME:?HOME não definido}"
+    DATA_HOME="${XDG_DATA_HOME:-$INSTALL_HOME/.local/share}"
+    CONFIG_HOME="${XDG_CONFIG_HOME:-$INSTALL_HOME/.config}"
+fi
+
+DATA_DIR="$DATA_HOME/jarvis"
+APP_DIR="$DATA_DIR/app"
+LOCAL_BIN="$INSTALL_HOME/.local/bin"
+STATE_DIR="$INSTALL_HOME/.local/state/jarvis"
 LLAMA_SOURCE_DIR="$DATA_DIR/llama.cpp"
 LLAMA_BUILD_DIR="$LLAMA_SOURCE_DIR/build"
-UNIT_DIR="$HOME/.config/systemd/user"
+UNIT_DIR="$INSTALL_HOME/.config/systemd/user"
 UNIT_FILE="$UNIT_DIR/jarvis-llm.service"
-
-info() {
-    printf '\n==> %s\n' "$1"
-}
-
-fail() {
-    printf '\nErro: %s\n' "$1" >&2
-    exit 1
-}
-
-if ((EUID == 0)); then
-    fail "Execute o Setup como usuário normal: bash Setup.sh (ele solicitará sudo quando necessário)."
-fi
-
-root_entry="$(getent passwd 0 2>/dev/null || true)"
-IFS=: read -r _ _ _ _ _ ROOT_HOME _ <<<"$root_entry"
-if [[ -z "$ROOT_HOME" || "$ROOT_HOME" != /* ]]; then
-    ROOT_HOME=/root
-fi
-
-CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 USER_CONFIG="$CONFIG_HOME/jarvis/config.xml"
-INSTALL_KIND="new"
-if [[ -f "$PROJECT_DIR/.install" || -f "$USER_CONFIG" || -d "$HOME/.local/state/jarvis" \
-    || -d "$HOME/.local/share/jarvis" || -d "$ROOT_INSTALL_DIR" ]]; then
-    INSTALL_KIND="repair"
-    info "Uma instalação existente do Jarvis foi detectada."
-    while true; do
-        read -r -p "Escolha [r]eparar preservando seus dados ou [z]erar tudo e reinstalar: " setup_choice
-        case "${setup_choice,,}" in
-            r|reparar|repair)
-                break
-                ;;
-            z|zerar|reinstalar|reinstall)
-                info "Removendo a instalação e os dados locais atuais antes da reinstalação"
-                printf 'jarvis purge\n' | "$PROJECT_DIR/Uninstall.sh" --purge
-                INSTALL_KIND="clean"
-                break
-                ;;
-            *)
-                echo "Digite r para reparar ou z para reinstalar do zero."
-                ;;
-        esac
-    done
-fi
 
-validate_privileged_link() {
-    local link="$1" expected="$2" legacy="$3" resolved=""
-    if sudo test -e "$link" || sudo test -L "$link"; then
-        resolved="$(sudo readlink -f "$link" 2>/dev/null || true)"
-        if [[ "$resolved" != "$expected" && "$resolved" != "$legacy" ]]; then
-            fail "Já existe outro comando em $link."
-        fi
-    fi
+info() { printf '\n==> %s\n' "$1"; }
+fail() { printf '\nErro: %s\n' "$1" >&2; exit 1; }
+
+validate_local_directory() {
+    local target="$1" resolved parent
+    resolved="$(readlink -m "$target")"
+    parent="$(dirname "$resolved")"
+    [[ "$(basename "$resolved")" == jarvis && "$resolved" != /jarvis && "$parent" != / ]] \
+        || fail "Diretório local inseguro: $target"
+}
+validate_local_directory "$DATA_DIR"
+validate_local_directory "$CONFIG_HOME/jarvis"
+validate_local_directory "$STATE_DIR"
+
+run_as_install_user() {
+    env HOME="$INSTALL_HOME" XDG_DATA_HOME="$DATA_HOME" XDG_CONFIG_HOME="$CONFIG_HOME" "$@"
 }
 
-install_privileged_link() {
-    local target="$1" link="$2" legacy="$3"
-    validate_privileged_link "$link" "$target" "$legacy"
-    sudo install -d -m 755 "$(dirname "$link")"
-    sudo ln -sfn "$target" "$link"
-}
-
-install_root_resource() {
-    local source="$1" name="$2"
-    if sudo test -f "$ROOT_INSTALL_DIR/$name"; then
-        sudo install -m 644 "$ROOT_INSTALL_DIR/$name" "$root_stage/$name"
-    else
-        sudo install -m 644 "$source" "$root_stage/$name"
-    fi
-}
-
-validate_privileged_link "$GLOBAL_BIN/jarvis" "$ROOT_INSTALL_DIR/scripts/jarvis" \
-    "$PROJECT_DIR/scripts/jarvis"
-validate_privileged_link "$GLOBAL_BIN/jarvis-config" "$ROOT_INSTALL_DIR/Config.sh" \
-    "$PROJECT_DIR/Config.sh"
-
-install_packages() {
+install_root_packages() {
     local packages=("$@")
     command -v apt-get >/dev/null 2>&1 \
         || fail "Instale os pacotes ausentes manualmente: ${packages[*]}"
-    info "Instalando dependências do sistema (o sudo pode pedir sua senha)"
-    sudo apt-get update
-    sudo apt-get install -y "${packages[@]}"
+    info "Instalando dependências do sistema para root: ${packages[*]}"
+    apt-get update
+    apt-get install -y "${packages[@]}"
 }
 
-missing_packages=()
-command -v python3 >/dev/null 2>&1 || missing_packages+=(python3)
-command -v curl >/dev/null 2>&1 || missing_packages+=(curl)
-command -v nano >/dev/null 2>&1 || missing_packages+=(nano)
-if ((${#missing_packages[@]})); then
-    install_packages "${missing_packages[@]}"
+require_system_packages() {
+    local packages=("$@")
+    if ((INSTALL_UID == 0)); then
+        install_root_packages "${packages[@]}"
+        return
+    fi
+    fail "Dependências do sistema ausentes: ${packages[*]}. Instale-as pelo gerenciador da sua distribuição e execute o Setup novamente."
+}
+
+missing=()
+command -v python3 >/dev/null 2>&1 || missing+=(python3)
+command -v curl >/dev/null 2>&1 || missing+=(curl)
+if ((${#missing[@]})); then
+    require_system_packages "${missing[@]}"
 fi
 
 python_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 12))' \
     || fail "Python 3.12 ou superior é necessário. Versão encontrada: $python_version"
 
-info "Preparando o ambiente Python"
-if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
-    install_packages python3-venv
-    python3 -m venv "$VENV_DIR"
+temporary_root="$(mktemp -d)"
+cleanup() { rm -rf -- "$temporary_root"; }
+trap cleanup EXIT
+payload="$temporary_root/app"
+mkdir -p "$payload"
+cp -a "$SOURCE_DIR/jarvis" "$SOURCE_DIR/scripts" "$payload/"
+cp -a "$SOURCE_DIR/Config.sh" "$SOURCE_DIR/Uninstall.sh" "$SOURCE_DIR/Setup.sh" "$payload/"
+cp -a "$SOURCE_DIR/pyproject.toml" "$SOURCE_DIR/LICENSE" "$payload/"
+cp -a "$SOURCE_DIR/README.md" "$SOURCE_DIR/README.pt-BR.md" \
+    "$SOURCE_DIR/README.simple.md" "$SOURCE_DIR/README.simple.pt-BR.md" "$payload/"
+find "$payload" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+
+INSTALL_KIND=new
+if [[ -f "$APP_DIR/.install" || -f "$USER_CONFIG" || -d "$STATE_DIR" ]]; then
+    INSTALL_KIND=repair
+    info "Uma instalação local existente do Jarvis foi detectada."
+    while true; do
+        read -r -p "Escolha [r]eparar preservando seus dados ou [z]erar tudo e reinstalar: " setup_choice
+        case "${setup_choice,,}" in
+            r|reparar|repair) break ;;
+            z|zerar|reinstalar|reinstall)
+                if [[ -x "$APP_DIR/Uninstall.sh" ]]; then
+                    printf 'jarvis purge\n' | run_as_install_user bash "$APP_DIR/Uninstall.sh" --purge
+                else
+                    rm -rf -- "$DATA_DIR" "$CONFIG_HOME/jarvis" "$STATE_DIR"
+                fi
+                INSTALL_KIND=clean
+                break
+                ;;
+            *) echo "Digite r para reparar ou z para reinstalar do zero." ;;
+        esac
+    done
 fi
-"$VENV_DIR/bin/python" -m pip install -e "$PROJECT_DIR"
 
 LLAMA_BIN=""
 LLAMA_STYLE=""
+mkdir -p "$DATA_DIR"
 if command -v llama >/dev/null 2>&1 && llama serve --help >/dev/null 2>&1; then
     LLAMA_BIN="$(command -v llama)"
-    LLAMA_STYLE="subcommand"
+    LLAMA_STYLE=subcommand
 elif command -v llama-server >/dev/null 2>&1; then
     LLAMA_BIN="$(command -v llama-server)"
-    LLAMA_STYLE="server"
+    LLAMA_STYLE=server
 else
-    build_packages=()
-    command -v git >/dev/null 2>&1 || build_packages+=(git)
-    command -v cmake >/dev/null 2>&1 || build_packages+=(cmake)
-    command -v c++ >/dev/null 2>&1 || build_packages+=(build-essential)
-    if ((${#build_packages[@]})); then
-        install_packages "${build_packages[@]}"
+    build_missing=()
+    command -v git >/dev/null 2>&1 || build_missing+=(git)
+    command -v c++ >/dev/null 2>&1 || build_missing+=(build-essential)
+    if ((${#build_missing[@]})); then
+        require_system_packages "${build_missing[@]}"
     fi
-    info "llama-server não encontrado; compilando a versão oficial para CPU"
+    info "llama-server não encontrado; preparando a compilação local para CPU"
     if [[ -d "$LLAMA_SOURCE_DIR/.git" ]]; then
         git -C "$LLAMA_SOURCE_DIR" pull --ff-only
+    elif [[ -e "$LLAMA_SOURCE_DIR" ]]; then
+        fail "$LLAMA_SOURCE_DIR existe, mas não é um clone válido do llama.cpp."
     else
         git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_SOURCE_DIR"
     fi
-    cmake -S "$LLAMA_SOURCE_DIR" -B "$LLAMA_BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON
-    cmake --build "$LLAMA_BUILD_DIR" --config Release --target llama-server -j"$(nproc)"
-    LLAMA_BIN="$LLAMA_BUILD_DIR/bin/llama-server"
-    LLAMA_STYLE="server"
 fi
 
-temporary="$(mktemp "$PROJECT_DIR/.install.XXXXXX")"
+mkdir -p "$DATA_DIR"
+app_stage="$DATA_DIR/.app-new-$$"
+app_previous="$DATA_DIR/.app-previous-$$"
+rm -rf -- "$app_stage" "$app_previous"
+cp -a "$payload" "$app_stage"
+if [[ -d "$APP_DIR" ]]; then
+    mv "$APP_DIR" "$app_previous"
+fi
+mv "$app_stage" "$APP_DIR"
+
+rollback_install() {
+    local status=$?
+    if ((status != 0)); then
+        rm -rf -- "$APP_DIR"
+        if [[ -d "$app_previous" ]]; then
+            mv "$app_previous" "$APP_DIR"
+        fi
+    fi
+    cleanup
+    exit "$status"
+}
+trap rollback_install EXIT
+
+info "Preparando o ambiente Python isolado"
+if ! python3 -m venv "$APP_DIR/.venv" 2>/dev/null; then
+    info "O módulo venv não está disponível; tentando virtualenv no usuário atual"
+    if python3 -m pip install --user virtualenv; then
+        run_as_install_user python3 -m virtualenv "$APP_DIR/.venv"
+    else
+        require_system_packages python3-venv
+        python3 -m venv "$APP_DIR/.venv" \
+            || fail "Não foi possível criar o ambiente virtual."
+    fi
+fi
+"$APP_DIR/.venv/bin/python" -m pip install -e "$APP_DIR"
+
+if [[ -z "$LLAMA_BIN" ]]; then
+    CMAKE_BIN="$(command -v cmake || true)"
+    if [[ -z "$CMAKE_BIN" ]]; then
+        info "CMake não encontrado; instalando uma cópia isolada no venv"
+        "$APP_DIR/.venv/bin/python" -m pip install cmake
+        CMAKE_BIN="$APP_DIR/.venv/bin/cmake"
+    fi
+    "$CMAKE_BIN" -S "$LLAMA_SOURCE_DIR" -B "$LLAMA_BUILD_DIR" \
+        -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON
+    "$CMAKE_BIN" --build "$LLAMA_BUILD_DIR" --config Release \
+        --target llama-server -j"$(nproc)"
+    LLAMA_BIN="$LLAMA_BUILD_DIR/bin/llama-server"
+    LLAMA_STYLE=server
+fi
+
+install_file="$APP_DIR/.install"
 {
+    printf 'INSTALL_UID=%s\n' "$INSTALL_UID"
+    printf 'INSTALL_HOME=%q\n' "$INSTALL_HOME"
+    printf 'INSTALL_DATA_HOME=%q\n' "$DATA_HOME"
+    printf 'INSTALL_CONFIG_HOME=%q\n' "$CONFIG_HOME"
+    printf 'APP_DIR=%q\n' "$APP_DIR"
     printf 'LLAMA_BIN=%q\n' "$LLAMA_BIN"
     printf 'LLAMA_STYLE=%q\n' "$LLAMA_STYLE"
     printf 'SERVER_HOST=127.0.0.1\n'
     printf 'SERVER_PORT=8080\n'
-    printf 'INSTALL_USER_HOME=%q\n' "$HOME"
-    printf 'ROOT_HOME=%q\n' "$ROOT_HOME"
-    printf 'ROOT_INSTALL_DIR=%q\n' "$ROOT_INSTALL_DIR"
-} >"$temporary"
-chmod 600 "$temporary"
-mv "$temporary" "$PROJECT_DIR/.install"
+} >"$install_file"
+chmod 600 "$install_file"
+chmod +x "$APP_DIR/Config.sh" "$APP_DIR/Uninstall.sh" "$APP_DIR/Setup.sh" \
+    "$APP_DIR/scripts/jarvis" "$APP_DIR/scripts/jarvis-server" "$APP_DIR/scripts/jarvis-env"
 
-chmod +x "$PROJECT_DIR/Config.sh" "$PROJECT_DIR/Uninstall.sh" \
-    "$PROJECT_DIR/scripts/jarvis" "$PROJECT_DIR/scripts/jarvis-server" \
-    "$PROJECT_DIR/scripts/jarvis-env"
 mkdir -p "$LOCAL_BIN"
 config_command="$LOCAL_BIN/jarvis-config"
-if [[ -e "$config_command" && ! -L "$config_command" ]]; then
-    fail "Já existe outro comando em $config_command."
-fi
-ln -sfn "$PROJECT_DIR/Config.sh" "$config_command"
+install_local_link() {
+    local target="$1" link="$2" legacy_suffix="$3" resolved=""
+    if [[ -e "$link" || -L "$link" ]]; then
+        [[ -L "$link" ]] || fail "Já existe outro comando em $link."
+        resolved="$(readlink -m "$link")"
+        if [[ "$resolved" != "$target" ]]; then
+            [[ "$resolved" == *"$legacy_suffix" ]] \
+                || fail "O link $link pertence a outro programa."
+            read -r -p "Substituir o link antigo $link, que aponta para $resolved? [y/N] " answer
+            [[ "${answer,,}" == y || "${answer,,}" == yes \
+                || "${answer,,}" == s || "${answer,,}" == sim ]] \
+                || fail "O link antigo foi preservado."
+        fi
+    fi
+    ln -sfn "$target" "$link"
+}
+install_local_link "$APP_DIR/Config.sh" "$config_command" /Config.sh
 
 mkdir -p "$UNIT_DIR"
-escaped_project="${PROJECT_DIR//\\/\\\\}"
-escaped_project="${escaped_project//\"/\\\"}"
-cat >"$UNIT_FILE" <<EOF
-[Unit]
-Description=Jarvis local AI server
-After=default.target
-
-[Service]
-Type=simple
-ExecStart="$escaped_project/scripts/jarvis-server"
-ExecStartPost=/usr/bin/rm -f %h/.local/state/jarvis/restart-required
-Restart=on-failure
-RestartSec=3
-StandardOutput=null
-StandardError=null
-
-[Install]
-WantedBy=default.target
-EOF
+escaped_app="${APP_DIR//\\/\\\\}"
+escaped_app="${escaped_app//\"/\\\"}"
+{
+    printf '%s\n' '[Unit]' 'Description=Jarvis local AI server' 'After=default.target' ''
+    printf '%s\n' '[Service]' 'Type=simple'
+    printf 'ExecStart="%s/scripts/jarvis-server"\n' "$escaped_app"
+    printf '%s\n' 'ExecStartPost=/usr/bin/rm -f %h/.local/state/jarvis/restart-required' \
+        'Restart=on-failure' 'RestartSec=3' 'StandardOutput=null' 'StandardError=null' ''
+    printf '%s\n' '[Install]' 'WantedBy=default.target'
+} >"$UNIT_FILE"
 
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    run_as_install_user systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
-
-if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
-    shell_config="$HOME/.bashrc"
+if [[ ":${PATH:-}:" != *":$LOCAL_BIN:"* ]]; then
+    shell_config="$INSTALL_HOME/.bashrc"
     path_line='export PATH="$HOME/.local/bin:$PATH"'
     grep -Fqx "$path_line" "$shell_config" 2>/dev/null \
         || printf '\n# Jarvis Local\n%s\n' "$path_line" >>"$shell_config"
 fi
 
-if [[ "$INSTALL_KIND" == "repair" && -f "$USER_CONFIG" ]]; then
+if [[ "$INSTALL_KIND" == repair && -f "$USER_CONFIG" ]]; then
     info "Reparando a configuração existente e seus recursos ausentes"
-    "$VENV_DIR/bin/python" -m jarvis.installer --repair-user "$USER_CONFIG"
+    run_as_install_user "$APP_DIR/.venv/bin/python" -m jarvis.installer \
+        --repair-user "$USER_CONFIG"
 else
     info "Instalação concluída. Iniciando a configuração"
-    "$PROJECT_DIR/Config.sh" --setup
+    run_as_install_user "$APP_DIR/Config.sh" --setup
 fi
 
-user_config="$("$VENV_DIR/bin/python" -c 'from jarvis.config import config_path; print(config_path())')"
-[[ -f "$user_config" ]] \
+[[ -f "$USER_CONFIG" ]] \
     || fail "A configuração não foi salva. Execute jarvis-config e rode o Setup novamente."
-
-info "Instalando a cópia administrativa isolada"
-root_stage="$ROOT_INSTALL_DIR.new.$$"
-root_previous="$ROOT_INSTALL_DIR.previous"
-sudo rm -rf -- "$root_stage"
-sudo install -d -m 755 "$root_stage/scripts" "$root_stage/bin"
-sudo cp -a "$PROJECT_DIR/jarvis" "$root_stage/jarvis"
-sudo find "$root_stage/jarvis" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
-sudo install -m 755 "$PROJECT_DIR/Config.sh" "$root_stage/Config.sh"
-sudo install -m 755 "$PROJECT_DIR/Uninstall.sh" "$root_stage/Uninstall.sh"
-sudo install -m 755 "$PROJECT_DIR/scripts/jarvis" "$root_stage/scripts/jarvis"
-sudo install -m 755 "$PROJECT_DIR/scripts/jarvis-server" "$root_stage/scripts/jarvis-server"
-sudo install -m 755 "$PROJECT_DIR/scripts/jarvis-env" "$root_stage/scripts/jarvis-env"
-sudo install -m 644 "$PROJECT_DIR/pyproject.toml" "$PROJECT_DIR/README.md" \
-    "$PROJECT_DIR/LICENSE" "$root_stage/"
-
-root_llama_name="llama-server"
-if [[ "$LLAMA_STYLE" == "subcommand" ]]; then
-    root_llama_name="llama"
-fi
-sudo install -m 755 "$LLAMA_BIN" "$root_stage/bin/$root_llama_name"
-
-root_metadata="$(mktemp "$PROJECT_DIR/.root-install.XXXXXX")"
-{
-    printf 'LLAMA_BIN=%q\n' "$ROOT_INSTALL_DIR/bin/$root_llama_name"
-    printf 'LLAMA_STYLE=%q\n' "$LLAMA_STYLE"
-    printf 'SERVER_HOST=127.0.0.1\n'
-    printf 'SERVER_PORT=8080\n'
-    printf 'INSTALL_USER_HOME=%q\n' "$HOME"
-    printf 'ROOT_HOME=%q\n' "$ROOT_HOME"
-    printf 'ROOT_INSTALL_DIR=%q\n' "$ROOT_INSTALL_DIR"
-} >"$root_metadata"
-sudo install -m 600 "$root_metadata" "$root_stage/.install"
-rm -f -- "$root_metadata"
-
-sudo chown -R root:root "$root_stage"
-sudo rm -rf -- "$root_previous"
-if sudo test -e "$ROOT_INSTALL_DIR"; then
-    sudo mv "$ROOT_INSTALL_DIR" "$root_previous"
-fi
-sudo mv "$root_stage" "$ROOT_INSTALL_DIR"
-if ! sudo python3 -m venv "$ROOT_INSTALL_DIR/.venv" \
-    || ! sudo "$ROOT_INSTALL_DIR/.venv/bin/python" -m pip install -e "$ROOT_INSTALL_DIR"; then
-    sudo rm -rf -- "$ROOT_INSTALL_DIR"
-    if sudo test -e "$root_previous"; then
-        sudo mv "$root_previous" "$ROOT_INSTALL_DIR"
-    fi
-    fail "Não foi possível preparar o ambiente Python administrativo."
-fi
-sudo chown -R root:root "$ROOT_INSTALL_DIR"
-sudo rm -rf -- "$root_previous"
-
-install_privileged_link "$ROOT_INSTALL_DIR/scripts/jarvis" "$GLOBAL_BIN/jarvis" \
-    "$PROJECT_DIR/scripts/jarvis"
-install_privileged_link "$ROOT_INSTALL_DIR/Config.sh" "$GLOBAL_BIN/jarvis-config" \
-    "$PROJECT_DIR/Config.sh"
-
-root_config="$ROOT_HOME/.config/jarvis/config.xml"
-sudo env HOME="$ROOT_HOME" "$ROOT_INSTALL_DIR/.venv/bin/python" -m jarvis.installer \
-    --preserve-existing "$user_config" "$root_config" "$ROOT_HOME" "$ROOT_INSTALL_DIR"
-sudo chmod 600 "$root_config"
-sudo chown root:root "$root_config"
-
-info "Jarvis instalado para o usuário atual e para root. Use: sudo jarvis"
+command_name="$(run_as_install_user "$APP_DIR/.venv/bin/python" -c \
+    'from jarvis.config import load_config; from jarvis.configurator import normalize_command_name; print(normalize_command_name(load_config().settings.command_name))')"
+install_local_link "$APP_DIR/scripts/jarvis" "$LOCAL_BIN/$command_name" /scripts/jarvis
+run_as_install_user "$APP_DIR/.venv/bin/python" -m jarvis.runtime
+rm -rf -- "$app_previous"
+trap cleanup EXIT
+info "Jarvis instalado somente para o usuário atual em $APP_DIR"

@@ -1,21 +1,31 @@
 #!/usr/bin/env bash
 
-# Normaliza o ambiente antes que qualquer arquivo de configuração seja lido.
-# O sudo pode preservar HOME/XDG em algumas instalações; o Jarvis root nunca
-# deve reutilizar por acidente os dados privados do usuário chamador.
+# Valida a identidade da instalação antes de carregar qualquer metadata.
 jarvis_prepare_environment() {
-    if ((EUID != 0)); then
-        return
+    local project_dir="${1:?diretório da instalação ausente}"
+    local install_file="$project_dir/.install"
+    [[ -f "$install_file" ]] || return 0
+
+    local uid_line expected_uid expected_home
+    uid_line="$(grep -E '^INSTALL_UID=[0-9]+$' "$install_file" 2>/dev/null || true)"
+    [[ -n "$uid_line" ]] || {
+        echo "Metadata de instalação inválida ou antiga. Execute novamente o Setup.sh." >&2
+        return 1
+    }
+    expected_uid="${uid_line#INSTALL_UID=}"
+    if [[ "$(id -u)" != "$expected_uid" ]]; then
+        echo "Esta instalação pertence a outro usuário e não pode ser executada com sudo." >&2
+        echo "Entre no usuário desejado e execute o Setup.sh separadamente." >&2
+        return 1
     fi
 
-    local passwd_entry root_home
-    passwd_entry="$(getent passwd 0 2>/dev/null || true)"
-    IFS=: read -r _ _ _ _ _ root_home _ <<<"$passwd_entry"
-    if [[ -z "$root_home" || "$root_home" != /* ]]; then
-        root_home=/root
+    # A partir daqui o arquivo pertence à mesma identidade validada.
+    source "$install_file"
+    expected_home="${INSTALL_HOME:-}"
+    if [[ -z "$expected_home" || "$(readlink -m "${HOME:-/}")" != "$(readlink -m "$expected_home")" ]]; then
+        echo "HOME não corresponde ao proprietário desta instalação: $expected_home" >&2
+        return 1
     fi
-
-    export HOME="$root_home"
-    unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME
-    unset JARVIS_CONFIG_PATH JARVIS_SETTINGS_PATH
+    export XDG_DATA_HOME="${INSTALL_DATA_HOME:-$expected_home/.local/share}"
+    export XDG_CONFIG_HOME="${INSTALL_CONFIG_HOME:-$expected_home/.config}"
 }

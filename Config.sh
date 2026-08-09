@@ -4,13 +4,13 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$PROJECT_DIR/scripts/jarvis-env"
-jarvis_prepare_environment
+jarvis_prepare_environment "$PROJECT_DIR" || exit 1
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 UNIT_NAME="jarvis-llm.service"
 RUNTIME_FILE="$HOME/.local/state/jarvis/runtime.env"
 
 if [[ ! -x "$PYTHON_BIN" || ! -f "$PROJECT_DIR/.install" ]]; then
-    echo "Jarvis ainda não foi instalado. Execute: bash $PROJECT_DIR/Setup.sh"
+    echo "Jarvis ainda não foi instalado. Execute novamente o Setup.sh do repositório clonado."
     exit 1
 fi
 

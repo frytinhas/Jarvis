@@ -213,9 +213,10 @@ def test_large_file_can_be_read_in_bounded_chunks(registry: ToolRegistry, tmp_pa
     assert second.result["content"] == "efgh"
 
 
-def test_execute_file_requires_exact_confirmation_by_default(
+def test_execute_file_requires_exact_confirmation_when_configured(
     registry: ToolRegistry, tmp_path: Path
 ) -> None:
+    registry.policy.set_decision(Risk.EXECUTE, Decision.CONFIRM)
     script = tmp_path / "hello.sh"
     script.write_text("#!/bin/sh\nprintf 'hello %s' \"$1\"\n", encoding="utf-8")
 

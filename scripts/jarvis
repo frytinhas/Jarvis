@@ -6,7 +6,7 @@ SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 export JARVIS_LAUNCHER="$SCRIPT_PATH"
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 source "$PROJECT_DIR/scripts/jarvis-env"
-jarvis_prepare_environment
+jarvis_prepare_environment "$PROJECT_DIR" || exit 1
 INSTALL_FILE="$PROJECT_DIR/.install"
 JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
@@ -31,7 +31,7 @@ fi
 
 if [[ ! -f "$INSTALL_FILE" || ! -x "$JARVIS_BIN" || ! -x "$PYTHON_BIN" ]]; then
     echo "A instalação do Jarvis não está completa."
-    echo "Execute: bash $PROJECT_DIR/Setup.sh"
+    echo "Execute novamente o Setup.sh a partir do repositório clonado."
     exit 1
 fi
 

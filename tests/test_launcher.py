@@ -27,6 +27,7 @@ def _launcher_fixture(tmp_path: Path, keep_running: bool) -> tuple[Path, dict[st
     )
 
     (project / ".install").write_text(
+        f"INSTALL_UID={os.getuid()}\nINSTALL_HOME={tmp_path}\n"
         "LLAMA_BIN=/bin/true\nLLAMA_STYLE=server\nSERVER_HOST=127.0.0.1\nSERVER_PORT=8080\n",
         encoding="utf-8",
     )
@@ -122,6 +123,23 @@ def test_launcher_routes_uninstall_modes_before_startup(tmp_path: Path, mode: st
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "uninstall-mode").read_text(encoding="utf-8") == mode
+    assert not (tmp_path / "client-cwd").exists()
+
+
+def test_launcher_rejects_installation_owned_by_another_uid(tmp_path: Path) -> None:
+    launcher, environment = _launcher_fixture(tmp_path, keep_running=True)
+    install_file = tmp_path / "install/.install"
+    install_file.write_text(
+        f"INSTALL_UID={os.getuid() + 1}\nINSTALL_HOME={tmp_path}\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [str(launcher)], env=environment, text=True, capture_output=True, check=False
+    )
+
+    assert result.returncode == 1
+    assert "pertence a outro usuário" in result.stderr
     assert not (tmp_path / "client-cwd").exists()
 
 

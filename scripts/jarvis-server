@@ -5,7 +5,7 @@ set -u
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 source "$PROJECT_DIR/scripts/jarvis-env"
-jarvis_prepare_environment
+jarvis_prepare_environment "$PROJECT_DIR" || exit 1
 INSTALL_FILE="$PROJECT_DIR/.install"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 STATE_DIR="$HOME/.local/state/jarvis"

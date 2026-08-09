@@ -39,6 +39,7 @@ def test_server_logging_flags_follow_display_level(
     )
     llama.chmod(0o755)
     (project / ".install").write_text(
+        f"INSTALL_UID={os.getuid()}\nINSTALL_HOME={tmp_path}\n"
         f"LLAMA_BIN={llama}\nLLAMA_STYLE=server\nSERVER_HOST=127.0.0.1\nSERVER_PORT=8080\n",
         encoding="utf-8",
     )

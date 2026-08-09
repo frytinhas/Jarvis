@@ -66,7 +66,8 @@ class Orchestrator:
         self.messages.append({"role": "user", "content": user_text})
         self._active_seconds = 0.0
         self._tool_rounds = 0
-        self._route = route_user_request(user_text)
+        previous_route = self._route
+        self._route = route_user_request(user_text, previous_route)
         self._route_requirement_satisfied = not self._route.require_tool
         self._route_retry_used = False
         unavailable = self._route_unavailable_reply()
@@ -131,6 +132,9 @@ class Orchestrator:
             request_timeout = min(remaining, self.llm_request_timeout_seconds)
             restricted = not self._route_requirement_satisfied and self._route.tool_names is not None
             schemas = self.registry.schemas(set(self._route.tool_names)) if self._route.require_tool and self._route.tool_names is not None else []
+            offered_tool_names = {
+                schema["function"]["name"] for schema in schemas
+            }
             request_messages = self.messages
             if restricted and self._route_retry_used:
                 request_messages = [
@@ -204,6 +208,14 @@ class Orchestrator:
                     )
                 continue
             call = assistant.tool_calls[0]
+            if call.function.name not in offered_tool_names:
+                result = self.registry.reject(
+                    call.function.name,
+                    call.function.arguments,
+                    "Tool rejeitada: ela não foi autorizada pelo roteamento do pedido original.",
+                )
+                self._append_tool_result(call.id, result)
+                continue
             self._route_requirement_satisfied = True
             if (
                 self.registry.risk_for(call.function.name) is Risk.EXECUTE

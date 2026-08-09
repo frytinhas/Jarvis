@@ -242,10 +242,6 @@ def _resolved_link_target(path: Path, link_target: str) -> Path:
 
 
 def _inspect_command(command: str) -> CommandReplacement | None:
-    # The administrative installation is exposed through /usr/local/bin.  It must
-    # not own, replace, or reject a root-local launcher left by an older release.
-    if os.geteuid() == 0:
-        return None
     target = Path.home() / ".local/bin" / command
     if not target.exists() and not target.is_symlink():
         return
@@ -593,8 +589,6 @@ def _apply_command(
     current: str,
     approved_replacement: CommandReplacement | None = None,
 ) -> None:
-    if os.geteuid() == 0:
-        return
     local_bin = Path.home() / ".local/bin"
     local_bin.mkdir(parents=True, exist_ok=True)
     launcher = _launcher_path()

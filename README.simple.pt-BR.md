@@ -1,19 +1,12 @@
-<p align="center">
-  <img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="150">
-</p>
+<p align="center"><img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="120"></p>
 
 # Jarvis-CLI — guia simples
 
-O Jarvis é um assistente de IA local para Linux que funciona pelo terminal.
+Jarvis é um assistente Linux que executa um modelo GGUF local e acessa o computador somente por tools controladas.
 
-Este é apenas um guia rápido para iniciantes. Para conhecer todas as configurações, permissões e recursos, consulte os READMEs completos em [português](README.pt-BR.md) e [inglês](README.md).
+## Instalar
 
-## Instalação
-
-O instalador automático possui suporte oficial para Debian, Ubuntu e distribuições derivadas.
-
-1. Abra o terminal. No Ubuntu, normalmente basta pressionar `Ctrl + Alt + T`.
-2. Copie e execute estes comandos, um de cada vez:
+Você precisa de Linux, Python 3.12+, `curl` e um modelo GGUF instruct/chat.
 
 ```bash
 git clone https://github.com/frytinhas/Jarvis-CLI.git
@@ -21,54 +14,39 @@ cd Jarvis-CLI
 bash Setup.sh
 ```
 
-3. Siga as perguntas exibidas na tela. Use as setas para escolher uma opção e pressione Enter para confirmar.
+O Setup não usa `sudo`. Ele instala somente para o usuário atual em `~/.local/share/jarvis/app` e cria comandos em `~/.local/bin`. Dependências locais são tentadas automaticamente; quando faltar um pacote do sistema, o Setup explica o que instalar.
 
-Execute o Setup como usuário normal. Não use `sudo bash Setup.sh`.
+Se o Setup já estiver rodando como root, ele mostra um aviso e instala somente em `/root`. Não execute uma instalação de usuário comum com `sudo`.
 
-## Como usar
-
-Depois da instalação, abra o terminal e execute:
-
-```bash
-jarvis
-```
-
-Digite sua pergunta e pressione Enter. Você também pode enviar uma pergunta diretamente:
-
-```bash
-jarvis "quais são as especificações do meu computador?"
-```
-
-Comandos básicos dentro do Jarvis:
-
-- `/help` mostra os comandos disponíveis.
-- `/permissions` mostra as permissões atuais; por exemplo, `/permissions exec confirmation` altera e salva uma delas.
-- `/context` mostra o contexto do modelo; use `/context reset` para a recomendação automática.
-- `/clear` limpa a tela.
-- `/exit` ou `/sair` encerra a conversa; `/quit` também desliga o servidor gerenciado após concluir a memória em segundo plano.
-
-Para mudar as configurações depois:
+Ao final, escolha seu arquivo `.gguf` no configurador. Para configurar novamente:
 
 ```bash
 jarvis-config
 ```
 
-Os arquivos privados editáveis podem ser abertos com `jarvis --blacklist`, `--whitelist`, `--context`, `--persona`, `--waiting-messages` ou `--goodbye-messages`.
+## Usar
 
-Se você escolheu outro nome durante a instalação, use esse nome no lugar de `jarvis`.
+```bash
+jarvis
+jarvis "liste os arquivos desta pasta"
+```
 
-O Jarvis pode pedir confirmação antes de alterar, apagar ou executar algo. Leia a ação mostrada antes de confirmar. Restrições por path podem ser mais rígidas que os valores globais mostrados por `/permissions`.
+Comandos úteis:
 
-## Licença
+- `/help`: ajuda.
+- `/model`: troca o modelo.
+- `/reasoning off|low|medium|high|max`: altera o reasoning.
+- `/permissions`: mostra as permissões.
+- `/exit`: fecha o chat.
+- `/quit`: fecha o chat e desliga o servidor depois de salvar a memória.
 
-Copyright (C) 2026 Jose Nunes.
+O Jarvis não executa texto como `ls` ou comandos inventados pelo modelo. Leituras usam tools reais; alterações e remoções seguem a política e podem pedir confirmação.
 
-O Jarvis-CLI é software livre licenciado sob a [GNU General Public License versão 3](LICENSE), somente na versão 3 (`GPL-3.0-only`). Você pode usá-lo, estudá-lo, modificá-lo e redistribuí-lo conforme essa licença. Todo salvamento no configurador — e mudanças persistidas por `/reasoning`, `/model`, `/context` ou `/permissions` — agenda o aviso resumido para aparecer uma vez na próxima sessão. Digite `/license` para ler a cópia integral a qualquer momento; `/licenca` e `/licença` permanecem disponíveis como aliases.
+## Remover
 
-Toda distribuição deve preservar os avisos de copyright e licença, incluir a GPL e disponibilizar o código-fonte correspondente conforme exigido pela licença. Distribuições modificadas devem identificar de forma destacada as alterações e suas datas. Modelos, `llama.cpp`, dependências Python e outros componentes de terceiros obtidos separadamente continuam sujeitos às suas próprias licenças.
+```bash
+jarvis --remove  # mantém configuração e histórico
+jarvis --purge   # remove também os dados locais
+```
 
-## Aviso e isenção de responsabilidade
-
-Este é um projeto experimental produzido por vibe coding e fornecido sem garantias. Use inteiramente por sua conta e risco. Nem o autor do projeto nem a IA que auxiliou em sua produção assumem responsabilidade por perda de dados, danos ao sistema ou qualquer outra consequência causada pelo uso.
-
-O Jarvis apenas intermedeia você, o modelo de linguagem configurado e as tools locais controladas. Com o endpoint local padrão, prompts, logs de conversa, resultados das tools e dados de auditoria permanecem no seu computador, e o projeto não possui telemetria nem mecanismo intencional de compartilhamento de prompts. A instalação ainda baixa dependências, e a configuração de um endpoint remoto pode enviar informações a esse serviço conforme os termos dele. Nenhum comportamento malicioso foi incluído intencionalmente, mas isso não garante que o software esteja livre de falhas ou vulnerabilidades.
+A remoção afeta somente o usuário atual e não pede sudo. Consulte o [README completo](README.pt-BR.md) para segurança, memória, configuração avançada e licença.

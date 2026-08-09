@@ -45,11 +45,14 @@ def startup_tool_warning(model: Path | None) -> str | None:
         return None
     key = str(model.expanduser().resolve(strict=False))
     value = _load()
+    previous = value.get("active_model")
+    value["active_model"] = key
     failed = value.get("failed_models")
-    if not isinstance(failed, list) or key not in failed:
+    should_warn = isinstance(failed, list) and key in failed and previous != key
+    try:
+        _save(value)
+    except OSError:
         return None
-    if value.get("last_warned_model") == key:
+    if not should_warn:
         return None
-    value["last_warned_model"] = key
-    _save(value)
     return "Este modelo já apresentou falha de tool calling. As tools começam ativadas nesta sessão."

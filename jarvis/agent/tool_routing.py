@@ -21,7 +21,7 @@ class ToolRoute:
     label: str = ""
 
 
-def route_user_request(text: str) -> ToolRoute:
+def route_user_request(text: str, previous: ToolRoute | None = None) -> ToolRoute:
     normalized = _normalize(text)
     if _requests_broad_root_search(normalized):
         return ToolRoute(frozenset(), True, label="broad_filesystem_search")
@@ -53,12 +53,24 @@ def route_user_request(text: str) -> ToolRoute:
         return ToolRoute(WRITE_TOOLS, _has_concrete_target(normalized), label="filesystem_change")
 
     read = bool(re.search(
-        r"\b(leia|ler|liste|listar|procure|procurar|busque|buscar|encontre|encontrar|"
-        r"inspecione|verifique|read|list|search|find|inspect)\b",
+        r"\b(leia|le|ler|lista|liste|listar|procura|procure|procurar|busca|busque|buscar|"
+        r"encontra|encontre|encontrar|inspeciona|inspecione|inspecionar|verifica|verifique|"
+        r"verificar|analisa|analise|analisar|resume|resuma|resumir|examina|examine|examinar|"
+        r"read|list|search|find|inspect|analyze|summarize|examine)\b",
         normalized,
     ))
     if read:
-        return ToolRoute(READ_TOOLS, _has_concrete_target(normalized), label="filesystem_read")
+        contextual_follow_up = (
+            previous is not None
+            and previous.label == "filesystem_read"
+            and not _is_educational_read(normalized)
+        )
+        require_tool = (
+            _has_concrete_target(normalized)
+            or _requests_local_read_action(normalized)
+            or contextual_follow_up
+        )
+        return ToolRoute(READ_TOOLS, require_tool, label="filesystem_read")
     return ToolRoute()
 
 
@@ -104,6 +116,31 @@ def _requests_broad_root_search(text: str) -> bool:
     searching = bool(re.search(r"\b(liste|listar|procure|procurar|busque|buscar|encontre|find|search|list)\b", text))
     broad_path = bool(re.search(r"(?:^|\s)(?:/|/home)(?:\s|$)", text))
     return searching and broad_path
+
+
+def _requests_local_read_action(text: str) -> bool:
+    if _is_educational_read(text):
+        return False
+    action = bool(re.search(
+        r"(?:^|[.!?,;:]\s*|\b(?:pode|por favor|favor|quero|preciso|please|can you)\s+)"
+        r"(?:leia|le|lista|liste|procura|procure|busca|busque|encontra|encontre|"
+        r"inspeciona|inspecione|verifica|verifique|analisa|analise|resume|resuma|examina|examine|"
+        r"read|list|search|find|inspect|analyze|summarize|examine)\b",
+        text,
+    ))
+    local_subject = bool(re.search(
+        r"\b(arquivos?|files?|pastas?|folders?|diretorios?|directories|documentos|documents|"
+        r"downloads|projetos?|projects?|scripts?|logs?|conteudo da pasta|folder contents)\b",
+        text,
+    ))
+    return action and local_subject
+
+
+def _is_educational_read(text: str) -> bool:
+    return bool(re.search(
+        r"\b(como|how to|qual comando|what command|exemplo|example)\b",
+        text,
+    ))
 
 
 def _normalize(text: str) -> str:

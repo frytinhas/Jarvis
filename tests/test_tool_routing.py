@@ -29,3 +29,26 @@ def test_portuguese_xdg_directory_request_requires_a_real_tool() -> None:
 
     assert route.require_tool
     assert "list_directory" in (route.tool_names or set())
+
+
+def test_contextual_read_instruction_requires_a_real_tool() -> None:
+    route = route_user_request("perfeito, lista os arquivos pra mim então, para um teste")
+
+    assert route.require_tool
+    assert route.label == "filesystem_read"
+    assert "list_directory" in (route.tool_names or set())
+
+
+def test_educational_read_question_does_not_force_local_access() -> None:
+    route = route_user_request("como listar arquivos em Python?")
+
+    assert route.require_tool is False
+
+
+def test_read_follow_up_reuses_previous_local_route() -> None:
+    previous = route_user_request("procure a pasta chamada brain em Documentos")
+    route = route_user_request("tudo bem, pode verificar", previous)
+
+    assert previous.require_tool
+    assert route.require_tool
+    assert route.label == "filesystem_read"

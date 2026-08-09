@@ -11,6 +11,12 @@ from jarvis.settings import ColorMode
 from jarvis.resources import ensure_private_resources
 
 
+def _remove_model_profiles_section(content: str) -> str:
+    start = content.index("  <model_profiles>")
+    end = content.index("  </model_profiles>") + len("  </model_profiles>\n")
+    return content[:start] + content[end:]
+
+
 def test_xml_config_round_trip_with_comments_and_private_mode(tmp_path: Path) -> None:
     path = tmp_path / "config.xml"
     original = default_config()
@@ -157,6 +163,7 @@ def test_v5_xml_is_loaded_with_safe_defaults_and_upgraded_on_save(tmp_path: Path
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="5">')
+    content = _remove_model_profiles_section(content)
     content = content.replace(
         f"    <goodbye_messages>{default_config().settings.goodbye_messages_path}</goodbye_messages>\n", ""
     )
@@ -200,6 +207,7 @@ def test_v6_xml_migrates_to_automatic_colors(tmp_path: Path) -> None:
     content = path.read_text(encoding="utf-8").replace(
         f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="6">'
     )
+    content = _remove_model_profiles_section(content)
     content = content.replace(
         f"    <goodbye_messages>{default_config().settings.goodbye_messages_path}</goodbye_messages>\n", ""
     )
@@ -231,6 +239,7 @@ def test_v8_xml_migrates_context_with_fallback_and_preserves_private_paths(tmp_p
     save_config(original.model_copy(update={"settings": settings}), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="8">')
+    content = _remove_model_profiles_section(content)
     content = content.replace(
         f"    <goodbye_messages>{original.settings.goodbye_messages_path}</goodbye_messages>\n", ""
     )
@@ -251,6 +260,7 @@ def test_v9_xml_migrates_goodbye_messages_path(tmp_path: Path) -> None:
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="9">')
+    content = _remove_model_profiles_section(content)
     content = content.replace("    <goodbye_messages>" + str(default_config().settings.goodbye_messages_path) + "</goodbye_messages>\n", "")
     content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
     path.write_text(content, encoding="utf-8")
@@ -265,6 +275,7 @@ def test_v10_xml_migrates_profile_notes_limit(tmp_path: Path) -> None:
     save_config(default_config(), path)
     content = path.read_text(encoding="utf-8")
     content = content.replace(f'<jarvis version="{CONFIG_VERSION}">', '<jarvis version="10">')
+    content = _remove_model_profiles_section(content)
     content = content.replace("    <notes_max_size_mb>1</notes_max_size_mb>\n", "")
     path.write_text(content, encoding="utf-8")
 

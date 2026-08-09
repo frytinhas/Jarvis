@@ -10,31 +10,30 @@ import pytest
 
 def _installation(tmp_path: Path) -> tuple[Path, dict[str, str], dict[str, Path]]:
     source_root = Path(__file__).resolve().parent.parent
-    project = tmp_path / "project"
     home = tmp_path / "home"
+    project = home / ".local/share/jarvis/app"
     mock_bin = tmp_path / "mock-bin"
     (project / "scripts").mkdir(parents=True)
     (project / ".venv").mkdir()
-    home.mkdir()
     mock_bin.mkdir()
     script = project / "Uninstall.sh"
     shutil.copy2(source_root / "Uninstall.sh", script)
+    shutil.copy2(source_root / "scripts/jarvis-env", project / "scripts/jarvis-env")
     (project / "scripts/jarvis").write_text("launcher\n", encoding="utf-8")
     (project / "Config.sh").write_text("config\n", encoding="utf-8")
-    for name in (".install", ".runtime", ".env"):
-        (project / name).write_text("local\n", encoding="utf-8")
-    (project / "jarvis_local.egg-info").mkdir()
+    (project / ".install").write_text(
+        f"INSTALL_UID={os.getuid()}\nINSTALL_HOME={home}\n", encoding="utf-8"
+    )
     local_bin = home / ".local/bin"
     local_bin.mkdir(parents=True)
     (local_bin / "jarvis").symlink_to(project / "scripts/jarvis")
     (local_bin / "jarvis-config").symlink_to(project / "Config.sh")
     config = home / ".config/jarvis"
     state = home / ".local/state/jarvis"
-    data = home / ".local/share/jarvis"
+    data = project.parent
     config.mkdir(parents=True)
     (state / "logs").mkdir(parents=True)
     (state / "sessions").mkdir()
-    data.mkdir(parents=True)
     (config / "config.xml").write_text("config\n", encoding="utf-8")
     (state / "logs/conversations.db").write_text("logs\n", encoding="utf-8")
     (state / "audit.db").write_text("audit\n", encoding="utf-8")
@@ -95,8 +94,7 @@ def test_remove_keeps_configuration_logs_and_audit(tmp_path: Path) -> None:
     assert not (paths["state"] / "runtime.env").exists()
     assert not paths["data"].exists()
     assert not (paths["project"] / ".venv").exists()
-    assert not (paths["project"] / ".install").exists()
-    assert not (paths["project"] / ".runtime").exists()
+    assert not paths["project"].exists()
     assert not (paths["local_bin"] / "jarvis").exists()
     assert not (paths["local_bin"] / "jarvis-config").exists()
     assert not paths["unit"].exists()
@@ -115,7 +113,6 @@ def test_purge_removes_configuration_and_logs(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert not paths["config"].exists()
     assert not paths["state"].exists()
-    assert not (paths["project"] / ".env").exists()
 
 
 def test_running_uninstall_script_without_mode_defaults_to_purge(tmp_path: Path) -> None:

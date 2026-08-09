@@ -17,7 +17,9 @@ def test_advanced_flag_opens_config_xml_in_nano(tmp_path: Path) -> None:
     mock_bin.mkdir()
     shutil.copy2(source_root / "Config.sh", project / "Config.sh")
     shutil.copy2(source_root / "scripts/jarvis-env", scripts / "jarvis-env")
-    (project / ".install").write_text("installed\n", encoding="utf-8")
+    (project / ".install").write_text(
+        f"INSTALL_UID={os.getuid()}\nINSTALL_HOME={tmp_path}\n", encoding="utf-8"
+    )
     python = binary / "python"
     python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     python.chmod(0o755)
@@ -56,7 +58,9 @@ def test_setup_flag_is_forwarded_to_configurator(tmp_path: Path) -> None:
     scripts.mkdir()
     shutil.copy2(source_root / "Config.sh", project / "Config.sh")
     shutil.copy2(source_root / "scripts/jarvis-env", scripts / "jarvis-env")
-    (project / ".install").write_text("installed\n", encoding="utf-8")
+    (project / ".install").write_text(
+        f"INSTALL_UID={os.getuid()}\nINSTALL_HOME={tmp_path}\n", encoding="utf-8"
+    )
     python = binary / "python"
     python.write_text(
         '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$HOME/python-arguments"\n',
