@@ -3,6 +3,7 @@
 set -u
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+export JARVIS_LAUNCHER="$SCRIPT_PATH"
 PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 source "$PROJECT_DIR/scripts/jarvis-env"
 jarvis_prepare_environment
@@ -125,7 +126,7 @@ cleanup_session() {
     [[ "$session_registered" == true ]] || return
     rm -f "$SESSION_DIR/$$"
     session_registered=false
-    if [[ "$KEEP_LLM_RUNNING" != true ]] && ! has_active_sessions; then
+    if [[ "${defer_server_stop:-false}" != true && "$KEEP_LLM_RUNNING" != true ]] && ! has_active_sessions; then
         stop_managed_server || true
     fi
 }
@@ -208,6 +209,10 @@ run_client_sessions() {
     while true; do
         run_client "${client_arguments[@]}"
         status=$?
+        if ((status == 76)); then
+            defer_server_stop=true
+            return 0
+        fi
         if ((status != 75)); then
             return "$status"
         fi

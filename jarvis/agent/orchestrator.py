@@ -9,7 +9,7 @@ from typing import Any
 
 from jarvis.agent.prompts import SYSTEM_PROMPT
 from jarvis.agent.tool_routing import ToolRoute, route_user_request
-from jarvis.llm.client import LLM, LLMTimeoutError
+from jarvis.llm.client import LLM, LLMTimeoutError, LLMToolGrammarError
 from jarvis.llm.schemas import AssistantMessage, Message
 from jarvis.security.confirmation import ConfirmationError, PendingAction
 from jarvis.security.policy import Decision, Risk
@@ -20,6 +20,7 @@ from jarvis.tools.registry import ToolRegistry, ToolResult
 class AgentReply:
     text: str
     pending: PendingAction | None = None
+    tool_grammar_failed: bool = False
 
 
 class Orchestrator:
@@ -33,6 +34,7 @@ class Orchestrator:
         system_prompt: str = SYSTEM_PROMPT,
         thinking_budget_tokens: int | None = None,
         clock: Callable[[], float] | None = None,
+        on_tool_grammar_failure: Callable[[], None] | None = None,
     ) -> None:
         if interaction_timeout_seconds <= 0 or llm_request_timeout_seconds <= 0:
             raise ValueError("timeouts devem ser positivos")
@@ -54,6 +56,8 @@ class Orchestrator:
         self._route = ToolRoute()
         self._route_requirement_satisfied = True
         self._route_retry_used = False
+        self._tools_disabled_for_session = False
+        self._on_tool_grammar_failure = on_tool_grammar_failure
 
     def handle(self, user_text: str) -> AgentReply:
         if self._pending_calls:
@@ -72,6 +76,9 @@ class Orchestrator:
             return self._run()
         except KeyboardInterrupt:
             return self._cancelled_reply()
+
+    def disable_tools_for_session(self) -> None:
+        self._tools_disabled_for_session = True
 
     def confirm(self, action_id: str) -> AgentReply:
         pending_call = self._pending_calls.pop(action_id, None)
@@ -123,9 +130,7 @@ class Orchestrator:
                 return self._total_timeout_reply()
             request_timeout = min(remaining, self.llm_request_timeout_seconds)
             restricted = not self._route_requirement_satisfied and self._route.tool_names is not None
-            schemas = self.registry.schemas(
-                set(self._route.tool_names) if restricted and self._route.tool_names is not None else None
-            )
+            schemas = self.registry.schemas(set(self._route.tool_names)) if self._route.require_tool and self._route.tool_names is not None else []
             request_messages = self.messages
             if restricted and self._route_retry_used:
                 request_messages = [
@@ -165,6 +170,14 @@ class Orchestrator:
                 if remaining <= self.llm_request_timeout_seconds:
                     return self._total_timeout_reply()
                 return self._llm_timeout_reply()
+            except LLMToolGrammarError:
+                if self._on_tool_grammar_failure is not None:
+                    self._on_tool_grammar_failure()
+                return self._reply(
+                    "Não consegui consultar a tool obrigatória: o servidor falhou ao preparar "
+                    "a chamada estruturada. Nenhum dado local foi presumido.",
+                    tool_grammar_failed=True,
+                )
             self._active_seconds += max(0.0, self.clock() - started)
             if self._active_seconds >= self.interaction_timeout_seconds:
                 return self._total_timeout_reply()
@@ -252,6 +265,10 @@ class Orchestrator:
         )
 
     def _route_unavailable_reply(self) -> AgentReply | None:
+        if self._tools_disabled_for_session and self._route.require_tool:
+            return self._complete_reply(
+                "As tools foram desativadas para esta sessão. Nenhum dado local foi consultado."
+            )
         if not self._route.require_tool or self._route.tool_names is None:
             return None
         available = {

@@ -4,7 +4,7 @@ import json
 import httpx
 import pytest
 
-from jarvis.llm.client import LLMHTTPError, LlamaClient
+from jarvis.llm.client import LLMHTTPError, LLMToolGrammarError, LlamaClient
 
 
 def test_client_uses_configured_v1_chat_completions_route() -> None:
@@ -119,7 +119,7 @@ def test_client_retries_once_without_known_incompatible_thinking_field() -> None
     assert "thinking_budget_tokens" not in payloads[1]
 
 
-def test_client_retries_without_tools_after_llama_grammar_failure() -> None:
+def test_client_rejects_llama_grammar_failure_without_unstructured_fallback() -> None:
     payloads: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -134,14 +134,13 @@ def test_client_retries_without_tools_after_llama_grammar_failure() -> None:
         "function": {"name": "get_system_info", "description": "specs", "parameters": {}},
     }
     with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler)) as client:
-        assert client.chat([{"role": "user", "content": "boa noite"}], [tool]).content == "Boa noite!"
+        with pytest.raises(LLMToolGrammarError):
+            client.chat([{"role": "user", "content": "boa noite"}], [tool])
 
-    assert len(payloads) == 2
-    assert "tools" not in payloads[1]
-    assert "tool_choice" not in payloads[1]
+    assert len(payloads) == 1
 
 
-def test_client_reports_tool_grammar_fallback_to_the_ui() -> None:
+def test_client_does_not_emit_repeated_tool_grammar_notice() -> None:
     notices = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -151,10 +150,10 @@ def test_client_reports_tool_grammar_fallback_to_the_ui() -> None:
 
     tool = {"type": "function", "function": {"name": "get_system_info", "parameters": {}}}
     with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler), notice=notices.append) as client:
-        client.chat([{"role": "user", "content": "oi"}], [tool])
+        with pytest.raises(LLMToolGrammarError):
+            client.chat([{"role": "user", "content": "oi"}], [tool])
 
-    assert notices and not notices[0].critical
-    assert "tool calling" in notices[0].message
+    assert notices == []
 
 
 def test_client_reports_sanitized_http_error() -> None:

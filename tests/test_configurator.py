@@ -286,7 +286,7 @@ def test_change_summary_only_prints_modified_values(capsys) -> None:  # type: ig
     assert _changes_summary(previous, current, False, False, None)
 
     output = capsys.readouterr().out
-    assert "Reasoning padrão: Medium (nível 2) → High (nível 3)" in output
+    assert "Reasoning padrão: Off (nível 0) → High (nível 3)" in output
     assert "Timeout total: 600 segundos → 900 segundos" in output
     assert "Nome:" not in output
     assert "Permissão READ" not in output
@@ -306,7 +306,7 @@ def test_full_summary_includes_unchanged_configuration(capsys) -> None:  # type:
 
     output = capsys.readouterr().out
     assert "Nome: Jarvis" in output
-    assert "Reasoning padrão: Medium (nível 2)" in output
+    assert "Reasoning padrão: Off (nível 0)" in output
     assert "Permissões:" in output
 
 

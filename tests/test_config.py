@@ -123,7 +123,7 @@ def test_new_lifecycle_defaults() -> None:
     assert settings.max_tool_rounds == 128
     assert settings.interaction_timeout_seconds == 600
     assert settings.llm_request_timeout_seconds == 120
-    assert settings.default_reasoning_level == 2
+    assert settings.default_reasoning_level == 0
     assert settings.context_size == 4096
     assert settings.display_log_level.value == "Minimal-Essential"
     assert settings.color_mode is ColorMode.ALWAYS

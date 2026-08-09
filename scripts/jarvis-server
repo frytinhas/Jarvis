@@ -44,6 +44,10 @@ else
 fi
 
 server_log_args=(--log-disable)
+template_args=()
+if [[ "${TEMPLATE_THINKING:-false}" != true ]]; then
+    template_args=(--chat-template-kwargs '{"enable_thinking":false}')
+fi
 if [[ "${DISPLAY_LOG_LEVEL:-Essential}" == "Full" || "${DISPLAY_LOG_LEVEL:-Essential}" == "Server-Essential" ]]; then
     mkdir -p "$(dirname "$SERVER_LOG")"
     touch "$SERVER_LOG"
@@ -63,5 +67,6 @@ exec "${server_command[@]}" \
     --port "$SERVER_PORT" \
     --ctx-size "${CONTEXT_SIZE:-4096}" \
     --jinja \
+    "${template_args[@]}" \
     --n-gpu-layers auto \
     "${server_log_args[@]}"

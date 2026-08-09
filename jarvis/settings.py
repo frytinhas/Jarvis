@@ -41,7 +41,7 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 11
+    version: int = 12
     model_directory: Path | None = None
     model_path: Path | None = None
     context_size: int = Field(default=4096, gt=0, multiple_of=1024)
@@ -54,7 +54,7 @@ class UserSettings(BaseModel):
     max_tool_rounds: int = Field(default=128, gt=0)
     interaction_timeout_seconds: int = Field(default=600, gt=0)
     llm_request_timeout_seconds: int = Field(default=120, gt=0)
-    default_reasoning_level: int = Field(default=2, ge=0, le=4)
+    default_reasoning_level: int = Field(default=0, ge=0, le=4)
     display_log_level: DisplayLogLevel = DisplayLogLevel.MINIMAL_ESSENTIAL
     color_mode: ColorMode = ColorMode.ALWAYS
     log_max_size_mb: int = 100

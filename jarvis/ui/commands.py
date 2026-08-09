@@ -31,10 +31,10 @@ PERMISSION_DECISIONS = {
     "deny": Decision.DENY,
 }
 CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
-EXIT_COMMANDS = {"/exit", "/quit", "/sair"}
+EXIT_COMMANDS = {"/exit", "/sair"}
 LICENSE_COMMANDS = {"/license", "/licenca", "/licença"}
 COMMANDS = (
-    "/help", "/reasoning", "/model", "/context", "/permissions", "/config", "/clear", "/license", "/exit"
+    "/help", "/reasoning", "/model", "/context", "/permissions", "/config", "/clear", "/license", "/exit", "/quit"
 )
 
 
@@ -42,6 +42,7 @@ class SessionExit(StrEnum):
     CONTINUE = "continue"
     EXIT = "exit"
     RESTART_MODEL = "restart_model"
+    FULL_STOP = "full_stop"
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,8 @@ class LocalCommands:
         argument = raw_argument.strip()
         if command in EXIT_COMMANDS:
             return CommandResult(True, action=SessionExit.EXIT)
+        if command == "/quit":
+            return CommandResult(True, action=SessionExit.FULL_STOP)
         if command in LICENSE_COMMANDS:
             return CommandResult(True, license_text())
         if command == "/help":
@@ -265,7 +268,8 @@ class LocalCommands:
 - `/config` — mostra a configuração atual.
 - `/clear` — limpa a tela sem apagar o contexto.
 - `/license` — mostra a licença completa.
-- `/exit` — encerra a sessão."""
+- `/exit` — encerra a sessão.
+- `/quit` — encerra a sessão e desliga o servidor após finalizar a memória."""
 
     def _config_summary(self) -> str:
         settings = self.config.settings

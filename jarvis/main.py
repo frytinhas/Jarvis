@@ -16,6 +16,7 @@ from jarvis.config import config_path, load_config, save_config
 from jarvis.legal import consume_license_notice
 from jarvis.llm.client import LLMNotice, LlamaClient
 from jarvis.memory import ConversationLogStore, ProfileNotesStore
+from jarvis.model_status import record_tool_grammar_failure, startup_tool_warning
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
@@ -43,9 +44,12 @@ class Invocation:
 def parse_invocation(
     arguments: list[str] | None = None,
     prog: str = "jarvis",
-    default_reasoning_level: int = 2,
+    default_reasoning_level: int = 0,
 ) -> Invocation:
-    parser = argparse.ArgumentParser(prog=prog, description="Assistente local")
+    parser = argparse.ArgumentParser(
+        prog=prog, description="Assistente local",
+        epilog="--full-stop encerra o servidor gerenciado sem abrir o chat.",
+    )
     parser.add_argument(
         "--r", "--reasoning", type=int, choices=range(-1, 5), default=-1,
         metavar="N", help="reasoning: -1 padrão, 0 off, 1 low, 2 medium, 3 high, 4 max",
@@ -255,6 +259,7 @@ def main(arguments: list[str] | None = None) -> None:
             llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
             system_prompt=system_prompt,
             thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
+            on_tool_grammar_failure=lambda: record_tool_grammar_failure(user_settings.model_path),
         )
         activity.total_seconds = lambda: orchestrator.active_seconds
         initial_message = invocation.message
@@ -266,6 +271,9 @@ def main(arguments: list[str] | None = None) -> None:
         )
         if notes_warning:
             warning = f"{warning}\n{notes_warning}" if warning else notes_warning
+        tool_warning = startup_tool_warning(user_settings.model_path)
+        if tool_warning:
+            warning = f"{warning}\n{tool_warning}" if warning else tool_warning
         outcome = TerminalUI(
             orchestrator,
             user_settings.assistant_name,
@@ -286,12 +294,29 @@ def main(arguments: list[str] | None = None) -> None:
             started_at=orchestrator.started_at,
             invocation_directory=invocation_directory,
         )
+        workers = []
         if log_path is not None and outcome is not SessionExit.RESTART_MODEL:
-            memory_store.schedule_summary(log_path)
+            worker = memory_store.schedule_summary(log_path)
+            if worker is not None:
+                workers.append(worker.pid)
         if log_path is not None and notes_store is not None:
-            memory_store.schedule_profile_notes(log_path, notes_store.path)
+            worker = memory_store.schedule_profile_notes(log_path, notes_store.path)
+            if worker is not None:
+                workers.append(worker.pid)
         if outcome is SessionExit.RESTART_MODEL:
             raise SystemExit(75)
+        if outcome is SessionExit.FULL_STOP:
+            launcher = os.environ.get("JARVIS_LAUNCHER")
+            if launcher:
+                try:
+                    subprocess.Popen(
+                        [sys.executable, "-m", "jarvis.memory.shutdown_worker", *(item for pid in workers for item in ("--pid", str(pid))), "--launcher", launcher, "--timeout", str(user_settings.llm_request_timeout_seconds * 2)],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        start_new_session=True, close_fds=True,
+                    )
+                    raise SystemExit(76)
+                except OSError:
+                    pass
 
 
 if __name__ == "__main__":

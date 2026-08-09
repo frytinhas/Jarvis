@@ -79,7 +79,7 @@ class TerminalUI:
                     return self._exit()
                 if not user_text:
                     continue
-                if user_text.lower() in {"/sair", "/exit", "/quit"}:
+                if user_text.lower() in {"/sair", "/exit"}:
                     return self._exit()
                 action = self._handle_local_command(user_text)
                 if action is not None:
@@ -88,11 +88,11 @@ class TerminalUI:
                     continue
                 self._handle(user_text)
 
-    def _exit(self) -> SessionExit:
+    def _exit(self, action: SessionExit = SessionExit.EXIT) -> SessionExit:
         message = random.choice(self.goodbye_messages) if self.goodbye_messages else "Até logo."
         label = self.theme.paint(f"{self.assistant_name}:", "assistant", strong=True)
         print(f"\n{label}\n{render_markdown(message, self.theme)}")
-        return SessionExit.EXIT
+        return action
 
     def _handle_local_command(self, user_text: str) -> SessionExit | None:
         if self.commands is None:
@@ -119,6 +119,9 @@ class TerminalUI:
                     print("Responda sim ou não.")
                     continue
                 return SessionExit.RESTART_MODEL if intent is True else SessionExit.CONTINUE
+        if result.action is SessionExit.FULL_STOP:
+            print(self.theme.paint("Finalizando memória em segundo plano e desligando o servidor.", "warning"))
+            return self._exit(SessionExit.FULL_STOP)
         return result.action
 
     @contextmanager
@@ -162,6 +165,11 @@ class TerminalUI:
     def _show(self, reply: AgentReply) -> None:
         label = self.theme.paint(f"{self.assistant_name}:", "assistant", strong=True)
         print(f"\n{label}\n{render_markdown(reply.text, self.theme)}")
+        if reply.tool_grammar_failed:
+            answer = input("Desativar tools nesta sessão para este modelo? [Y/n] ").strip()
+            if answer.lower() not in {"n", "no", "não", "nao"}:
+                self.orchestrator.disable_tools_for_session()
+            return
         if reply.pending is None:
             return
         while True:

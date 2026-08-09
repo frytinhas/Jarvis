@@ -52,6 +52,7 @@ def sync_runtime() -> None:
         previous.get("MODEL_PATH") != str(settings.model_path)
         or previous.get("MODEL_ALIAS") != config.advanced.llm_model
         or previous.get("CONTEXT_SIZE") != str(settings.context_size)
+        or previous.get("TEMPLATE_THINKING") != ("true" if config.advanced.model_template_thinking.get(str(settings.model_path.expanduser().resolve(strict=False)) if settings.model_path else "", False) else "false")
     )
     server_logging_changed = bool(previous) and (
         previous.get("DISPLAY_LOG_LEVEL") != settings.display_log_level.value

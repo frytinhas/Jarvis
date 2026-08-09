@@ -79,7 +79,9 @@ jarvis "quais são as especificações do meu computador?"
 jarvis --r 3 "analise este projeto"
 ```
 
-`--r` controla o reasoning inicial daquele chat: `-1` usa o padrão configurado, `0` desliga, `1` é Low, `2` Medium, `3` High e `4` Max. O padrão inicial é Medium. Durante a sessão, `/reasoning off|low|medium|high|max` aplica a mudança imediatamente e a persiste como novo padrão.
+`--r` controla o reasoning inicial daquele chat: `-1` usa o padrão configurado, `0` desliga, `1` é Low, `2` Medium, `3` High e `4` Max. O padrão inicial é Off. Durante a sessão, `/reasoning off|low|medium|high|max` aplica a mudança imediatamente e a persiste como novo padrão.
+
+Para cada GGUF, o configurador pode habilitar thinking no template; por padrão ele fica desligado para melhorar a compatibilidade com tool calling. Se o servidor não conseguir montar a grammar de tools, o Jarvis nunca inventa resultados locais e pode desativar tools apenas na sessão atual. `/quit` fecha o chat e desliga o servidor gerenciado após concluir a memória destacada; `/exit` só fecha o chat.
 
 Os comandos locais possuem autocomplete com Tab e nunca são enviados ao modelo:
 
@@ -91,7 +93,7 @@ Os comandos locais possuem autocomplete com Tab e nunca são enviados ao modelo:
 - `/config`: mostra um resumo somente leitura.
 - `/clear`: limpa a tela sem apagar o contexto.
 - `/license`: exibe a GPL completa.
-- `/exit`: encerra a sessão; `/quit` e `/sair` são aliases. Todos mostram uma despedida imediatamente.
+- `/exit` ou `/sair`: encerra a sessão. `/quit` encerra o chat e solicita o full-stop após concluir a memória em segundo plano.
 
 Se o nome escolhido for Bob:
 

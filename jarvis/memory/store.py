@@ -141,10 +141,10 @@ class ConversationLogStore:
             if isinstance(item, dict) and item.get("role") in {"user", "assistant"}
         ]
 
-    def schedule_summary(self, identifier: str) -> None:
+    def schedule_summary(self, identifier: str) -> subprocess.Popen[bytes] | None:
         """Request an optional summary without holding the interactive terminal open."""
         try:
-            subprocess.Popen(
+            return subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
@@ -162,12 +162,12 @@ class ConversationLogStore:
             )
         except OSError:
             # The transcript and fallback summary are already committed.
-            return
+            return None
 
-    def schedule_profile_notes(self, identifier: str, notes_path: Path) -> None:
+    def schedule_profile_notes(self, identifier: str, notes_path: Path) -> subprocess.Popen[bytes] | None:
         """Update profile notes after exit without delaying the terminal."""
         try:
-            subprocess.Popen(
+            return subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
@@ -186,7 +186,7 @@ class ConversationLogStore:
                 close_fds=True,
             )
         except OSError:
-            return
+            return None
 
     def recent_summaries(
         self,

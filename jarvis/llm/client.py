@@ -28,6 +28,10 @@ class LLMHTTPError(RuntimeError):
     """HTTP failure with a small, sanitized server diagnostic."""
 
 
+class LLMToolGrammarError(LLMHTTPError):
+    """The server could not construct the constrained tool-call grammar."""
+
+
 @dataclass(frozen=True)
 class LLMNotice:
     message: str
@@ -83,18 +87,9 @@ class LlamaClient:
                 request_payload = retry_payload
                 response = self._post(request_payload, timeout)
         if response.is_error and _grammar_failure(response) and "tools" in request_payload:
-            # Some llama-server/template combinations cannot compile the grammar that
-            # enforces OpenAI tool calls. A plain response is safe for ordinary chat:
-            # no tool request reaches the model, registry, or operating system.
-            self._notice(
-                "Este modelo ou chat template não suporta tool calling estruturado. "
-                "Pedidos que exigem dados locais serão bloqueados nesta sessão."
-            )
-            retry_payload = dict(request_payload)
-            retry_payload.pop("tools", None)
-            retry_payload.pop("tool_choice", None)
-            request_payload = retry_payload
-            response = self._post(request_payload, timeout)
+            # Never turn a failed local-data request into an unconstrained chat
+            # response: that permits a model to pretend it used a tool.
+            raise LLMToolGrammarError(_http_error_message(response))
         if response.is_error:
             message = _http_error_message(response)
             self._notice(message, critical=True)

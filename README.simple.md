@@ -45,7 +45,7 @@ Basic commands inside Jarvis:
 - `/permissions` shows current permissions; for example, `/permissions exec confirmation` changes and saves one.
 - `/context` shows the model context; use `/context reset` for the automatic recommendation.
 - `/clear` clears the screen.
-- `/exit` closes the conversation.
+- `/exit` closes the conversation; `/quit` also stops the managed server after background memory work finishes.
 
 To change the settings later, run:
 

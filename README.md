@@ -81,7 +81,9 @@ jarvis "what are my computer specifications?"
 jarvis --r 3 "analyze this project"
 ```
 
-`--r` controls the initial reasoning level for that chat: `-1` uses the configured default, `0` disables it, `1` is Low, `2` Medium, `3` High, and `4` Max. The initial default is Medium. During a session, `/reasoning off|low|medium|high|max` applies immediately and persists the new default.
+`--r` controls the initial reasoning level for that chat: `-1` uses the configured default, `0` disables it, `1` is Low, `2` Medium, `3` High, and `4` Max. The initial default is Off. During a session, `/reasoning off|low|medium|high|max` applies immediately and persists the new default.
+
+For each GGUF, the configurator can enable template thinking; it is disabled by default to improve tool-call compatibility. If a server cannot build a tool-call grammar, Jarvis never fabricates local results and can disable tools for the current session only. `/quit` closes the chat and stops the managed server after detached memory work completes; `/exit` only closes the chat.
 
 Local commands support Tab completion and are never sent to the model:
 
@@ -93,7 +95,7 @@ Local commands support Tab completion and are never sent to the model:
 - `/config`: show a read-only configuration summary.
 - `/clear`: clear the screen without deleting conversation context.
 - `/license`: show the complete GPL text.
-- `/exit`: close the session; `/quit` and `/sair` are aliases. Each immediately displays a farewell.
+- `/exit` or `/sair`: close the session. `/quit` closes it and requests a full stop after background memory work finishes.
 
 If you choose a custom name such as Bob, use:
 

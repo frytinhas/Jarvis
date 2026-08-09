@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -13,7 +14,7 @@ from jarvis.settings import (
 )
 
 
-CONFIG_VERSION = 11
+CONFIG_VERSION = 12
 
 
 class ConfigFileError(ValueError):
@@ -32,6 +33,8 @@ class AdvancedConfig(BaseModel):
     audit_db_path: Path = Field(
         default_factory=lambda: Path("~/.local/state/jarvis/audit.db").expanduser()
     )
+    # Canonical GGUF path -> whether its chat template may emit thinking.
+    model_template_thinking: dict[str, bool] = Field(default_factory=dict)
 
 
 class JarvisConfig(BaseModel):
@@ -171,10 +174,12 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, 7, 8, 9, 10, CONFIG_VERSION}:
+    if version not in {5, 6, 7, 8, 9, 10, 11, CONFIG_VERSION}:
         raise ConfigFileError(path, f"versão {version} não suportada; esperada entre 5 e {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
+    if version >= 12:
+        sections.add("model_profiles")
     if version >= 7:
         sections.add("appearance")
     _validate_children(root, sections, path)
@@ -202,6 +207,8 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             )
         ),
     }
+    if version >= 12:
+        expected["model_profiles"] = {"template_thinking"}
     if version >= 7:
         expected["appearance"] = {"color_mode"}
     for name, children in expected.items():
@@ -313,6 +320,10 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                 _text(llm, "confirmation_timeout"), "confirmation_timeout", path
             ),
             audit_db_path=Path(_text(logs, "audit_db_path")).expanduser(),
+            model_template_thinking=(
+                _model_template_profiles(_text(_section(root, "model_profiles"), "template_thinking"), path)
+                if version >= 12 else {}
+            ),
         )
         return JarvisConfig(version=CONFIG_VERSION, settings=settings, advanced=advanced)
     except ConfigFileError:
@@ -326,10 +337,21 @@ def _comment(parent: ET.Element, pt_br: str, en: str) -> None:
     parent.append(ET.Comment(f" EN: {en} "))
 
 
+def _model_template_profiles(value: str, path: Path) -> dict[str, bool]:
+    try:
+        decoded = json.loads(value or "{}")
+    except json.JSONDecodeError as error:
+        raise ConfigFileError(path, "<template_thinking> deve conter JSON válido") from error
+    if not isinstance(decoded, dict) or any(not isinstance(key, str) or not isinstance(flag, bool) for key, flag in decoded.items()):
+        raise ConfigFileError(path, "<template_thinking> deve mapear paths para true ou false")
+    return decoded
+
+
 def _new_tree() -> ET.ElementTree:
     root = ET.Element("jarvis", {"version": str(CONFIG_VERSION)})
     definitions = (
         ("model", "Modelo GGUF e contexto em tokens usados pelo servidor local.", "Local GGUF model and token context used by the local server.", ("directory", "path", "context_size")),
+        ("model_profiles", "Preferências por GGUF; thinking do template começa desligado.", "Per-GGUF preferences; template thinking starts disabled.", ("template_thinking",)),
         ("identity", "Nome exibido e comando público do assistente.", "Assistant display name and public command.", ("assistant_name", "command_name")),
         ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
@@ -365,6 +387,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(model, "directory", settings.model_directory)
     _set(model, "path", settings.model_path)
     _set(model, "context_size", settings.context_size)
+    _set(_section(root, "model_profiles"), "template_thinking", json.dumps(advanced.model_template_thinking, ensure_ascii=False, sort_keys=True))
     identity = _section(root, "identity")
     _set(identity, "assistant_name", settings.assistant_name)
     _set(identity, "command_name", settings.command_name)
