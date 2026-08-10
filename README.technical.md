@@ -1,5 +1,7 @@
 # Jarvis-CLI technical guide
 
+<p align="center"><img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="140"></p>
+
 Jarvis is a Linux CLI assistant built around a GGUF model served by `llama.cpp`. The LLM plans and writes responses; it does not receive direct operating-system access. All local actions cross validated tools, the permission policy, path policy when applicable, confirmation, revalidation, and SQLite audit logging.
 
 Main guide: [README.md](README.md). Português: [README.technical.pt-BR.md](README.technical.pt-BR.md).

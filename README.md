@@ -1,5 +1,7 @@
 # Jarvis-CLI
 
+<p align="center"><img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="140"></p>
+
 Jarvis is a local assistant for Linux. It runs an instruct/chat GGUF model through `llama.cpp`; the model can inspect or act on the computer only through controlled tools, permissions, confirmations, and an audit log.
 
 Português: [README.pt-BR.md](README.pt-BR.md). For installation internals, profiles, security rules, and the complete command reference, see the [technical guide](README.technical.md).
