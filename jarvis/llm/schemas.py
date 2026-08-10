@@ -93,4 +93,14 @@ class ExecuteFileInput(PathInput):
     timeout_seconds: int = Field(default=60, ge=1, le=300)
 
 
+class LaunchApplicationInput(BaseModel):
+    """Resolved fields are overwritten by the registry before policy evaluation."""
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=256)
+    desktop_id: str | None = None
+    executable: str | None = None
+    arguments: list[Annotated[str, Field(max_length=4096)]] = Field(default_factory=list, max_length=64)
+
+
 Message = dict[str, Any]

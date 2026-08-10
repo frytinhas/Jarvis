@@ -90,7 +90,7 @@ Use `jarvis --persona`, `--context`, `--blacklist`, `--whitelist`, `--waiting-me
 
 ### Permissions
 
-`/permissions` displays the effective configurable policy. `/permissions risk decision` updates one global decision, where the accepted risks are `read`, `create`, `modify`, `delete`, and `exec`; decisions are `allow`, `confirmation`, or `deny`.
+`/permissions` displays the effective configurable policy. `/permissions risk decision` updates one global decision, where the accepted risks are `read`, `create`, `modify`, `delete`, `exec`, `network`, and `desktop`; decisions are `allow`, `confirmation`, or `deny`, plus `only_view` for `network` and `desktop`. For network tools, `ONLY_VIEW` restricts use to public searching and reading, without login, submission, or private data.
 
 | Risk | Default | Examples |
 | --- | --- | --- |
@@ -99,11 +99,13 @@ Use `jarvis --persona`, `--context`, `--blacklist`, `--whitelist`, `--waiting-me
 | `MODIFY` | `CONFIRM` | write, append, move, rename |
 | `DELETE` | `CONFIRM` | delete a file or empty directory |
 | `EXECUTE` | `ALLOW` | run an explicit file path |
+| `NETWORK` | `ALLOW` | remote access and web automation; `ONLY_VIEW` reads public content only |
+| `CONTROL_DESKTOP` | `ALLOW` | control the graphical session; `ONLY_VIEW` reads UI only |
 | `PRIVILEGED` | fixed `DENY` | privilege escalation and equivalent paths |
 
 ## Tools and path policy
 
-There is no generic shell tool. Registered tools provide bounded file reading/search, file metadata, directory listing, process and system inspection, file/directory creation and modification, deletion of files or empty directories, and execution of an explicit `.sh` file or executable.
+There is no generic shell tool. Registered tools provide bounded file reading/search, file metadata, directory listing, process and system inspection, file/directory creation and modification, deletion of files or empty directories, execution of an explicit `.sh` file or executable, and discovery/launch of validated system `.desktop` entries. User-writable entries are excluded so file creation cannot become indirect execution. Matching normalizes case/accents and tolerates small typos; ties are rejected as ambiguous.
 
 `execute_file` uses separate arguments with `shell=False`. It requires user intent and an explicit permitted path, and rejects privilege escalation, inline evaluation, setuid/setgid executables, and selected destructive operations.
 

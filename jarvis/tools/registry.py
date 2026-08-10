@@ -11,6 +11,7 @@ from jarvis.llm.schemas import (
     CreateFileInput,
     EmptyInput,
     ExecuteFileInput,
+    LaunchApplicationInput,
     ListDirectoryInput,
     MoveInput,
     PathInput,
@@ -31,7 +32,7 @@ from jarvis.security.validator import (
     validate_write_path,
 )
 from jarvis.memory.store import ConversationLogStore
-from jarvis.tools import filesystem, processes, system
+from jarvis.tools import applications, filesystem, processes, system
 
 
 Handler = Callable[..., dict[str, Any]]
@@ -339,6 +340,11 @@ class ToolRegistry:
     @staticmethod
     def _canonicalize(tool: Tool, arguments: dict[str, Any]) -> dict[str, Any]:
         canonical = dict(arguments)
+        if tool.name == "launch_application":
+            application = applications.resolve_application(canonical["query"])
+            canonical["desktop_id"] = application.desktop_id
+            canonical["executable"] = str(application.executable)
+            canonical["arguments"] = list(application.arguments)
         if tool.risk is Risk.READ:
             for key in ("path", "source", "destination"):
                 if key in canonical:
@@ -427,6 +433,14 @@ def build_registry(
             Risk.EXECUTE,
             ExecuteFileInput,
             processes.execute_file,
+        ),
+        Tool(
+            "launch_application",
+            "Encontra e inicia um aplicativo instalado pelo nome. Aceita nomes sem diferenciar "
+            "maiúsculas, acentos e pequenos erros de digitação; retorna erro quando ambíguo.",
+            Risk.EXECUTE,
+            LaunchApplicationInput,
+            applications.launch_application,
         ),
     )
     for tool in definitions:

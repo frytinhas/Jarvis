@@ -143,6 +143,8 @@ def test_new_lifecycle_defaults() -> None:
     assert settings.color_mode is ColorMode.ALWAYS
     assert settings.notes_max_size_mb == 1
     assert settings.permissions[Risk.EXECUTE] is Decision.ALLOW
+    assert settings.permissions[Risk.NETWORK] is Decision.ALLOW
+    assert settings.permissions[Risk.CONTROL_DESKTOP] is Decision.ALLOW
     assert settings.permissions[Risk.PRIVILEGED] is Decision.DENY
 
 

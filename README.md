@@ -90,6 +90,11 @@ Use `Ctrl+C` to cancel current generation or execution without closing the chat.
 ## Safety and privacy
 
 - Jarvis has no generic shell tool and never offers privileged operations.
+- It finds and launches system-installed applications by name, case/accent-insensitively and with
+  small typo tolerance. Launching follows `EXECUTE`; ambiguous names require a choice.
+- `NETWORK` controls remote access; under `ONLY_VIEW`, it only permits public searching and
+  reading—no login, submission, or private data. `CONTROL_DESKTOP` controls the graphical
+  session; in that mode it may read accessibility UI but cannot click, type, or move windows.
 - File changes and deletions require confirmation by default; permissions can only be made more restrictive by path rules.
 - Prompts, model output, files, memory, and tool results are untrusted data. They cannot authorize an action.
 - Diagnostic logs redact credentials and raw file/tool content, but local data is not encrypted. Do not put secrets in prompts, persona files, or notes.

@@ -15,7 +15,8 @@ from jarvis.settings import (
 )
 
 
-CONFIG_VERSION = 13
+CONFIG_VERSION = 14
+_LEGACY_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE, Risk.PRIVILEGED)
 
 
 class ConfigFileError(ValueError):
@@ -179,7 +180,7 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, 7, 8, 9, 10, 11, 12, CONFIG_VERSION}:
+    if version not in {5, 6, 7, 8, 9, 10, 11, 12, 13, CONFIG_VERSION}:
         raise ConfigFileError(path, f"versão {version} não suportada; esperada entre 5 e {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
@@ -188,6 +189,12 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
     if version >= 7:
         sections.add("appearance")
     _validate_children(root, sections, path)
+    permissions_element = _section(root, "permissions")
+    permission_names = {str(child.tag) for child in _children(permissions_element)}
+    permission_risks = (
+        Risk if version >= 14 or {Risk.NETWORK.value, Risk.CONTROL_DESKTOP.value} & permission_names
+        else _LEGACY_RISKS
+    )
     expected = {
         "model": ({"directory", "path", "context_size", "server_port"} if version >= 13 else
                   ({"directory", "path", "context_size"} if version >= 9 else {"directory", "path"})),
@@ -200,7 +207,7 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             "interaction_timeout_seconds", "llm_request_timeout_seconds",
             "default_reasoning_level",
         }),
-        "permissions": {risk.value for risk in Risk},
+        "permissions": {risk.value for risk in permission_risks},
         "llm": {"base_url", "model", "api_key", "confirmation_timeout"},
         "logs": ({"max_size_mb", "retention_days", "audit_db_path", "level"}
                  if version == 5 else
@@ -231,7 +238,6 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
     model = _section(root, "model")
     identity = _section(root, "identity")
     behavior = _section(root, "behavior")
-    permissions_element = _section(root, "permissions")
     llm = _section(root, "llm")
     logs = _section(root, "logs")
     paths = _section(root, "paths")
@@ -251,10 +257,16 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
             raise ConfigFileError(path, "<persona> não pode ficar vazio")
         permissions = {
             risk: Decision(_text(permissions_element, risk.value))
-            for risk in Risk
+            for risk in permission_risks
         }
+        if Risk.NETWORK not in permissions:
+            permissions[Risk.NETWORK] = Decision.ALLOW
+        if Risk.CONTROL_DESKTOP not in permissions:
+            permissions[Risk.CONTROL_DESKTOP] = Decision.ALLOW
         if permissions[Risk.PRIVILEGED] is not Decision.DENY:
             raise ConfigFileError(path, "<PRIVILEGED> deve permanecer DENY")
+        if any(decision is Decision.ONLY_VIEW for risk, decision in permissions.items() if risk not in {Risk.NETWORK, Risk.CONTROL_DESKTOP}):
+            raise ConfigFileError(path, "ONLY_VIEW só é válido para <NETWORK> ou <CONTROL_DESKTOP>")
         legacy_timeout = (
             _integer(_text(behavior, "request_timeout_seconds"), "request_timeout_seconds", path)
             if version == 5 else None
@@ -371,7 +383,7 @@ def _new_tree() -> ET.ElementTree:
         ("model_profiles", "Preferências legadas por GGUF; o thinking agora segue o reasoning.", "Legacy per-GGUF preferences; thinking now follows reasoning.", ("template_thinking",)),
         ("identity", "Identidade do perfil e estado do aprendizado inicial.", "Profile identity and initial learning state.", ("assistant_name", "command_name", "profile_id", "learning_state")),
         ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
-        ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
+        ("permissions", "ALLOW, CONFIRM ou DENY; ONLY_VIEW só para NETWORK e CONTROL_DESKTOP. PRIVILEGED deve ser DENY.", "ALLOW, CONFIRM, or DENY; ONLY_VIEW is only for NETWORK and CONTROL_DESKTOP. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
         ("logs", "Nível visual e limites privados de logs e notas de perfil.", "Display level and private limits for logs and profile notes.", ("max_size_mb", "retention_days", "notes_max_size_mb", "audit_db_path", "display_level")),
         ("paths", "Arquivos privados editáveis deste perfil; caminhos podem usar ~.", "Private editable files for this profile; paths may use ~.", ("persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist", "learning_context")),

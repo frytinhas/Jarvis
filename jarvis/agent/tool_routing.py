@@ -11,6 +11,7 @@ WRITE_TOOLS = frozenset({
     "rename_file", "delete_file", "delete_directory", *READ_TOOLS,
 })
 EXECUTE_TOOLS = frozenset({"execute_file", *READ_TOOLS})
+APPLICATION_TOOLS = frozenset({"launch_application"})
 
 
 @dataclass(frozen=True)
@@ -32,8 +33,15 @@ def route_user_request(text: str, previous: ToolRoute | None = None) -> ToolRout
     if re.search(r"\b(onde estou|diretorio atual|pasta atual|current directory|current folder)\b", normalized):
         return ToolRoute(frozenset({"get_current_directory"}), True, label="current_directory")
 
+    application_action = bool(re.search(
+        r"\b(abre|abra|abrir|open|va no|inicie|iniciar|launch|start|toca|toque)\b",
+        normalized,
+    ))
+    if application_action and not _has_concrete_target(normalized):
+        return ToolRoute(APPLICATION_TOOLS, require_tool=True, execution_authorized=True, label="application")
+
     execute = bool(re.search(
-        r"\b(executa|execute|executar|rode|roda|rodar|inicie|iniciar|run|launch|start)\b",
+        r"\b(executa|execute|executar|rode|roda|rodar|run|abre|abra|abrir|open|inicie|iniciar|launch|start)\b",
         normalized,
     ))
     if execute:

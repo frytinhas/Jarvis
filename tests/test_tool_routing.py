@@ -17,6 +17,14 @@ def test_explicit_script_execution_authorizes_execute_route() -> None:
     assert "execute_file" in (route.tool_names or ())
 
 
+def test_application_request_requires_safe_launcher_tool() -> None:
+    route = route_user_request("abra sptfy")
+
+    assert route.require_tool is True
+    assert route.execution_authorized is True
+    assert route.tool_names == frozenset({"launch_application"})
+
+
 def test_normal_conversation_does_not_authorize_execution() -> None:
     route = route_user_request("o que você acha desse conteúdo?")
 

@@ -27,13 +27,15 @@ from jarvis.settings import ColorMode, DisplayLogLevel, MessageMode, UserSetting
 from jarvis.ui.selector import select_option, supports_arrow_selection
 
 
-CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
+CATEGORIES = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE, Risk.NETWORK, Risk.CONTROL_DESKTOP)
 CATEGORY_LABELS = {
     Risk.READ: "Leitura e consulta",
     Risk.CREATE: "Criação de arquivos e diretórios",
     Risk.MODIFY: "Alteração, movimentação e renomeação",
     Risk.DELETE: "Exclusão",
     Risk.EXECUTE: "Execução de scripts e binários por path",
+    Risk.NETWORK: "Acesso à rede e ações em contas no navegador",
+    Risk.CONTROL_DESKTOP: "Leitura e controle da sessão gráfica",
 }
 COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 REASONING_LABELS = ("Off", "Low", "Medium", "High", "Max")
@@ -398,6 +400,15 @@ def _choose_permissions(current: UserSettings) -> dict[Risk, Decision]:
             decisions[risk] = Decision.DENY
     print("\nAções que podem ocorrer sem confirmação:")
     for risk in enabled:
+        if risk in {Risk.NETWORK, Risk.CONTROL_DESKTOP}:
+            view_prompt = (
+                "Permitir somente consultas públicas, sem login, envio ou dados privados?"
+                if risk is Risk.NETWORK else
+                "Permitir somente visualizar a interface, sem clicar ou digitar?"
+            )
+            if ask_yes_no(view_prompt, current.permissions.get(risk) is Decision.ONLY_VIEW):
+                decisions[risk] = Decision.ONLY_VIEW
+                continue
         default_allow = current.permissions.get(risk) is Decision.ALLOW
         without_confirmation = ask_yes_no(
             f"Permitir {CATEGORY_LABELS[risk]} sem confirmação?", default_allow
@@ -517,7 +528,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
     print(f"  Notas de perfil para IA: limite {settings.notes_max_size_mb} MB")
     print(f"  Aprendizado: {settings.learning_state} · {settings.learning_context_path}")
-    if any(settings.permissions.get(risk) is Decision.ALLOW for risk in (Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)):
+    if any(settings.permissions.get(risk) is Decision.ALLOW for risk in (Risk.MODIFY, Risk.DELETE, Risk.EXECUTE, Risk.NETWORK, Risk.CONTROL_DESKTOP)):
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
 

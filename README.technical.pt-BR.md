@@ -90,7 +90,7 @@ Use `jarvis --persona`, `--context`, `--blacklist`, `--whitelist`, `--waiting-me
 
 ### Permissões
 
-`/permissions` mostra a política configurável atual. `/permissions risco decisão` altera uma decisão global, onde os riscos aceitos são `read`, `create`, `modify`, `delete` e `exec`; as decisões são `allow`, `confirmation` ou `deny`.
+`/permissions` mostra a política configurável atual. `/permissions risco decisão` altera uma decisão global, onde os riscos aceitos são `read`, `create`, `modify`, `delete`, `exec`, `network` e `desktop`; as decisões são `allow`, `confirmation` ou `deny`, além de `only_view` para `network` e `desktop`. Em rede, `ONLY_VIEW` restringe a tools a consultas e leitura pública, sem login, envio ou dados privados.
 
 | Risco | Padrão | Exemplos |
 | --- | --- | --- |
@@ -99,11 +99,13 @@ Use `jarvis --persona`, `--context`, `--blacklist`, `--whitelist`, `--waiting-me
 | `MODIFY` | `CONFIRM` | escrever, acrescentar, mover, renomear |
 | `DELETE` | `CONFIRM` | apagar arquivo ou diretório vazio |
 | `EXECUTE` | `ALLOW` | executar path explícito de arquivo |
+| `NETWORK` | `ALLOW` | acesso remoto e automação web; `ONLY_VIEW` só consulta conteúdo público |
+| `CONTROL_DESKTOP` | `ALLOW` | controlar a sessão gráfica; `ONLY_VIEW` só lê a UI |
 | `PRIVILEGED` | `DENY` fixo | elevação de privilégio e caminhos equivalentes |
 
 ## Tools e política de paths
 
-Não existe tool de shell genérico. As tools registradas fornecem leitura/pesquisa limitada de arquivos, metadados, listagem de diretórios, inspeção de processos e sistema, criação e alteração de arquivos/diretórios, exclusão de arquivos ou diretórios vazios, e execução de `.sh` ou executável explícito.
+Não existe tool de shell genérico. As tools registradas fornecem leitura/pesquisa limitada de arquivos, metadados, listagem de diretórios, inspeção de processos e sistema, criação e alteração de arquivos/diretórios, exclusão de arquivos ou diretórios vazios, execução de `.sh` ou executável explícito, e descoberta/abertura de entradas `.desktop` de diretórios do sistema validadas. Entradas graváveis pelo usuário são excluídas para não transformar criação de arquivo em execução indireta. A busca normaliza caixa/acentos e tolera pequenos erros; empates são recusados como ambíguos.
 
 `execute_file` usa argumentos separados com `shell=False`. Ele exige intenção do usuário e path explícito permitido, e rejeita elevação de privilégios, avaliação inline, executáveis setuid/setgid e operações destrutivas selecionadas.
 

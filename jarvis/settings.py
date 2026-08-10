@@ -16,6 +16,8 @@ DEFAULT_DECISIONS: dict[Risk, Decision] = {
     Risk.MODIFY: Decision.CONFIRM,
     Risk.DELETE: Decision.CONFIRM,
     Risk.EXECUTE: Decision.ALLOW,
+    Risk.NETWORK: Decision.ALLOW,
+    Risk.CONTROL_DESKTOP: Decision.ALLOW,
     Risk.PRIVILEGED: Decision.DENY,
 }
 
@@ -42,7 +44,7 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 13
+    version: int = 14
     profile_id: str = Field(default="", pattern=r"^(?:[a-f0-9]{32})?$")
     learning_state: str = Field(default="complete", pattern=r"^(pending|complete)$")
     model_directory: Path | None = None

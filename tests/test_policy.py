@@ -8,6 +8,8 @@ def test_default_policy() -> None:
     assert policy.decide(Risk.MODIFY) is Decision.CONFIRM
     assert policy.decide(Risk.DELETE) is Decision.CONFIRM
     assert policy.decide(Risk.EXECUTE) is Decision.ALLOW
+    assert policy.decide(Risk.NETWORK) is Decision.ALLOW
+    assert policy.decide(Risk.CONTROL_DESKTOP) is Decision.ALLOW
     assert policy.decide(Risk.PRIVILEGED) is Decision.DENY
 
 
@@ -24,6 +26,23 @@ def test_policy_can_update_non_privileged_decision() -> None:
     policy.set_decision(Risk.EXECUTE, Decision.CONFIRM)
 
     assert policy.decide(Risk.EXECUTE) is Decision.CONFIRM
+
+
+def test_only_view_is_limited_to_network_and_desktop_control() -> None:
+    policy = PolicyEngine()
+
+    policy.set_decision(Risk.CONTROL_DESKTOP, Decision.ONLY_VIEW)
+
+    assert policy.decide(Risk.CONTROL_DESKTOP) is Decision.ONLY_VIEW
+    policy.set_decision(Risk.NETWORK, Decision.ONLY_VIEW)
+
+    assert policy.is_view_only(Risk.NETWORK)
+    try:
+        policy.set_decision(Risk.EXECUTE, Decision.ONLY_VIEW)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("ONLY_VIEW não pode ser usado para execução")
 
 
 def test_policy_rejects_privileged_update() -> None:

@@ -90,6 +90,12 @@ Use `Ctrl+C` para cancelar a geração ou execução atual sem fechar o chat. Us
 ## Segurança e privacidade
 
 - O Jarvis não tem tool de shell genérico e nunca oferece operações privilegiadas.
+- Ele localiza e abre aplicativos instalados pelo sistema pelo nome, sem diferenciar
+  maiúsculas/acentos e tolerando pequenos erros. A abertura segue `EXECUTE`; nomes ambíguos
+  exigem escolha.
+- `NETWORK` controla acesso remoto; em `ONLY_VIEW`, só permite pesquisa e leitura pública, sem
+  login, envio ou dados privados. `CONTROL_DESKTOP` controla a sessão gráfica; nesse modo, só
+  permite ler a interface de acessibilidade, sem clicar, digitar ou mover janelas.
 - Alterações e exclusões de arquivos exigem confirmação por padrão; regras de path só podem tornar permissões mais restritivas.
 - Prompts, saída do modelo, arquivos, memória e resultados de tools são dados não confiáveis. Eles não autorizam ações.
 - Logs de diagnóstico removem credenciais e conteúdo bruto de arquivos/tools, mas os dados locais não são criptografados. Não coloque segredos em prompts, persona ou notas.

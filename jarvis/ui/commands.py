@@ -24,14 +24,19 @@ PERMISSION_RISKS = {
     "delete": Risk.DELETE,
     "exec": Risk.EXECUTE,
     "execute": Risk.EXECUTE,
+    "network": Risk.NETWORK,
+    "desktop": Risk.CONTROL_DESKTOP,
+    "control_desktop": Risk.CONTROL_DESKTOP,
 }
 PERMISSION_DECISIONS = {
     "allow": Decision.ALLOW,
     "confirm": Decision.CONFIRM,
     "confirmation": Decision.CONFIRM,
     "deny": Decision.DENY,
+    "only_view": Decision.ONLY_VIEW,
+    "view": Decision.ONLY_VIEW,
 }
-CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)
+CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXECUTE, Risk.NETWORK, Risk.CONTROL_DESKTOP)
 EXIT_COMMANDS = {"/exit", "/sair"}
 LICENSE_COMMANDS = {"/license", "/licenca", "/licença"}
 COMMANDS = (
@@ -119,8 +124,8 @@ class LocalCommands:
         elif lowered.startswith("/permissions "):
             candidates = [
                 f"/permissions {risk} {decision}"
-                for risk in ("read", "create", "modify", "delete", "exec")
-                for decision in ("allow", "confirmation", "deny")
+                for risk in ("read", "create", "modify", "delete", "exec", "network", "desktop")
+                for decision in ("allow", "confirmation", "deny", "only_view")
             ]
         else:
             candidates = list(COMMANDS)
@@ -307,22 +312,24 @@ class LocalCommands:
         if len(arguments) != 2:
             return CommandResult(
                 True,
-                "Uso: `/permissions read|create|modify|delete|exec "
-                "allow|confirmation|deny`.",
+                "Uso: `/permissions read|create|modify|delete|exec|network|desktop "
+                "allow|confirmation|deny|only_view`.",
             )
         risk_name, decision_name = (value.lower() for value in arguments)
         risk = PERMISSION_RISKS.get(risk_name)
         if risk is None:
             return CommandResult(
                 True,
-                "Categoria inválida. Use: read, create, modify, delete ou exec.",
+                "Categoria inválida. Use: read, create, modify, delete, exec, network ou desktop.",
             )
         decision = PERMISSION_DECISIONS.get(decision_name)
         if decision is None:
             return CommandResult(
                 True,
-                "Decisão inválida. Use: allow, confirmation ou deny.",
+                "Decisão inválida. Use: allow, confirmation, deny ou only_view.",
             )
+        if decision is Decision.ONLY_VIEW and risk not in {Risk.NETWORK, Risk.CONTROL_DESKTOP}:
+            return CommandResult(True, "`only_view` só pode ser usado com network ou desktop.")
         if self.config.settings.permissions[risk] is decision:
             return CommandResult(True, f"`{risk.value}` já está como **{decision.value}**.")
         permissions = dict(self.config.settings.permissions)
