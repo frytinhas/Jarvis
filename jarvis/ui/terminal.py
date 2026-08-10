@@ -68,6 +68,8 @@ class TerminalUI:
         learning_mode: bool = False,
         learning_prompt: str | None = None,
         normal_prompt: Callable[[str], str] | None = None,
+        normal_thinking_budget_tokens: int = 0,
+        debug_event: Callable[[str, dict[str, object]], None] | None = None,
     ) -> None:
         self.orchestrator = orchestrator
         self.assistant_name = assistant_name
@@ -82,6 +84,8 @@ class TerminalUI:
         self.learning_mode = learning_mode
         self.learning_prompt = learning_prompt
         self.normal_prompt = normal_prompt
+        self.normal_thinking_budget_tokens = normal_thinking_budget_tokens
+        self.debug_event = debug_event
         self.completed_transcripts: list[tuple[list[dict[str, str]], object, object]] = []
         self._first_learning_session = learning_mode
 
@@ -157,6 +161,7 @@ class TerminalUI:
             self._handle(user_text)
 
     def _exit(self, action: SessionExit = SessionExit.EXIT) -> SessionExit:
+        self._debug("terminal_exit", action=action.value)
         self._discard_learning()
         message = random.choice(self.goodbye_messages) if self.goodbye_messages else "Até logo."
         label = self.theme.paint(f"{self.assistant_name}:", "assistant", strong=True)
@@ -164,6 +169,7 @@ class TerminalUI:
         return action
 
     def _handle_local_command(self, user_text: str) -> SessionExit | None:
+        self._debug("local_command_input", text=user_text)
         if self.commands is None:
             if user_text.strip().lower() not in LICENSE_COMMANDS:
                 return None
@@ -236,6 +242,7 @@ class TerminalUI:
         if self.commands is not None:
             self.commands.config = self.config
         self.orchestrator.reset_session(self.learning_prompt)
+        self._set_reasoning_budget(0)
         self.learning_mode = True
         self._first_learning_session = False
         self._show_learning_notice(first_run=False)
@@ -290,6 +297,7 @@ class TerminalUI:
         if self.commands is not None:
             self.commands.config = self.config
         self.orchestrator.reset_session(self.normal_prompt(summary))
+        self._set_reasoning_budget(self.normal_thinking_budget_tokens)
         self.learning_mode = False
         print("Aprendizado aprovado. Uma nova conversa normal foi iniciada neste terminal.")
         return True
@@ -307,6 +315,7 @@ class TerminalUI:
         if not self.learning_mode:
             return
         self.orchestrator.discard_session(self.learning_prompt or "")
+        self._set_reasoning_budget(self.normal_thinking_budget_tokens)
         if not self._first_learning_session and self.config is not None:
             settings = self.config.settings.model_copy(update={"learning_state": "complete"})
             restored_config = self.config.model_copy(update={"settings": settings})
@@ -335,15 +344,18 @@ class TerminalUI:
         temporary.replace(path)
 
     def _handle(self, user_text: str) -> None:
+        self._debug("user_message", content=user_text, learning_mode=self.learning_mode)
         try:
             with self.waiting.active():
                 reply = self.orchestrator.handle(user_text)
             self._show(reply)
         except Exception as error:
+            self._debug("interaction_error", error=str(error))
             message = f"{self.assistant_name}: erro de comunicação: {error}"
             print(self.theme.paint(message, "error"))
 
     def _show(self, reply: AgentReply) -> None:
+        self._debug("assistant_reply", content=reply.text, tool_grammar_failed=reply.tool_grammar_failed)
         label = self.theme.paint(f"{self.assistant_name}:", "assistant", strong=True)
         print(f"\n{label}\n{render_markdown(reply.text, self.theme)}")
         if reply.tool_grammar_failed:
@@ -367,3 +379,16 @@ class TerminalUI:
                 )
             self._show(follow_up)
             return
+
+    def _debug(self, event: str, **payload: object) -> None:
+        if self.debug_event is None:
+            return
+        try:
+            self.debug_event(event, dict(payload))
+        except Exception:
+            pass
+
+    def _set_reasoning_budget(self, budget: int) -> None:
+        setter = getattr(self.orchestrator, "set_thinking_budget_tokens", None)
+        if callable(setter):
+            setter(budget)

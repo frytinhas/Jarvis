@@ -41,6 +41,10 @@ jarvis --r 3 "analise este projeto"
 
 `--r` escolhe o reasoning desta execução: `0` desliga, `1` é baixo, `2` médio, `3` alto e `4` máximo. Use `jarvis-config` sempre que quiser criar, editar ou selecionar perfis novamente.
 
+Sessões de aprendizado sempre usam reasoning desligado, independentemente dessa configuração. Na primeira execução, o aprendizado só é salvo ao aprovar explicitamente um resumo com `/finish`; fechar o terminal, Ctrl+C ou `/exit` não salva nada daquela conversa.
+
+O Jarvis sempre grava um log privado de diagnóstico em JSONL no estado do perfil ativo (`logs/debug`), independentemente do nível de log exibido. O limite total padrão é 200 MB e a retenção é configurável. Credenciais e conteúdo bruto de arquivos/tools são redigidos.
+
 No chat, estes são os comandos mais úteis:
 
 - `/help` — mostra todos os comandos locais.

@@ -11,7 +11,7 @@ import pytest
 @pytest.mark.parametrize(
     "level,expected,unexpected",
     [
-        ("Essential", "--log-disable", "--log-file"),
+        ("Essential", "--log-verbosity\n3", "--log-disable"),
         ("Server-Essential", "--log-verbosity\n3", "--log-disable"),
         ("Full", "--verbose", "--log-disable"),
     ],
@@ -63,6 +63,5 @@ def test_server_logging_flags_follow_display_level(
     assert expected in arguments
     assert unexpected not in arguments
     assert "--ctx-size\n8192" in arguments
-    if level != "Essential":
-        assert "--log-file" in arguments
-        assert (tmp_path / ".local/state/jarvis/profiles/jarvis/logs/runtime/llama-server.log").is_file()
+    assert "--log-file" in arguments
+    assert (tmp_path / ".local/state/jarvis/profiles/jarvis/logs/runtime/llama-server.log").is_file()

@@ -41,6 +41,10 @@ jarvis --r 3 "analyze this project"
 
 `--r` selects reasoning for this invocation: `0` is off, `1` low, `2` medium, `3` high, and `4` max. Use `jarvis-config` whenever you want to create, edit, or choose profiles again.
 
+Learning sessions always use reasoning off, independently of this setting. On the first run, learning is discarded unless you explicitly approve a summary with `/finish`; closing the terminal, Ctrl+C, or `/exit` saves none of that learning conversation.
+
+Jarvis always writes a private diagnostic JSONL session log under the active profile state directory (`logs/debug`), regardless of the display log setting. The default combined limit is 200 MB and retention is configurable. These logs redact credentials and raw file/tool content.
+
 Inside the chat, these commands are the most useful:
 
 - `/help` — show all local commands.

@@ -88,7 +88,9 @@ Files, persona/context text, model output, memory, and tool output are untrusted
 
 ## Data, privacy, and removal
 
-Conversation logs, runtime logs, audit records, and runtime metadata are held under the profile's state directory. Profile customization and compact notes reside in the profile configuration directory. Retention and size limits are configurable; data is not encrypted, so do not put credentials in prompts, persona files, or logs.
+Conversation logs, runtime logs, audit records, runtime metadata, and always-on per-session debug JSONL logs are held under the profile's state directory. Debug logs are under `logs/debug`, are private (`0600`), do not depend on the display log level, and share the configured 200 MB default/retention controls. They include sanitized configuration, messages, LLM requests/responses, textual-tool normalization, and tool lifecycle records. Credentials and raw file/tool content are redacted. Profile customization and compact notes reside in the profile configuration directory. Retention and size limits are configurable; data is not encrypted, so do not put credentials in prompts, persona files, or logs.
+
+Learning-mode requests set `thinking_budget_tokens` to zero. A Qwen-compatible textual tool fallback accepts only one complete JSON object with exactly `tool_name` and object `parameters`, and only when its name is among the tools offered for that request. It is then passed through the normal orchestrator, validation, policy, confirmation, revalidation, and audit path; malformed, unknown, or ambiguous JSON remains ordinary model text.
 
 Jarvis is local by default. Configuring an external OpenAI-compatible endpoint means prompts and context sent to that endpoint are no longer local.
 

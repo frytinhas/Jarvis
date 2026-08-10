@@ -88,7 +88,9 @@ Arquivos, persona/contexto, saída do modelo, memória e resultados de tools sã
 
 ## Dados, privacidade e remoção
 
-Logs de conversa, logs de runtime, auditoria e metadados de runtime ficam no diretório de estado do perfil. Personalização e notas compactas ficam no diretório de configuração do perfil. Retenção e limites de tamanho são configuráveis; os dados não são criptografados, portanto não coloque credenciais em prompts, persona ou logs.
+Logs de conversa, runtime, auditoria, metadados e logs JSONL de depuração sempre ativos por sessão ficam no diretório de estado do perfil. Os logs de depuração ficam em `logs/debug`, são privados (`0600`), não dependem do nível de exibição e usam o limite/retenção configurados, cujo padrão é 200 MB. Eles incluem configuração sanitizada, mensagens, requisições/respostas do LLM, normalização textual de tools e ciclo de vida das tools. Credenciais e conteúdo bruto de arquivos/tools são redigidos. Personalização e notas compactas ficam no diretório de configuração do perfil. Retenção e limites de tamanho são configuráveis; os dados não são criptografados, portanto não coloque credenciais em prompts, persona ou logs.
+
+No modo de aprendizado, cada requisição usa `thinking_budget_tokens` igual a zero. O fallback textual compatível com Qwen aceita apenas um objeto JSON completo com exatamente `tool_name` e `parameters` como objeto, e somente se o nome estiver entre as tools oferecidas naquela requisição. A chamada segue então o caminho normal de orquestrador, validação, política, confirmação, revalidação e auditoria; JSON malformado, desconhecido ou ambíguo continua sendo texto comum do modelo.
 
 Por padrão, o Jarvis é local. Configurar um endpoint externo compatível com OpenAI faz com que prompts e contexto enviados a ele deixem de ser locais.
 

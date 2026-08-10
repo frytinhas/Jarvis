@@ -61,7 +61,7 @@ class UserSettings(BaseModel):
     default_reasoning_level: int = Field(default=0, ge=0, le=4)
     display_log_level: DisplayLogLevel = DisplayLogLevel.MINIMAL_ESSENTIAL
     color_mode: ColorMode = ColorMode.ALWAYS
-    log_max_size_mb: int = 100
+    log_max_size_mb: int = 200
     log_retention_days: int = 30
     notes_max_size_mb: int = Field(default=1, gt=0)
     # These files are user-owned configuration, never repository resources at runtime.

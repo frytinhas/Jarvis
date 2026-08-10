@@ -56,6 +56,7 @@ class ActivityPanel:
     interaction_timeout_seconds: float = 600.0
     clock: Callable[[], float] = time.monotonic
     total_seconds: Callable[[], float] = lambda: 0.0
+    debug_sink: Callable[[ToolActivity], None] | None = None
     _before: dict[tuple[str, str], str] = field(default_factory=dict)
     _metadata: dict[tuple[str, str], str] = field(default_factory=dict)
     _started: dict[tuple[str, str], float] = field(default_factory=dict)
@@ -70,6 +71,11 @@ class ActivityPanel:
             self.log_path.chmod(0o600)
 
     def __call__(self, event: ToolActivity) -> None:
+        if self.debug_sink is not None:
+            try:
+                self.debug_sink(event)
+            except Exception:
+                pass
         if self.level is DisplayLogLevel.NONE:
             return
         if event.phase == "running":

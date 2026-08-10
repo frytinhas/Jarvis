@@ -51,21 +51,16 @@ else
     server_command=("$LLAMA_BIN")
 fi
 
-server_log_args=(--log-disable)
+mkdir -p "$(dirname "$SERVER_LOG")"
+touch "$SERVER_LOG"
+chmod 600 "$SERVER_LOG"
+server_log_args=(--log-file "$SERVER_LOG" --log-verbosity 3)
 template_args=()
 if [[ "${TEMPLATE_THINKING:-false}" != true ]]; then
     template_args=(--chat-template-kwargs '{"enable_thinking":false}')
 fi
-if [[ "${DISPLAY_LOG_LEVEL:-Essential}" == "Full" || "${DISPLAY_LOG_LEVEL:-Essential}" == "Server-Essential" ]]; then
-    mkdir -p "$(dirname "$SERVER_LOG")"
-    touch "$SERVER_LOG"
-    chmod 600 "$SERVER_LOG"
-    server_log_args=(--log-file "$SERVER_LOG")
-    if [[ "$DISPLAY_LOG_LEVEL" == "Full" ]]; then
-        server_log_args+=(--verbose)
-    else
-        server_log_args+=(--log-verbosity 3)
-    fi
+if [[ "${DISPLAY_LOG_LEVEL:-Essential}" == "Full" ]]; then
+    server_log_args+=(--verbose)
 fi
 
 exec "${server_command[@]}" \

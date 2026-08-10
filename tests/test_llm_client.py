@@ -68,6 +68,36 @@ def test_client_can_require_a_tool_call() -> None:
     assert observed["tool_choice"] == "required"
 
 
+def test_client_normalizes_one_strict_textual_tool_envelope() -> None:
+    tool = {"type": "function", "function": {"name": "list_directory", "parameters": {}}}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": (
+            "I will inspect it.\n{\"tool_name\": \"list_directory\", "
+            "\"parameters\": {\"path\": \"/home/gabri\"}}"
+        )}}]})
+
+    with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler)) as client:
+        message = client.chat([{"role": "user", "content": "map folders"}], [tool])
+
+    assert len(message.tool_calls) == 1
+    assert message.tool_calls[0].function.name == "list_directory"
+    assert json.loads(message.tool_calls[0].function.arguments) == {"path": "/home/gabri"}
+
+
+def test_client_rejects_ambiguous_or_unknown_textual_tool_envelopes() -> None:
+    tool = {"type": "function", "function": {"name": "list_directory", "parameters": {}}}
+    body = """{"tool_name":"list_directory","parameters":{"path":"/a"}}
+    {"tool_name":"unknown","parameters":{}}"""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": body}}]})
+
+    with LlamaClient("http://test/v1", "model", transport=httpx.MockTransport(handler)) as client:
+        message = client.chat([{"role": "user", "content": "map"}], [tool])
+    assert message.tool_calls == []
+
+
 def test_client_uses_remaining_interaction_timeout() -> None:
     observed: dict[str, object] = {}
 

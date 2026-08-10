@@ -28,6 +28,7 @@ from jarvis.tools import system
 from jarvis.ui.terminal import TerminalUI
 from jarvis.ui.commands import SessionExit
 from jarvis.ui.activity import ActivityPanel, maintain_runtime_logs
+from jarvis.debug_log import SessionDebugLog
 from jarvis.ui.theme import Theme
 from jarvis.ui.waiting import WaitingIndicator, load_waiting_messages
 
@@ -153,11 +154,24 @@ def main(arguments: list[str] | None = None) -> None:
         user_settings.log_max_size_mb,
         user_settings.log_retention_days,
     )
+    debug_log = SessionDebugLog(
+        state_directory() / "logs/debug",
+        user_settings.log_max_size_mb,
+        user_settings.log_retention_days,
+    )
+    debug_log.record(
+        "session_start",
+        invocation={"message": invocation.message, "reasoning_level": invocation.reasoning_level},
+        profile=os.environ.get("JARVIS_PROFILE", "default"),
+        settings=user_settings.model_dump(mode="json"),
+        advanced=advanced.model_dump(mode="json"),
+    )
     theme = Theme.load(user_settings.color_mode)
     activity = ActivityPanel(
         user_settings.display_log_level,
         theme=theme,
         interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
+        debug_sink=debug_log.tool_activity,
     )
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if activity.log_path is not None:
@@ -244,8 +258,12 @@ def main(arguments: list[str] | None = None) -> None:
         advanced.llm_model,
         advanced.llm_api_key,
         timeout=user_settings.llm_request_timeout_seconds,
-        thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
+        thinking_budget_tokens=(
+            0 if user_settings.learning_state == "pending"
+            else REASONING_BUDGETS[invocation.reasoning_level]
+        ),
         notice=show_llm_notice,
+        trace=lambda event, payload: debug_log.record(event, **payload),
     ) as llm:
         notes = ""
         notes_warning: str | None = notes_store_error
@@ -296,7 +314,10 @@ def main(arguments: list[str] | None = None) -> None:
             interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
             llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
             system_prompt=system_prompt,
-            thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
+            thinking_budget_tokens=(
+                0 if user_settings.learning_state == "pending"
+                else REASONING_BUDGETS[invocation.reasoning_level]
+            ),
             on_tool_grammar_failure=lambda: record_tool_grammar_failure(user_settings.model_path),
         )
         activity.total_seconds = lambda: orchestrator.active_seconds
@@ -325,6 +346,8 @@ def main(arguments: list[str] | None = None) -> None:
             learning_mode=user_settings.learning_state == "pending",
             learning_prompt=prompt_for("", mode=True),
             normal_prompt=lambda summary: prompt_for(summary, mode=False),
+            normal_thinking_budget_tokens=REASONING_BUDGETS[invocation.reasoning_level],
+            debug_event=lambda event, payload: debug_log.record(event, **payload),
         )
         outcome = terminal.run(
             initial_message,
@@ -353,8 +376,10 @@ def main(arguments: list[str] | None = None) -> None:
                 if worker is not None:
                     workers.append(worker.pid)
         if outcome is SessionExit.RESTART_MODEL:
+            debug_log.close("restart_model")
             raise SystemExit(75)
         if outcome is SessionExit.SWITCH_PROFILE:
+            debug_log.close("switch_profile")
             raise SystemExit(77)
         if outcome is SessionExit.FULL_STOP:
             launcher = os.environ.get("JARVIS_LAUNCHER")
@@ -365,9 +390,11 @@ def main(arguments: list[str] | None = None) -> None:
                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         start_new_session=True, close_fds=True,
                     )
+                    debug_log.close("full_stop")
                     raise SystemExit(76)
                 except OSError:
                     pass
+        debug_log.close("completed")
 
 
 if __name__ == "__main__":
