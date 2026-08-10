@@ -24,10 +24,10 @@ STATE_DIR="$HOME/.local/state/jarvis/profiles/$PROFILE_NAME"
 RUNTIME_FILE="$STATE_DIR/runtime.env"
 PID_FILE="$STATE_DIR/llama-server.pid"
 RESTART_MARKER="$STATE_DIR/restart-required"
-SESSION_DIR="$STATE_DIR/sessions"
+SESSION_DIR=""
 UNIT_NAME="jarvis-llm@$PROFILE_NAME.service"
-RUNTIME_LOG_DIR="$STATE_DIR/logs/runtime"
-SERVER_LOG="$RUNTIME_LOG_DIR/llama-server.log"
+RUNTIME_LOG_DIR=""
+SERVER_LOG=""
 
 if [[ "${1:-}" == "--remove" || "${1:-}" == "--purge" ]]; then
     if (($# != 1)); then
@@ -70,6 +70,11 @@ fi
 # Arquivo interno gerado a partir de config.xml.
 source "$INSTALL_FILE"
 source "$RUNTIME_FILE"
+MODEL_KEY="$("$PYTHON_BIN" -P -m jarvis.profile_cli model-key "$MODEL_PATH")" || exit 1
+MODEL_STATE_DIR="$STATE_DIR/models/$MODEL_KEY"
+SESSION_DIR="$MODEL_STATE_DIR/sessions"
+RUNTIME_LOG_DIR="$MODEL_STATE_DIR/logs/runtime"
+SERVER_LOG="$RUNTIME_LOG_DIR/llama-server.log"
 KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
 SERVER_URL="http://$SERVER_HOST:$SERVER_PORT"
 server_start_requested=false
@@ -131,9 +136,22 @@ prune_sessions() {
     chmod 700 "$SESSION_DIR"
     shopt -s nullglob
     for marker in "$SESSION_DIR"/*; do
-        pid="$(<"$marker")"
+        IFS='|' read -r pid _ <"$marker"
         if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
             rm -f "$marker"
+        fi
+    done
+    shopt -u nullglob
+}
+
+other_model_session_directories() {
+    local marker pid directory
+    shopt -s nullglob
+    for marker in "$STATE_DIR"/models/*/sessions/*; do
+        [[ "$marker" == "$SESSION_DIR"/* ]] && continue
+        IFS='|' read -r pid directory <"$marker"
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+            printf '%s\n' "$directory"
         fi
     done
     shopt -u nullglob
@@ -163,7 +181,13 @@ cleanup_session() {
 
 register_session() {
     prune_sessions
-    printf '%s\n' "$$" >"$SESSION_DIR/$$"
+    if other_model_session_directories | grep -q .; then
+        echo "Outro GGUF já está em uso no perfil $PROFILE_NAME. Feche essa sessão antes de trocar de modelo." >&2
+        exit 1
+    fi
+    printf '%s|%s\n' "$$" "$PWD" >"$SESSION_DIR/$$"
+    JARVIS_PARALLEL_SESSION_DIRECTORIES="$(find "$SESSION_DIR" -mindepth 1 -maxdepth 1 -type f ! -name "$$" -exec sh -c 'IFS="|" read -r _ d < "$1"; printf "%s\\n" "$d"' _ {} \;)"
+    export JARVIS_PARALLEL_SESSION_DIRECTORIES
     session_registered=true
     trap cleanup_session EXIT
 }
@@ -260,6 +284,11 @@ run_client_sessions() {
             return 1
         fi
         source "$RUNTIME_FILE"
+        MODEL_KEY="$("$PYTHON_BIN" -P -m jarvis.profile_cli model-key "$MODEL_PATH")" || return 1
+        MODEL_STATE_DIR="$STATE_DIR/models/$MODEL_KEY"
+        SESSION_DIR="$MODEL_STATE_DIR/sessions"
+        RUNTIME_LOG_DIR="$MODEL_STATE_DIR/logs/runtime"
+        SERVER_LOG="$RUNTIME_LOG_DIR/llama-server.log"
         KEEP_LLM_RUNNING="${KEEP_LLM_RUNNING:-false}"
         server_message "Reiniciando com a nova configuração do servidor..."
         if user_systemd_available; then

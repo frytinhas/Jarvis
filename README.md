@@ -23,7 +23,7 @@ cd Jarvis-CLI
 bash Setup.sh
 ```
 
-Run Setup as the user who will use Jarvis. Do not run a normal-user installation with `sudo`. The setup creates an isolated installation for that user, prepares `llama.cpp` when necessary, then opens an interactive configurator. Choose a GGUF file and a profile name; that name becomes the command you use to start the assistant.
+Run Setup as the user who will use Jarvis. Do not run a normal-user installation with `sudo`. The setup creates an isolated installation for that user, prepares `llama.cpp` when necessary, then opens an interactive configurator. The first permanent profile is `jarvis`; choose a GGUF and create other named profiles later when needed.
 
 If `~/.local/bin` is not already on your `PATH`, open a new shell after Setup finishes.
 
@@ -43,12 +43,13 @@ jarvis --r 3 "analyze this project"
 
 Learning sessions always use reasoning off, independently of this setting. On the first run, learning is discarded unless you explicitly approve a summary with `/finish`; closing the terminal, Ctrl+C, or `/exit` saves none of that learning conversation.
 
-Jarvis always writes a private diagnostic JSONL session log under the active profile state directory (`logs/debug`), regardless of the display log setting. The default combined limit is 200 MB and retention is configurable. These logs redact credentials and raw file/tool content.
+Jarvis always writes a private diagnostic JSONL session log in the active profile's private GGUF state (`logs/debug`), regardless of the display log setting. The default combined limit is 200 MB and retention is configurable. These logs redact credentials and raw file/tool content.
 
 Inside the chat, these commands are the most useful:
 
 - `/help` — show all local commands.
-- `/model` — list or switch to another configured profile/model.
+- `/model` — list or switch GGUFs; `★` marks a model not yet associated with a profile.
+- `/profile` — list or switch profiles, reopening its last selected GGUF.
 - `/reasoning off|low|medium|high|max` — save the default reasoning level.
 - `/permissions` — display or change the global permission policy.
 - `/config` — show the active profile settings.

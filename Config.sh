@@ -18,8 +18,10 @@ if (($# > 0)); then
         config_arguments=(--setup)
     elif [[ "$1" == "--a" && $# -eq 1 ]]; then
         config_arguments=(--edit-xml)
+    elif [[ ( "$1" == "--delete-profile" || "$1" == "--reset-profile" ) && $# -eq 2 ]]; then
+        config_arguments=("$1" "$2")
     else
-        echo "Uso: jarvis-config [--a]"
+        echo "Uso: jarvis-config [--a|--delete-profile NOME|--reset-profile NOME]"
         exit 2
     fi
 fi

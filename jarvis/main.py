@@ -23,6 +23,7 @@ from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
 from jarvis.security.policy import Decision, PolicyEngine, Risk
 from jarvis.settings import DisplayLogLevel, MessageMode, project_root, state_directory
+from jarvis.profiles import active_profile, ensure_profile_catalog, model_config_directory, model_state_directory
 from jarvis.tools.registry import build_registry
 from jarvis.tools import system
 from jarvis.ui.terminal import TerminalUI
@@ -134,6 +135,12 @@ def main(arguments: list[str] | None = None) -> None:
     invocation_directory = Path.cwd().resolve()
     config = load_config()
     user_settings = config.settings
+    profile = active_profile()
+    if profile is None or user_settings.model_path is None:
+        raise SystemExit("Perfil sem modelo ativo. Use jarvis-config ou /model para escolher um GGUF.")
+    ensure_profile_catalog(profile)
+    private_state = model_state_directory(profile, user_settings.model_path)
+    private_config = model_config_directory(profile, user_settings.model_path)
     advanced = config.advanced
     invocation = parse_invocation(
         arguments, user_settings.command_name, user_settings.default_reasoning_level
@@ -150,12 +157,12 @@ def main(arguments: list[str] | None = None) -> None:
         )
     _confirm_root_startup()
     maintain_runtime_logs(
-        state_directory() / "logs/runtime",
+        private_state / "logs/runtime",
         user_settings.log_max_size_mb,
         user_settings.log_retention_days,
     )
     debug_log = SessionDebugLog(
-        state_directory() / "logs/debug",
+        private_state / "logs/debug",
         user_settings.log_max_size_mb,
         user_settings.log_retention_days,
     )
@@ -197,7 +204,7 @@ def main(arguments: list[str] | None = None) -> None:
         private_directories=(config_path().parent,),
     )
     memory_store = ConversationLogStore(
-        state_directory() / "logs",
+        private_state / "logs",
         max_size_mb=user_settings.log_max_size_mb,
         retention_days=user_settings.log_retention_days,
     )
@@ -209,7 +216,7 @@ def main(arguments: list[str] | None = None) -> None:
         path_policy,
         memory_store,
         activity,
-        protected_directories=(config_path().parent, state_directory()),
+        protected_directories=(config_path().parent, state_directory(), private_state),
     )
     user_directories: dict[str, object] = {}
     directory_context_read = path_policy.decide(
@@ -239,7 +246,7 @@ def main(arguments: list[str] | None = None) -> None:
     notes_store: ProfileNotesStore | None = None
     notes_store_error: str | None = None
     try:
-        notes_store = ProfileNotesStore(config_path().parent / "jarvis-notes")
+        notes_store = ProfileNotesStore(private_config / "jarvis-notes")
     except OSError as error:
         notes_store_error = str(error)
     learning_store = LearningContextStore(user_settings.learning_context_path)
@@ -305,6 +312,9 @@ def main(arguments: list[str] | None = None) -> None:
                 interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
                 llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
                 max_tool_rounds=user_settings.max_tool_rounds,
+                parallel_session_directories=[item for item in os.environ.get(
+                    "JARVIS_PARALLEL_SESSION_DIRECTORIES", ""
+                ).split("\n") if item],
             )
         system_prompt = prompt_for(approved_learning, mode=user_settings.learning_state == "pending")
         orchestrator = Orchestrator(

@@ -16,12 +16,16 @@ bash Setup.sh
 
 O Setup não eleva privilégios numa instalação normal. Ele instala aplicativo e ambiente virtual em `~/.local/share/jarvis/app`, comandos em `~/.local/bin`, configuração em `~/.config/jarvis` e estado em `~/.local/state/jarvis`. Se não houver `llama` ou `llama-server` compatível, clona e compila o `llama.cpp` para CPU. Para usuários comuns, dependências de sistema ausentes são informadas; quando o Setup é executado intencionalmente como root, ele avisa e limita a instalação a `/root`.
 
-O configurador encontra GGUFs, cria um perfil nomeado por modelo, atribui uma porta local e cria o comando correspondente em `~/.local/bin`. Execute-o novamente com:
+O configurador encontra GGUFs. Perfis são configurações compartilhadas por nome e podem conter vários GGUFs; o perfil inicial permanente é `jarvis`. Logs de conversa/depuração e notas privadas são isolados pelo path canônico do GGUF dentro do perfil, enquanto recursos, aprendizado e auditoria são compartilhados. Execute-o novamente com:
 
 ```bash
 jarvis-config
 jarvis-config --a  # abre o XML do perfil ativo no nano
+jarvis-config --reset-profile jarvis
+jarvis-config --delete-profile trabalho
 ```
+
+Excluir um perfil exige confirmação e remove todos os dados dele. O perfil original `jarvis` não pode ser apagado; o reset mantém somente seu nome permanente.
 
 Os perfis ficam em `~/.config/jarvis/profiles/<perfil>/`; seu estado fica em `~/.local/state/jarvis/profiles/<perfil>/`. O XML é validado estritamente e gravado com permissões privadas. Configuração inválida interrompe a inicialização, sem aplicar defaults silenciosos.
 
@@ -47,7 +51,8 @@ jarvis --full-stop-all
 | --- | --- |
 | `/help` | Mostra os comandos locais. |
 | `/reasoning off|low|medium|high|max` | Salva o reasoning; mudança de modo de template pode pedir reinício do servidor. |
-| `/model [perfil]` | Lista perfis ou troca para um deles. |
+| `/model [GGUF]` | Lista GGUFs ou troca um deles; `★` indica que ainda não há associação de perfil. |
+| `/profile [nome]` | Lista perfis ou troca para o último GGUF escolhido. |
 | `/context [tokens|reset]` | Consulta ou muda o contexto; tokens devem ser múltiplos positivos de 1024. |
 | `/permissions [risco decisão]` | Consulta ou altera permissões globais. |
 | `/config` | Mostra o resumo do perfil ativo. |

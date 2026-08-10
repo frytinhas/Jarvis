@@ -16,12 +16,16 @@ bash Setup.sh
 
 Setup never escalates a normal-user installation. It installs the application and virtual environment in `~/.local/share/jarvis/app`, commands in `~/.local/bin`, configuration below `~/.config/jarvis`, and state below `~/.local/state/jarvis`. If a compatible `llama`/`llama-server` is unavailable, it clones and builds `llama.cpp` for CPU use. Missing system packages are reported for normal users; when Setup is deliberately run as root, it warns and confines the installation to `/root`.
 
-The configurator discovers GGUF files, creates one named profile per model, assigns a local port, and creates the matching command in `~/.local/bin`. Re-run it with:
+The configurator discovers GGUF files. Profiles are named shared configurations that can contain multiple GGUF associations; the permanent initial profile is `jarvis`. Conversation/debug logs and private notes are isolated by canonical GGUF path inside each profile, while profile resources, learning, and audit remain shared. Re-run it with:
 
 ```bash
 jarvis-config
 jarvis-config --a  # edit the active profile XML in nano
+jarvis-config --reset-profile jarvis
+jarvis-config --delete-profile work
 ```
+
+Deleting a profile requires confirmation and removes all of its data. The original `jarvis` profile cannot be deleted; resetting it keeps only its permanent name.
 
 Profiles live in `~/.config/jarvis/profiles/<profile>/`; profile state lives in `~/.local/state/jarvis/profiles/<profile>/`. The XML is strictly validated and written with private permissions. Invalid configuration stops startup rather than silently applying defaults.
 
@@ -47,7 +51,8 @@ jarvis --full-stop-all
 | --- | --- |
 | `/help` | Shows the local command reference. |
 | `/reasoning off|low|medium|high|max` | Saves the reasoning level; a template-mode change can request a server restart. |
-| `/model [profile]` | Lists profiles or switches to one. |
+| `/model [GGUF]` | Lists GGUFs or switches one; `★` means it has no profile association yet. |
+| `/profile [name]` | Lists profiles or switches to its last selected GGUF. |
 | `/context [tokens|reset]` | Shows or changes context; token values must be positive multiples of 1024. |
 | `/permissions [risk decision]` | Shows or changes global permissions. |
 | `/config` | Shows the active profile summary. |

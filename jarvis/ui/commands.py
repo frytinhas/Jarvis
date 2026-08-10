@@ -10,7 +10,7 @@ from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_confi
 from jarvis.configurator import REASONING_LABELS, discover_models
 from jarvis.hardware import recommended_context_size
 from jarvis.legal import license_text, schedule_license_notice
-from jarvis.profiles import profile_locations
+from jarvis.profiles import profile_locations, profile_models, profile_model_owners
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import state_directory
 
@@ -35,7 +35,7 @@ CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXE
 EXIT_COMMANDS = {"/exit", "/sair"}
 LICENSE_COMMANDS = {"/license", "/licenca", "/licença"}
 COMMANDS = (
-    "/help", "/reasoning", "/model", "/context", "/permissions", "/config", "/clear",
+    "/help", "/reasoning", "/model", "/profile", "/context", "/permissions", "/config", "/clear",
     "/learning", "/finish", "/license", "/exit", "/quit"
 )
 
@@ -57,6 +57,10 @@ class CommandResult:
     ask_model_restart: bool = False
     ask_profile_switch: bool = False
     target_profile: str | None = None
+    target_model: str | None = None
+    profile_choices: tuple[str, ...] = ()
+    ask_model_assignment: bool = False
+    associate_model: bool = False
 
 
 class LocalCommands:
@@ -89,6 +93,8 @@ class LocalCommands:
             return self._reasoning(argument)
         if command == "/model":
             return self._model(argument)
+        if command == "/profile":
+            return self._profile(argument)
         if command == "/context":
             return self._context(argument)
         if command == "/finish":
@@ -105,7 +111,9 @@ class LocalCommands:
         if lowered.startswith("/reasoning "):
             candidates = [f"/reasoning {level}" for level in REASONING_LEVELS]
         elif lowered.startswith("/model "):
-            candidates = [f"/model {label}" for label, _ in self._profiles()]
+            candidates = [f"/model {path.name}" for path in self._known_models()]
+        elif lowered.startswith("/profile "):
+            candidates = [f"/profile {label}" for label in self._profile_names()]
         elif lowered.startswith("/context "):
             candidates = ["/context reset"]
         elif lowered.startswith("/permissions "):
@@ -161,36 +169,89 @@ class LocalCommands:
                 configured = load_config(location.config_file)
             except ConfigFileError:
                 continue
-            if configured.settings.model_path is not None:
+            for model in profile_models(location.slug):
+                profiles.append((location.slug, model))
+            if not profile_models(location.slug) and configured.settings.model_path is not None:
                 profiles.append((location.slug, configured.settings.model_path))
         return profiles
 
+    def _profile_names(self) -> list[str]:
+        return [location.slug for location in profile_locations() if location.slug is not None]
+
+    def _known_models(self) -> list[Path]:
+        models = {path for _, path in self._profiles()}
+        roots = {path.parent for path in models}
+        for root in roots:
+            try:
+                models.update(discover_models(root))
+            except (OSError, ValueError):
+                continue
+        return sorted(models, key=lambda item: (item.name.lower(), str(item).lower()))
+
+    def _profile(self, argument: str) -> CommandResult:
+        names = self._profile_names()
+        if not argument:
+            current = self.config.settings.command_name
+            rows = "\n".join(
+                f"- {'**' if name == current else ''}{name}{'**' if name == current else ''}"
+                for name in names
+            ) or "- Nenhum perfil configurado."
+            return CommandResult(True, f"Perfil atual: `{current}`\n\nPerfis disponíveis:\n{rows}")
+        requested = argument.strip().lower()
+        if requested not in names:
+            return CommandResult(True, "Perfil não encontrado. Use `/profile` para listar.")
+        if requested == self.config.settings.command_name:
+            return CommandResult(True, f"`{requested}` já é o perfil atual.")
+        try:
+            target = next(item for item in profile_locations() if item.slug == requested)
+            if load_config(target.config_file).settings.model_path is None:
+                return CommandResult(True, f"O perfil `{requested}` está vazio; selecione um GGUF com `/model` após configurá-lo.")
+        except (ConfigFileError, StopIteration):
+            return CommandResult(True, "Não foi possível ler o perfil solicitado.")
+        return CommandResult(True, f"Trocar para o último modelo de **{requested}** encerrará esta sessão.",
+                             ask_profile_switch=True, target_profile=requested)
+
     def _model(self, argument: str) -> CommandResult:
-        models = self._profiles()
         current = self.config.settings.model_path
         if not argument:
+            models = self._known_models()
             choices = "\n".join(
-                f"- {'**' if path == current else ''}{label}{'**' if path == current else ''}"
-                for label, path in models
+                f"- {'**' if path == current else ''}{path.name}{'**' if path == current else ''}"
+                f"{' ★' if not profile_model_owners(path) else ''}"
+                f" — {', '.join(profile_model_owners(path)) or 'novo'}"
+                for path in models
             ) or "- Nenhum outro perfil configurado."
-            return CommandResult(True, f"Modelo atual: `{current}`\n\nPerfis disponíveis:\n{choices}")
+            return CommandResult(True, f"Modelo atual: `{current}`\n\nGGUFs disponíveis:\n{choices}")
         try:
             parsed = shlex.split(argument)
         except ValueError as error:
             return CommandResult(True, f"Nome de modelo inválido: {error}")
-        requested = " ".join(parsed)
-        exact = [(label, path) for label, path in models if label == requested.lower()]
-        if not exact:
-            return CommandResult(True, "Perfil não encontrado. Use `/model` para listar.")
-        label, selected = exact[0]
+        requested = " ".join(parsed).lower()
+        # Backwards-compatible profile shorthand.
+        if requested in self._profile_names():
+            return self._profile(requested)
+        exact = [path for path in self._known_models()
+                 if path.name.lower() == requested or str(path).lower() == requested]
+        if len(exact) != 1:
+            return CommandResult(True, "GGUF não encontrado ou ambíguo. Use `/model` para listar.")
+        selected = exact[0]
         if selected == current:
-            return CommandResult(True, f"`{label}` já é o perfil atual.")
+            return CommandResult(True, f"`{selected.name}` já é o modelo atual.")
+        owners = profile_model_owners(selected)
+        if not owners:
+            return CommandResult(True, f"**{selected.name}** é um GGUF novo ★. Escolha ou crie um perfil.",
+                                 ask_model_assignment=True, target_model=str(selected))
+        if len(owners) > 1:
+            return CommandResult(True, f"**{selected.name}** pertence a mais de um perfil; escolha o destino.",
+                                 target_model=str(selected), profile_choices=tuple(owners))
+        label = owners[0]
         return CommandResult(
             True,
-            f"Trocar para **{label}** (`{selected}`) encerrará esta sessão e poderá carregar outro "
+            f"Trocar para **{label}** (`{selected.name}`) encerrará esta sessão e poderá carregar outro "
             "modelo em RAM/VRAM. Um resumo transitório da conversa será entregue ao novo perfil.",
             ask_profile_switch=True,
             target_profile=label,
+            target_model=str(selected),
         )
 
     def _context(self, argument: str) -> CommandResult:
@@ -278,7 +339,8 @@ class LocalCommands:
         return """## Comandos locais
 
 - `/reasoning off|low|medium|high|max` — altera e salva o reasoning.
-- `/model [modelo]` — lista ou seleciona um GGUF.
+- `/model [GGUF]` — lista GGUFs ou troca de modelo; `★` indica um GGUF sem perfil.
+- `/profile [nome]` — lista perfis ou abre o último modelo de um perfil.
 - `/context [tokens|reset]` — consulta ou altera o contexto do modelo.
 - `/permissions [categoria decisão]` — consulta ou altera permissões.
 - `/config` — mostra a configuração atual.

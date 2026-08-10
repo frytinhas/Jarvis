@@ -20,6 +20,7 @@ from jarvis.memory import LearningContextStore, summarize_conversation, summariz
 from jarvis.memory.learning import LearningSummaryError
 from jarvis.security.input_guard import unsafe_chat_input_reason
 from jarvis.ui.line_editor import read_line
+from jarvis.profiles import create_profile_for_model, profile_locations
 
 
 POSITIVE = {"s", "sim", "y", "yes", "pode", "confirmo", "execute", "faça", "faca"}
@@ -186,6 +187,42 @@ class TerminalUI:
             print("\033[2J\033[H" if sys.stdout.isatty() else "\n" * 3, end="")
         if result.text:
             print(f"\n{render_markdown(result.text, self.theme)}")
+        if result.profile_choices or result.ask_model_assignment:
+            if not result.target_model:
+                return SessionExit.CONTINUE
+            choices = list(result.profile_choices)
+            new_model = result.ask_model_assignment
+            if new_model:
+                choices = [item.slug for item in profile_locations() if item.slug is not None]
+                for index, name in enumerate(choices, 1):
+                    print(f"  {index}. {name}")
+                print("  n. Criar novo perfil")
+            else:
+                for index, name in enumerate(choices, 1):
+                    print(f"  {index}. {name}")
+            answer = input("Perfil de destino (vazio cancela): ").strip().lower()
+            if not answer:
+                return SessionExit.CONTINUE
+            if new_model and answer in {"n", "novo", "new"}:
+                display = input("Nome do novo perfil: ").strip()
+                try:
+                    target = create_profile_for_model(Path(result.target_model), display)
+                except (OSError, ValueError) as error:
+                    print(self.theme.paint(f"Não foi possível criar o perfil: {error}", "error"))
+                    return SessionExit.CONTINUE
+                associate = False
+            else:
+                try:
+                    target = choices[int(answer) - 1]
+                except (ValueError, IndexError):
+                    print(self.theme.paint("Escolha de perfil inválida.", "error"))
+                    return SessionExit.CONTINUE
+                associate = new_model
+            result = type(result)(
+                result.handled, result.text, result.action, result.clear_screen,
+                result.ask_model_restart, True, target, result.target_model,
+                (), False, associate,
+            )
         if result.ask_model_restart:
             while True:
                 answer = input("Reiniciar o servidor e abrir uma nova sessão agora? [y/N] ")
@@ -205,7 +242,7 @@ class TerminalUI:
                     return SessionExit.CONTINUE
                 try:
                     handoff = summarize_conversation(self.orchestrator.llm, self.orchestrator.transcript)
-                    self._write_switch_request(result.target_profile, handoff)
+                    self._write_switch_request(result.target_profile, handoff, result.target_model, result.associate_model)
                 except Exception as error:
                     print(self.theme.paint(f"Não foi possível preparar a troca: {error}", "error"))
                     return SessionExit.CONTINUE
@@ -328,7 +365,9 @@ class TerminalUI:
                 if self.commands is not None:
                     self.commands.config = self.config
 
-    def _write_switch_request(self, target: str | None, handoff: str) -> None:
+    def _write_switch_request(
+        self, target: str | None, handoff: str, model: str | None = None, associate: bool = False
+    ) -> None:
         request_path = os.environ.get("JARVIS_SWITCH_REQUEST_PATH")
         if not request_path or not target:
             raise OSError("O launcher não preparou uma troca de perfil segura")
@@ -337,7 +376,7 @@ class TerminalUI:
             raise OSError("O pedido de troca não pode ser um symlink")
         temporary = path.with_suffix(".tmp")
         temporary.write_text(
-            json.dumps({"target": target, "handoff": handoff}, ensure_ascii=False),
+            json.dumps({"target": target, "handoff": handoff, "model": model, "associate": associate}, ensure_ascii=False),
             encoding="utf-8",
         )
         temporary.chmod(0o600)

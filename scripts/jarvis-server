@@ -18,7 +18,7 @@ config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 export JARVIS_CONFIG_PATH="$config_home/jarvis/profiles/$PROFILE_NAME/config.xml"
 STATE_DIR="$HOME/.local/state/jarvis/profiles/$PROFILE_NAME"
 RUNTIME_FILE="$STATE_DIR/runtime.env"
-SERVER_LOG="$STATE_DIR/logs/runtime/llama-server.log"
+SERVER_LOG=""
 
 if [[ ! -f "$INSTALL_FILE" || ! -x "$PYTHON_BIN" ]]; then
     echo "Configuração do Jarvis não encontrada. Execute: $PROJECT_DIR/Setup.sh" >&2
@@ -34,6 +34,8 @@ fi
 # Arquivo interno gerado a partir de config.xml.
 source "$INSTALL_FILE"
 source "$RUNTIME_FILE"
+MODEL_KEY="$("$PYTHON_BIN" -P -m jarvis.profile_cli model-key "$MODEL_PATH")" || exit 1
+SERVER_LOG="$STATE_DIR/models/$MODEL_KEY/logs/runtime/llama-server.log"
 
 if [[ ! -x "$LLAMA_BIN" ]]; then
     echo "Servidor llama não encontrado: $LLAMA_BIN" >&2

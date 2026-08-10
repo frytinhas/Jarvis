@@ -10,7 +10,8 @@ from jarvis.configurator import _displace_named_profile
 from jarvis.profiles import (
     allocate_server_port, build_profile_config, normalize_profile_name,
     config_root, migrate_legacy_profile, profile_config_directory, profile_locations,
-    profile_state_directory, state_root,
+    profile_state_directory, state_root, associate_profile_model, model_config_directory,
+    model_state_directory, profile_model_owners, profile_models, delete_profile, reset_profile,
 )
 from jarvis.resources import ensure_private_resources
 
@@ -97,3 +98,40 @@ def test_single_profile_layout_migrates_without_forcing_learning(tmp_path: Path,
     assert migrated.settings.persona_path.parent == profile_config_directory("jarvis")
     assert (profile_state_directory("jarvis") / "logs/conversations.db").read_bytes() == b"memory"
     assert not (config_root() / "config.xml").exists()
+
+
+def test_profile_can_associate_multiple_models_with_private_model_paths(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _environment(tmp_path, monkeypatch)
+    first = tmp_path / "models/first.gguf"
+    second = tmp_path / "models/second.gguf"
+    first.parent.mkdir()
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    config = build_profile_config(first, "Jarvis")
+    ensure_private_resources(config.settings)
+    save_config(config, profile_config_directory("jarvis") / "config.xml")
+
+    associate_profile_model("jarvis", first)
+    associate_profile_model("jarvis", second)
+
+    assert set(profile_models("jarvis")) == {first.resolve(), second.resolve()}
+    assert profile_model_owners(second) == ["jarvis"]
+    assert model_state_directory("jarvis", first) != model_state_directory("jarvis", second)
+    assert model_config_directory("jarvis", first) != model_config_directory("jarvis", second)
+
+
+def test_jarvis_is_resettable_but_not_deletable(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _environment(tmp_path, monkeypatch)
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"model")
+    config = build_profile_config(model, "Jarvis")
+    ensure_private_resources(config.settings)
+    save_config(config, profile_config_directory("jarvis") / "config.xml")
+
+    with pytest.raises(ValueError, match="não pode ser apagado"):
+        delete_profile("jarvis")
+    reset_profile("jarvis")
+
+    reset = load_config(profile_config_directory("jarvis") / "config.xml")
+    assert reset.settings.model_path is None
+    assert profile_models("jarvis") == []

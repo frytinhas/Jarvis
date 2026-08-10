@@ -18,7 +18,8 @@ from jarvis.profiles import (
     ProfileLocation, build_profile_config, configured_model_paths, config_root,
     migrate_legacy_profile, normalize_profile_name, profile_config_directory,
     profile_locations, profile_paths, profile_state_directory, unnamed_config_directory,
-    validate_profile_uniqueness,
+    validate_profile_uniqueness, associate_profile_model, ensure_profile_catalog,
+    delete_profile, reset_profile,
 )
 from jarvis.resources import ensure_private_resources
 from jarvis.security.policy import Decision, Risk
@@ -205,12 +206,13 @@ def select_profile(*, setup: bool = False) -> str:
     if not locations:
         print("\nVamos configurar somente o modelo que você escolher agora.")
         directory, model = _choose_model(UserSettings())
-        display, slug = _ask_profile_name()
+        display, slug = ("Jarvis", "jarvis") if setup else _ask_profile_name()
         target = profile_config_directory(slug) / "config.xml"
         _activate_profile(slug, target)
         config = build_profile_config(model, display, autostart=True)
         ensure_private_resources(config.settings)
         save_config(config, target)
+        associate_profile_model(slug, model)
         return slug
     labels: list[str] = []
     entries: list[tuple[str, object]] = []
@@ -236,6 +238,7 @@ def select_profile(*, setup: bool = False) -> str:
         location = value
         assert isinstance(location, ProfileLocation) and location.slug is not None
         _activate_profile(location.slug, location.config_file)
+        ensure_profile_catalog(location.slug)
         return location.slug
     if kind == "browse":
         directory, model = _choose_model(UserSettings())
@@ -280,6 +283,7 @@ def select_profile(*, setup: bool = False) -> str:
     _activate_profile(slug, target / "config.xml")
     ensure_private_resources(config.settings)
     save_config(config, target / "config.xml")
+    associate_profile_model(slug, model)
     return slug
 
 
@@ -663,6 +667,9 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                 "default_reasoning_level": reasoning,
             })
         elif choice == 2:
+            if source_slug == "jarvis":
+                print("O perfil permanente jarvis não pode ser renomeado.")
+                continue
             name, command, command_replacement = _choose_identity(draft)
             collision = next(
                 (item for item in profile_locations() if item.slug == command and item.slug != source_slug),
@@ -888,6 +895,10 @@ def commit(result: ConfigurationResult) -> None:
     ensure_private_resources(result.settings)
     validate_profile_uniqueness(result.config, config_path())
     save_config(result.config)
+    if result.settings.model_path is not None:
+        active = os.environ.get("JARVIS_PROFILE")
+        if active:
+            associate_profile_model(active, result.settings.model_path)
     schedule_license_notice()
     _write_runtime(result.config)
     _apply_command(
@@ -915,8 +926,22 @@ def main(arguments: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Configuração interativa do Jarvis")
     parser.add_argument("--setup", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--edit-xml", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--delete-profile", metavar="NAME")
+    parser.add_argument("--reset-profile", metavar="NAME")
     options = parser.parse_args(arguments)
     try:
+        if options.delete_profile:
+            if not ask_yes_no(f"Apagar permanentemente o perfil {options.delete_profile} e todos os dados?", False):
+                return
+            delete_profile(options.delete_profile)
+            print(f"Perfil {options.delete_profile} apagado.")
+            return
+        if options.reset_profile:
+            if not ask_yes_no(f"Resetar o perfil {options.reset_profile} e apagar todas as informações?", False):
+                return
+            reset_profile(options.reset_profile)
+            print(f"Perfil {options.reset_profile} resetado.")
+            return
         if "JARVIS_CONFIG_PATH" not in os.environ:
             select_profile(setup=options.setup)
         if options.edit_xml:

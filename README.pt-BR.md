@@ -23,7 +23,7 @@ cd Jarvis-CLI
 bash Setup.sh
 ```
 
-Execute o Setup com o usuário que usará o Jarvis. Não use `sudo` para uma instalação de usuário comum. O instalador cria uma cópia isolada para esse usuário, prepara o `llama.cpp` quando necessário e abre o configurador interativo. Escolha um arquivo GGUF e um nome de perfil; esse nome se torna o comando para iniciar o assistente.
+Execute o Setup com o usuário que usará o Jarvis. Não use `sudo` para uma instalação de usuário comum. O instalador cria uma cópia isolada para esse usuário, prepara o `llama.cpp` quando necessário e abre o configurador interativo. O primeiro perfil permanente é `jarvis`; escolha um GGUF e crie outros perfis nomeados depois quando precisar.
 
 Caso `~/.local/bin` ainda não esteja no seu `PATH`, abra um novo terminal após o Setup terminar.
 
@@ -43,12 +43,13 @@ jarvis --r 3 "analise este projeto"
 
 Sessões de aprendizado sempre usam reasoning desligado, independentemente dessa configuração. Na primeira execução, o aprendizado só é salvo ao aprovar explicitamente um resumo com `/finish`; fechar o terminal, Ctrl+C ou `/exit` não salva nada daquela conversa.
 
-O Jarvis sempre grava um log privado de diagnóstico em JSONL no estado do perfil ativo (`logs/debug`), independentemente do nível de log exibido. O limite total padrão é 200 MB e a retenção é configurável. Credenciais e conteúdo bruto de arquivos/tools são redigidos.
+O Jarvis sempre grava um log privado de diagnóstico em JSONL no estado privado do GGUF ativo dentro do perfil (`logs/debug`), independentemente do nível de log exibido. O limite total padrão é 200 MB e a retenção é configurável. Credenciais e conteúdo bruto de arquivos/tools são redigidos.
 
 No chat, estes são os comandos mais úteis:
 
 - `/help` — mostra todos os comandos locais.
-- `/model` — lista ou troca para outro perfil/modelo configurado.
+- `/model` — lista ou troca GGUFs; `★` indica modelo ainda sem perfil.
+- `/profile` — lista ou troca perfis, usando o último GGUF escolhido nele.
 - `/reasoning off|low|medium|high|max` — salva o nível de reasoning padrão.
 - `/permissions` — exibe ou altera a política global de permissões.
 - `/config` — mostra as configurações do perfil ativo.
