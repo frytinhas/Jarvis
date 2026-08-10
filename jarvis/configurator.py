@@ -6,11 +6,20 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
+import signal
+import subprocess
 
 from jarvis.agent.prompts import default_context_path, default_persona_path
 from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.hardware import recommended_context_size
 from jarvis.legal import schedule_license_notice
+from jarvis.profiles import (
+    ProfileLocation, build_profile_config, configured_model_paths, config_root,
+    migrate_legacy_profile, normalize_profile_name, profile_config_directory,
+    profile_locations, profile_paths, profile_state_directory, unnamed_config_directory,
+    validate_profile_uniqueness,
+)
 from jarvis.resources import ensure_private_resources
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import ColorMode, DisplayLogLevel, MessageMode, UserSettings, project_root, runtime_path
@@ -25,7 +34,7 @@ CATEGORY_LABELS = {
     Risk.DELETE: "Exclusão",
     Risk.EXECUTE: "Execução de scripts e binários por path",
 }
-COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 REASONING_LABELS = ("Off", "Low", "Medium", "High", "Max")
 MENU_OPTIONS = (
     "Modelo, contexto e reasoning",
@@ -54,6 +63,8 @@ class ConfigurationResult:
     reset_persona: bool
     reset_context: bool
     command_replacement: CommandReplacement | None = None
+    source_slug: str | None = None
+    displaced_profile: ProfileLocation | None = None
 
     @property
     def settings(self) -> UserSettings:
@@ -79,12 +90,197 @@ def discover_models(directory: Path) -> list[Path]:
 
 
 def normalize_command_name(display_name: str) -> str:
-    command = display_name.strip().lower()
-    if not COMMAND_PATTERN.fullmatch(command):
-        raise ValueError("Use somente letras sem acento, números, hífen ou underscore; comece por letra")
-    if command == "jarvis-config":
-        raise ValueError("Esse nome é reservado pelo configurador")
-    return command
+    return normalize_profile_name(display_name)
+
+
+def _load_location(location: ProfileLocation) -> JarvisConfig:
+    return load_config(location.config_file)
+
+
+def _known_models() -> list[Path]:
+    roots: set[Path] = set()
+    for location in profile_locations():
+        try:
+            directory = _load_location(location).settings.model_directory
+            if directory is not None:
+                roots.add(directory.expanduser().resolve(strict=False))
+        except Exception:
+            continue
+    models: set[Path] = set()
+    for root in roots:
+        try:
+            models.update(discover_models(root))
+        except (OSError, ValueError):
+            continue
+    return sorted(models, key=lambda item: str(item).lower())
+
+
+def _ask_profile_name(default: str = "Jarvis") -> tuple[str, str]:
+    while True:
+        display = input(f"Nome deste perfil [{default}]: ").strip() or default
+        try:
+            return display, normalize_command_name(display)
+        except ValueError as error:
+            print(f"Nome inválido: {error}")
+
+
+def _displace_named_profile(slug: str) -> ProfileLocation:
+    _stop_profile_server(slug)
+    source = profile_config_directory(slug)
+    config = load_config(source / "config.xml")
+    identifier = config.settings.profile_id or os.urandom(16).hex()
+    destination = unnamed_config_directory(identifier)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise ValueError("Já existe um perfil sem nome com o mesmo identificador")
+    source_state = profile_state_directory(slug)
+    destination_state = profile_state_directory(slug).parent / ".unnamed" / identifier
+    source.rename(destination)
+    if source_state.exists():
+        destination_state.parent.mkdir(parents=True, exist_ok=True)
+        source_state.rename(destination_state)
+    settings = config.settings.model_copy(update=profile_paths(destination))
+    advanced = config.advanced
+    if config.advanced.audit_db_path.expanduser().resolve(strict=False) == source_state / "audit.db":
+        advanced = advanced.model_copy(update={"audit_db_path": destination_state / "audit.db"})
+    save_config(config.model_copy(update={"settings": settings, "advanced": advanced}), destination / "config.xml")
+    command = Path.home() / ".local/bin" / slug
+    if command.is_symlink() and command.resolve(strict=False) == _launcher_path():
+        command.unlink()
+    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")).expanduser()
+    desktop = data_home / "applications" / f"jarvis-{slug}.desktop"
+    if desktop.is_file():
+        desktop.unlink()
+    return ProfileLocation(None, identifier, destination / "config.xml")
+
+
+def _stop_profile_server(slug: str) -> None:
+    state = profile_state_directory(slug)
+    sessions = state / "sessions"
+    if sessions.is_dir():
+        for marker in sessions.iterdir():
+            try:
+                pid = int(marker.read_text(encoding="utf-8").strip())
+                os.kill(pid, 0)
+            except (OSError, ValueError):
+                continue
+            raise ValueError(f"Feche as sessões ativas do perfil {slug} antes de renomeá-lo")
+    systemctl = shutil.which("systemctl")
+    if systemctl is not None:
+        subprocess.run(
+            [systemctl, "--user", "stop", f"jarvis-llm@{slug}.service"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    pid_file = state / "llama-server.pid"
+    runtime = state / "runtime.env"
+    if not pid_file.is_file() or not runtime.is_file():
+        return
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        port_line = next(
+            line for line in runtime.read_text(encoding="utf-8").splitlines()
+            if line.startswith("SERVER_PORT=")
+        )
+        port = int(port_line.split("=", 1)[1])
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="ignore")
+        if "llama" in cmdline and f"--port {port}" in cmdline:
+            os.kill(pid, signal.SIGTERM)
+            pid_file.unlink(missing_ok=True)
+    except (OSError, ValueError, StopIteration):
+        return
+
+
+def _activate_profile(slug: str, path: Path) -> None:
+    os.environ["JARVIS_PROFILE"] = slug
+    os.environ["JARVIS_CONFIG_PATH"] = str(path)
+
+
+def select_profile(*, setup: bool = False) -> str:
+    """Select a configured profile or configure exactly one discovered GGUF."""
+    migrate_legacy_profile()
+    locations = profile_locations()
+    configured = configured_model_paths()
+    free_models = [model for model in _known_models() if model not in configured]
+    if not locations:
+        print("\nVamos configurar somente o modelo que você escolher agora.")
+        directory, model = _choose_model(UserSettings())
+        display, slug = _ask_profile_name()
+        target = profile_config_directory(slug) / "config.xml"
+        _activate_profile(slug, target)
+        config = build_profile_config(model, display, autostart=True)
+        ensure_private_resources(config.settings)
+        save_config(config, target)
+        return slug
+    labels: list[str] = []
+    entries: list[tuple[str, object]] = []
+    for location in locations:
+        try:
+            settings = _load_location(location).settings
+        except ConfigFileError:
+            continue
+        if location.slug is None:
+            labels.append(f"Sem nome · {settings.model_path}")
+            entries.append(("unnamed", location))
+        else:
+            labels.append(f"{settings.assistant_name} · {settings.model_path}")
+            entries.append(("profile", location))
+    for model in free_models:
+        labels.append(f"Novo perfil · {model}")
+        entries.append(("model", model))
+    labels.append("Procurar modelos em outra pasta")
+    entries.append(("browse", None))
+    selected = ask_choice("Escolha o modelo/perfil a configurar", labels, 1) - 1
+    kind, value = entries[selected]
+    if kind == "profile":
+        location = value
+        assert isinstance(location, ProfileLocation) and location.slug is not None
+        _activate_profile(location.slug, location.config_file)
+        return location.slug
+    if kind == "browse":
+        directory, model = _choose_model(UserSettings())
+    elif kind == "model":
+        model = value
+        assert isinstance(model, Path)
+    else:
+        location = value
+        assert isinstance(location, ProfileLocation)
+        existing = load_config(location.config_file)
+        default = existing.settings.assistant_name or "Jarvis"
+        display, slug = _ask_profile_name(default)
+        target = profile_config_directory(slug)
+        if target.exists():
+            if not ask_yes_no(f"O perfil {slug} já existe. Substituir o nome?", False):
+                raise SystemExit("Escolha outro nome para continuar.")
+            _displace_named_profile(slug)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        location.config_file.parent.rename(target)
+        unnamed_state = profile_state_directory(slug).parent / ".unnamed" / location.identifier
+        if unnamed_state.exists():
+            state_target = profile_state_directory(slug)
+            state_target.parent.mkdir(parents=True, exist_ok=True)
+            unnamed_state.rename(state_target)
+        paths = profile_paths(target)
+        settings = existing.settings.model_copy(update={
+            "assistant_name": display, "command_name": slug, **paths,
+        })
+        advanced = existing.advanced
+        if advanced.audit_db_path.expanduser().resolve(strict=False) == unnamed_state / "audit.db":
+            advanced = advanced.model_copy(update={"audit_db_path": profile_state_directory(slug) / "audit.db"})
+        save_config(existing.model_copy(update={"settings": settings, "advanced": advanced}), target / "config.xml")
+        _activate_profile(slug, target / "config.xml")
+        return slug
+    display, slug = _ask_profile_name(model.stem[:32] or "Jarvis")
+    target = profile_config_directory(slug)
+    if target.exists():
+        if not ask_yes_no(f"O perfil {slug} já existe. Transferir esse nome?", False):
+            raise SystemExit("Escolha outro nome para continuar.")
+        _displace_named_profile(slug)
+    config = build_profile_config(model, display, autostart=True)
+    _activate_profile(slug, target / "config.xml")
+    ensure_private_resources(config.settings)
+    save_config(config, target / "config.xml")
+    return slug
 
 
 def ask_yes_no(prompt: str, default: bool) -> bool:
@@ -286,6 +482,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     print("\nResumo da configuração")
     print(f"  Pasta de modelos: {settings.model_directory}")
     print(f"  Modelo: {settings.model_path}")
+    print(f"  Porta local: {settings.server_port}")
     print(f"  Contexto do modelo: {settings.context_size} tokens")
     print(
         "  Reasoning padrão: "
@@ -315,6 +512,7 @@ def _full_summary(settings: UserSettings, reset_persona: bool, reset_context: bo
     retention = "sem limite" if settings.log_retention_days <= 0 else f"{settings.log_retention_days} dias"
     print(f"  Logs de conversa: tamanho {size}; retenção {retention}")
     print(f"  Notas de perfil para IA: limite {settings.notes_max_size_mb} MB")
+    print(f"  Aprendizado: {settings.learning_state} · {settings.learning_context_path}")
     if any(settings.permissions.get(risk) is Decision.ALLOW for risk in (Risk.MODIFY, Risk.DELETE, Risk.EXECUTE)):
         print("  AVISO: existem ações sensíveis liberadas sem confirmação.")
 
@@ -368,6 +566,7 @@ def _changes_summary(
         ("Pasta de modelos", "model_directory", str),
         ("Modelo", "model_path", str),
         ("Contexto do modelo", "context_size", lambda value: f"{value} tokens"),
+        ("Porta local", "server_port", str),
         ("Reasoning padrão", "default_reasoning_level", _reasoning_label),
         ("Nome", "assistant_name", str),
         ("Comando", "command_name", str),
@@ -382,6 +581,7 @@ def _changes_summary(
         ("Limite dos logs", "log_max_size_mb", _log_size_label),
         ("Retenção dos logs", "log_retention_days", _retention_label),
         ("Limite das notas de perfil", "notes_max_size_mb", lambda value: f"{value} MB"),
+        ("Estado do aprendizado", "learning_state", str),
     )
     for label, attribute, formatter in fields:
         old_value = getattr(previous, attribute)
@@ -429,6 +629,8 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
     reset_default = False
     reset_context = False
     command_replacement: CommandReplacement | None = None
+    displaced_profile: ProfileLocation | None = None
+    source_slug = os.environ.get("JARVIS_PROFILE")
     if draft.model_path is None:
         print("\nVamos começar escolhendo o modelo local. Depois você poderá revisar o restante com calma.")
         model_directory, model_path = _choose_model(draft)
@@ -442,7 +644,6 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
         )
         choice = ask_choice("Categorias", list(MENU_OPTIONS), 9)
         if choice == 1:
-            directory, model = _choose_model(draft)
             recommended_context = recommended_context_size()
             context_size = ask_positive_integer(
                 "Contexto do modelo em tokens (múltiplo de 1024)", recommended_context
@@ -458,13 +659,23 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                 draft.default_reasoning_level + 1,
             ) - 1
             draft = draft.model_copy(update={
-                "model_directory": directory,
-                "model_path": model,
                 "context_size": context_size,
                 "default_reasoning_level": reasoning,
             })
         elif choice == 2:
             name, command, command_replacement = _choose_identity(draft)
+            collision = next(
+                (item for item in profile_locations() if item.slug == command and item.slug != source_slug),
+                None,
+            )
+            if collision is not None:
+                if not ask_yes_no(
+                    f"O perfil {command} já existe. Transferir esse nome e deixá-lo sem nome?",
+                    False,
+                ):
+                    print("O nome atual foi mantido.")
+                    continue
+                displaced_profile = collision
             draft = draft.model_copy(update={"assistant_name": name, "command_name": command})
         elif choice == 3:
             autostart = ask_yes_no("Iniciar o servidor junto com o usuário?", draft.autostart)
@@ -543,6 +754,8 @@ def run_wizard(*, full_summary: bool = False) -> ConfigurationResult | None:
                     reset_default,
                     reset_context,
                     command_replacement,
+                    source_slug,
+                    displaced_profile,
                 )
             print("Tudo bem; nenhuma alteração foi salva ainda.")
         elif choice == 10:
@@ -559,6 +772,8 @@ def _write_runtime(config: JarvisConfig) -> None:
     content = "\n".join(
         (
             f"MODEL_PATH={shlex.quote(str(settings.model_path))}",
+            f"PROFILE_NAME={shlex.quote(settings.command_name)}",
+            f"SERVER_PORT={settings.server_port}",
             f"CONTEXT_SIZE={settings.context_size}",
             f"MODEL_ALIAS={shlex.quote(config.advanced.llm_model)}",
             f"COMMAND_NAME={shlex.quote(settings.command_name)}",
@@ -606,7 +821,7 @@ def _apply_desktop_entry(settings: UserSettings) -> None:
     icon_source = project_root() / "jarvis/ui/Icon.png"
     icon_target = data_home / "icons/jarvis-local.png"
     applications = data_home / "applications"
-    desktop_file = applications / "jarvis-local.desktop"
+    desktop_file = applications / f"jarvis-{settings.command_name}.desktop"
     icon_target.parent.mkdir(parents=True, exist_ok=True)
     applications.mkdir(parents=True, exist_ok=True)
     icon_target.write_bytes(icon_source.read_bytes())
@@ -634,11 +849,44 @@ def _apply_desktop_entry(settings: UserSettings) -> None:
 def commit(result: ConfigurationResult) -> None:
     _validate_command_collision(result.settings.command_name, result.command_replacement)
     old = load_config(allow_legacy=True).settings
+    had_displaced_profile = result.displaced_profile is not None
+    source_slug = result.source_slug
+    target_slug = result.settings.command_name
+    if had_displaced_profile:
+        _displace_named_profile(target_slug)
+    config = result.config
+    if source_slug and source_slug != target_slug:
+        _stop_profile_server(source_slug)
+        source_config = profile_config_directory(source_slug)
+        target_config = profile_config_directory(target_slug)
+        source_state = profile_state_directory(source_slug)
+        target_state = profile_state_directory(target_slug)
+        if target_config.exists() or target_state.exists():
+            raise ValueError("O destino do perfil passou a existir antes da confirmação")
+        target_config.parent.mkdir(parents=True, exist_ok=True)
+        source_config.rename(target_config)
+        if source_state.exists():
+            target_state.parent.mkdir(parents=True, exist_ok=True)
+            source_state.rename(target_state)
+        updated_settings = config.settings.model_copy(update=profile_paths(target_config))
+        old_audit = config.advanced.audit_db_path.expanduser().resolve(strict=False)
+        old_state = source_state.resolve(strict=False)
+        updated_advanced = config.advanced
+        if old_audit == old_state / "audit.db":
+            updated_advanced = updated_advanced.model_copy(update={"audit_db_path": target_state / "audit.db"})
+        config = config.model_copy(update={"settings": updated_settings, "advanced": updated_advanced})
+        os.environ["JARVIS_PROFILE"] = target_slug
+        os.environ["JARVIS_CONFIG_PATH"] = str(target_config / "config.xml")
+        result = ConfigurationResult(
+            config, result.previous_command, result.reset_persona, result.reset_context,
+            result.command_replacement, target_slug, None,
+        )
     if result.reset_persona:
         result.settings.persona_path.write_bytes(default_persona_path().read_bytes())
     if result.reset_context:
         result.settings.context_path.write_bytes(default_context_path().read_bytes())
     ensure_private_resources(result.settings)
+    validate_profile_uniqueness(result.config, config_path())
     save_config(result.config)
     schedule_license_notice()
     _write_runtime(result.config)
@@ -648,7 +896,16 @@ def commit(result: ConfigurationResult) -> None:
         result.command_replacement,
     )
     _apply_desktop_entry(result.settings)
+    if result.previous_command != result.settings.command_name:
+        data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")).expanduser()
+        old_desktop = data_home / "applications" / f"jarvis-{result.previous_command}.desktop"
+        if old_desktop.is_file():
+            old_desktop.unlink()
     if old.model_path != result.settings.model_path or old.context_size != result.settings.context_size:
+        marker = runtime_path().parent / "restart-required"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    if had_displaced_profile:
         marker = runtime_path().parent / "restart-required"
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
@@ -657,8 +914,16 @@ def commit(result: ConfigurationResult) -> None:
 def main(arguments: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Configuração interativa do Jarvis")
     parser.add_argument("--setup", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--edit-xml", action="store_true", help=argparse.SUPPRESS)
     options = parser.parse_args(arguments)
     try:
+        if "JARVIS_CONFIG_PATH" not in os.environ:
+            select_profile(setup=options.setup)
+        if options.edit_xml:
+            editor = shutil.which("nano")
+            if editor is None:
+                raise SystemExit("O editor nano não está instalado.")
+            os.execv(editor, [editor, str(config_path())])
         result = run_wizard(full_summary=options.setup)
         if result is None:
             return

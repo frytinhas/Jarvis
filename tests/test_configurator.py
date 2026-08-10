@@ -49,7 +49,7 @@ def test_normalizes_valid_command_names(name: str, expected: str) -> None:
     assert normalize_command_name(name) == expected
 
 
-@pytest.mark.parametrize("name", ["123bob", "Bob Smith", "bób", "jarvis-config"])
+@pytest.mark.parametrize("name", ["123bob", "Bob Smith", "bob_smith", "bób", "jarvis-config"])
 def test_rejects_unsafe_or_reserved_command_names(name: str) -> None:
     with pytest.raises(ValueError):
         normalize_command_name(name)
@@ -227,7 +227,7 @@ def test_desktop_entry_uses_custom_identity_and_icon(tmp_path: Path, monkeypatch
 
     _apply_desktop_entry(settings)
 
-    desktop = (tmp_path / "data/applications/jarvis-local.desktop").read_text(encoding="utf-8")
+    desktop = (tmp_path / "data/applications/jarvis-bob.desktop").read_text(encoding="utf-8")
     assert "Name=Bob" in desktop
     assert f'Exec="{tmp_path}/.local/bin/bob"' in desktop
     assert f"Icon={tmp_path}/data/icons/jarvis-local.png" in desktop
@@ -329,6 +329,7 @@ def test_model_category_updates_reasoning(monkeypatch, tmp_path: Path) -> None: 
         goodbye_messages_path=paths["goodbye_messages"],
         blacklist_path=paths["blacklist"],
         whitelist_path=paths["whitelist"],
+        learning_context_path=paths["learning_context"],
     )
     config = JarvisConfig(settings=settings)
     choices = iter([1, 4, 9])
@@ -363,6 +364,7 @@ def test_template_thinking_follows_reasoning_level() -> None:
 
 def test_setup_mode_requests_full_summary(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     calls: list[bool] = []
+    monkeypatch.setenv("JARVIS_CONFIG_PATH", "/tmp/test-config.xml")
     monkeypatch.setattr(
         "jarvis.configurator.run_wizard",
         lambda *, full_summary=False: calls.append(full_summary),

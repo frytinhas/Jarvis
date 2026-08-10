@@ -4,6 +4,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import json
 import os
 from pathlib import Path
 import shutil
@@ -15,13 +16,13 @@ from jarvis.agent.prompts import build_system_prompt
 from jarvis.config import config_path, load_config, save_config
 from jarvis.legal import consume_license_notice
 from jarvis.llm.client import LLMNotice, LlamaClient
-from jarvis.memory import ConversationLogStore, ProfileNotesStore
+from jarvis.memory import ConversationLogStore, ProfileNotesStore, LearningContextStore
 from jarvis.model_status import record_tool_grammar_failure, startup_tool_warning
 from jarvis.security.audit import AuditLog
 from jarvis.security.confirmation import ConfirmationManager
 from jarvis.security.path_policy import PathPolicy
 from jarvis.security.policy import Decision, PolicyEngine, Risk
-from jarvis.settings import DisplayLogLevel, MessageMode, project_root
+from jarvis.settings import DisplayLogLevel, MessageMode, project_root, state_directory
 from jarvis.tools.registry import build_registry
 from jarvis.tools import system
 from jarvis.ui.terminal import TerminalUI
@@ -108,6 +109,26 @@ def parse_initial_message(arguments: list[str] | None = None, prog: str = "jarvi
     return parse_invocation(arguments, prog).message
 
 
+def _consume_handoff() -> str:
+    raw = os.environ.pop("JARVIS_HANDOFF_PATH", "")
+    if not raw:
+        return ""
+    path = Path(raw).expanduser().absolute()
+    try:
+        if path.is_symlink() or not path.is_file():
+            return ""
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        handoff = payload.get("handoff", "") if isinstance(payload, dict) else ""
+        return str(handoff)[:12_000]
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return ""
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
 def main(arguments: list[str] | None = None) -> None:
     invocation_directory = Path.cwd().resolve()
     config = load_config()
@@ -119,9 +140,16 @@ def main(arguments: list[str] | None = None) -> None:
     if invocation.edit_resource:
         _edit_resource(config, invocation.edit_resource)
         return
+    if user_settings.learning_state == "pending" and (
+        invocation.message is not None or not sys.stdin.isatty() or not sys.stdout.isatty()
+    ):
+        raise SystemExit(
+            "A primeira sessão deste perfil é um aprendizado interativo. Abra o comando sem "
+            "mensagem, pipe ou redirecionamento para concluí-lo e aprovar o resumo."
+        )
     _confirm_root_startup()
     maintain_runtime_logs(
-        Path.home() / ".local/state/jarvis/logs/runtime",
+        state_directory() / "logs/runtime",
         user_settings.log_max_size_mb,
         user_settings.log_retention_days,
     )
@@ -152,9 +180,10 @@ def main(arguments: list[str] | None = None) -> None:
         user_settings.blacklist_path,
         project_directory=project_root(),
         whitelist_path=user_settings.whitelist_path,
+        private_directories=(config_path().parent,),
     )
     memory_store = ConversationLogStore(
-        Path.home() / ".local/state/jarvis/logs",
+        state_directory() / "logs",
         max_size_mb=user_settings.log_max_size_mb,
         retention_days=user_settings.log_retention_days,
     )
@@ -166,6 +195,7 @@ def main(arguments: list[str] | None = None) -> None:
         path_policy,
         memory_store,
         activity,
+        protected_directories=(config_path().parent, state_directory()),
     )
     user_directories: dict[str, object] = {}
     directory_context_read = path_policy.decide(
@@ -198,6 +228,9 @@ def main(arguments: list[str] | None = None) -> None:
         notes_store = ProfileNotesStore(config_path().parent / "jarvis-notes")
     except OSError as error:
         notes_store_error = str(error)
+    learning_store = LearningContextStore(user_settings.learning_context_path)
+    approved_learning = learning_store.read() if user_settings.learning_state == "complete" else ""
+    handoff_context = _consume_handoff()
     waiting_messages = load_waiting_messages(user_settings.waiting_messages_path)
     goodbye_messages = load_waiting_messages(user_settings.goodbye_messages_path)
     waiting_indicator = WaitingIndicator(waiting_messages)
@@ -237,20 +270,25 @@ def main(arguments: list[str] | None = None) -> None:
                     )
             except (OSError, RuntimeError, TimeoutError) as error:
                 notes_warning = f"Não foi possível preparar as notas de perfil: {error}"
-        system_prompt = build_system_prompt(
-            user_settings.assistant_name,
-            user_settings.persona_path,
-            invocation_directory,
-            context_path=user_settings.context_path,
-            home_directory=Path.home().resolve(),
-            current_time=datetime.now().astimezone(),
-            user_directories=user_directories,
-            recent_memories=recent_memories,
-            jarvis_notes=notes,
-            interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
-            llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
-            max_tool_rounds=user_settings.max_tool_rounds,
-        )
+        def prompt_for(learning: str = "", *, mode: bool = False) -> str:
+            return build_system_prompt(
+                user_settings.assistant_name,
+                user_settings.persona_path,
+                invocation_directory,
+                context_path=user_settings.context_path,
+                home_directory=Path.home().resolve(),
+                current_time=datetime.now().astimezone(),
+                user_directories=user_directories,
+                recent_memories=recent_memories,
+                jarvis_notes=notes,
+                learning_context=learning,
+                handoff_context=handoff_context,
+                learning_mode=mode,
+                interaction_timeout_seconds=user_settings.interaction_timeout_seconds,
+                llm_request_timeout_seconds=user_settings.llm_request_timeout_seconds,
+                max_tool_rounds=user_settings.max_tool_rounds,
+            )
+        system_prompt = prompt_for(approved_learning, mode=user_settings.learning_state == "pending")
         orchestrator = Orchestrator(
             llm,
             registry,
@@ -274,7 +312,7 @@ def main(arguments: list[str] | None = None) -> None:
         tool_warning = startup_tool_warning(user_settings.model_path)
         if tool_warning:
             warning = f"{warning}\n{tool_warning}" if warning else tool_warning
-        outcome = TerminalUI(
+        terminal = TerminalUI(
             orchestrator,
             user_settings.assistant_name,
             warning,
@@ -283,28 +321,41 @@ def main(arguments: list[str] | None = None) -> None:
             config=config,
             theme=theme,
             show_license_notice=consume_license_notice(),
-        ).run(
+            learning_store=learning_store,
+            learning_mode=user_settings.learning_state == "pending",
+            learning_prompt=prompt_for("", mode=True),
+            normal_prompt=lambda summary: prompt_for(summary, mode=False),
+        )
+        outcome = terminal.run(
             initial_message,
             continue_after_initial=(
                 initial_message is None or user_settings.message_mode is MessageMode.INTERACTIVE
             ),
         )
-        log_path = memory_store.create(
-            orchestrator.transcript,
-            started_at=orchestrator.started_at,
-            invocation_directory=invocation_directory,
-        )
+        transcripts = list(terminal.completed_transcripts)
+        if not terminal.learning_mode and orchestrator.transcript:
+            transcripts.append((orchestrator.transcript, orchestrator.started_at, invocation_directory))
+        log_paths = [
+            identifier
+            for transcript, started_at, directory in transcripts
+            if (identifier := memory_store.create(
+                transcript, started_at=started_at, invocation_directory=directory
+            )) is not None
+        ]
         workers = []
-        if log_path is not None and outcome is not SessionExit.RESTART_MODEL:
-            worker = memory_store.schedule_summary(log_path)
-            if worker is not None:
-                workers.append(worker.pid)
-        if log_path is not None and notes_store is not None:
-            worker = memory_store.schedule_profile_notes(log_path, notes_store.path)
-            if worker is not None:
-                workers.append(worker.pid)
+        for log_path in log_paths:
+            if outcome is not SessionExit.RESTART_MODEL:
+                worker = memory_store.schedule_summary(log_path)
+                if worker is not None:
+                    workers.append(worker.pid)
+            if notes_store is not None:
+                worker = memory_store.schedule_profile_notes(log_path, notes_store.path)
+                if worker is not None:
+                    workers.append(worker.pid)
         if outcome is SessionExit.RESTART_MODEL:
             raise SystemExit(75)
+        if outcome is SessionExit.SWITCH_PROFILE:
+            raise SystemExit(77)
         if outcome is SessionExit.FULL_STOP:
             launcher = os.environ.get("JARVIS_LAUNCHER")
             if launcher:

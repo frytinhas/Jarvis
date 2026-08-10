@@ -14,7 +14,15 @@ from jarvis.resources import ensure_private_resources
 def _remove_model_profiles_section(content: str) -> str:
     start = content.index("  <model_profiles>")
     end = content.index("  </model_profiles>") + len("  </model_profiles>\n")
-    return content[:start] + content[end:]
+    content = content[:start] + content[end:]
+    for line in (
+        "    <server_port>8080</server_port>\n",
+        "    <profile_id />\n",
+        "    <learning_state>complete</learning_state>\n",
+        f"    <learning_context>{default_config().settings.learning_context_path}</learning_context>\n",
+    ):
+        content = content.replace(line, "")
+    return content
 
 
 def test_xml_config_round_trip_with_comments_and_private_mode(tmp_path: Path) -> None:
@@ -146,12 +154,14 @@ def test_private_resources_are_created_with_private_permissions(tmp_path: Path) 
         "goodbye_messages_path": tmp_path / "config/GoodbyeMessages.txt",
         "blacklist_path": tmp_path / "config/Blacklist.txt",
         "whitelist_path": tmp_path / "config/Whitelist.txt",
+        "learning_context_path": tmp_path / "config/LearningContext.md",
     })
     ensure_private_resources(settings)
     for path in (
         settings.persona_path, settings.context_path, settings.waiting_messages_path,
         settings.goodbye_messages_path,
         settings.blacklist_path, settings.whitelist_path, settings.whitelist_path.parent / "jarvis-notes",
+        settings.learning_context_path,
     ):
         assert path.is_file()
         assert path.stat().st_mode & 0o777 == 0o600

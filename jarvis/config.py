@@ -9,12 +9,13 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jarvis.security.policy import Decision, Risk
+from jarvis.profiles import active_profile, profile_config_directory
 from jarvis.settings import (
     ColorMode, DisplayLogLevel, UserSettings, default_settings, editable_paths, project_root,
 )
 
 
-CONFIG_VERSION = 12
+CONFIG_VERSION = 13
 
 
 class ConfigFileError(ValueError):
@@ -49,6 +50,9 @@ def config_path() -> Path:
     override = os.environ.get("JARVIS_CONFIG_PATH")
     if override:
         return Path(override).expanduser()
+    profile = active_profile()
+    if profile is not None:
+        return profile_config_directory(profile) / "config.xml"
     config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")).expanduser()
     return config_home / "jarvis/config.xml"
 
@@ -62,6 +66,7 @@ def default_config() -> JarvisConfig:
         "goodbye_messages_path": paths["goodbye_messages"],
         "blacklist_path": paths["blacklist"],
         "whitelist_path": paths["whitelist"],
+        "learning_context_path": paths["learning_context"],
     }))
 
 
@@ -174,7 +179,7 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         version = int(root.attrib["version"])
     except (KeyError, ValueError) as error:
         raise ConfigFileError(path, "atributo version inválido") from error
-    if version not in {5, 6, 7, 8, 9, 10, 11, CONFIG_VERSION}:
+    if version not in {5, 6, 7, 8, 9, 10, 11, 12, CONFIG_VERSION}:
         raise ConfigFileError(path, f"versão {version} não suportada; esperada entre 5 e {CONFIG_VERSION}")
 
     sections = {"model", "identity", "behavior", "permissions", "llm", "logs", "paths"}
@@ -184,8 +189,10 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         sections.add("appearance")
     _validate_children(root, sections, path)
     expected = {
-        "model": {"directory", "path", "context_size"} if version >= 9 else {"directory", "path"},
-        "identity": {"assistant_name", "command_name"},
+        "model": ({"directory", "path", "context_size", "server_port"} if version >= 13 else
+                  ({"directory", "path", "context_size"} if version >= 9 else {"directory", "path"})),
+        "identity": ({"assistant_name", "command_name", "profile_id", "learning_state"}
+                     if version >= 13 else {"assistant_name", "command_name"}),
         "behavior": ({
             "autostart", "keep_llm_running", "message_mode", "request_timeout_seconds"
         } if version == 5 else {
@@ -200,7 +207,8 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                  ({"max_size_mb", "retention_days", "notes_max_size_mb", "audit_db_path", "display_level"}
                   if version >= 11 else {"max_size_mb", "retention_days", "audit_db_path", "display_level"})),
         "paths": (
-            {"persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist"}
+            ({"persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist", "learning_context"}
+             if version >= 13 else {"persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist"})
             if version >= 10 else (
                 {"persona", "context", "waiting_messages", "blacklist", "whitelist"}
                 if version >= 8 else {"persona"}
@@ -253,10 +261,15 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
         )
         settings = UserSettings(
             version=CONFIG_VERSION,
+            profile_id=(_text(identity, "profile_id") if version >= 13 else ""),
+            learning_state=(_text(identity, "learning_state") if version >= 13 else "complete"),
             model_directory=_optional_path(_text(model, "directory")),
             model_path=_optional_path(_text(model, "path")),
             context_size=(4096 if version < 9 else _integer(
                 _text(model, "context_size"), "context_size", path
+            )),
+            server_port=(8080 if version < 13 else _integer(
+                _text(model, "server_port"), "server_port", path
             )),
             permissions=permissions,
             assistant_name=assistant_name,
@@ -311,6 +324,10 @@ def _config_from_root(root: ET.Element, path: Path) -> JarvisConfig:
                 Path(_text(paths, "whitelist")).expanduser()
                 if version >= 8 else editable_paths(path.parent)["whitelist"]
             ),
+            learning_context_path=(
+                Path(_text(paths, "learning_context")).expanduser()
+                if version >= 13 else editable_paths(path.parent)["learning_context"]
+            ),
         )
         advanced = AdvancedConfig(
             llm_base_url=base_url,
@@ -350,14 +367,14 @@ def _model_template_profiles(value: str, path: Path) -> dict[str, bool]:
 def _new_tree() -> ET.ElementTree:
     root = ET.Element("jarvis", {"version": str(CONFIG_VERSION)})
     definitions = (
-        ("model", "Modelo GGUF e contexto em tokens usados pelo servidor local.", "Local GGUF model and token context used by the local server.", ("directory", "path", "context_size")),
+        ("model", "Modelo GGUF, contexto e porta usados pelo servidor local.", "Local GGUF model, context and port used by the local server.", ("directory", "path", "context_size", "server_port")),
         ("model_profiles", "Preferências legadas por GGUF; o thinking agora segue o reasoning.", "Legacy per-GGUF preferences; thinking now follows reasoning.", ("template_thinking",)),
-        ("identity", "Nome exibido e comando público do assistente.", "Assistant display name and public command.", ("assistant_name", "command_name")),
+        ("identity", "Identidade do perfil e estado do aprendizado inicial.", "Profile identity and initial learning state.", ("assistant_name", "command_name", "profile_id", "learning_state")),
         ("behavior", "Comportamento, limites e reasoning padrão do assistente.", "Assistant behavior, limits, and default reasoning.", ("autostart", "keep_llm_running", "message_mode", "max_tool_rounds", "interaction_timeout_seconds", "llm_request_timeout_seconds", "default_reasoning_level")),
         ("permissions", "Valores aceitos: ALLOW, CONFIRM ou DENY. PRIVILEGED deve ser DENY.", "Accepted values: ALLOW, CONFIRM, or DENY. PRIVILEGED must be DENY.", tuple(risk.value for risk in Risk)),
         ("llm", "Endpoint, nome do modelo, chave opcional e timeout de confirmação.", "Endpoint, model name, optional key, and confirmation timeout.", ("base_url", "model", "api_key", "confirmation_timeout")),
         ("logs", "Nível visual e limites privados de logs e notas de perfil.", "Display level and private limits for logs and profile notes.", ("max_size_mb", "retention_days", "notes_max_size_mb", "audit_db_path", "display_level")),
-        ("paths", "Arquivos privados editáveis desta instalação; caminhos podem usar ~.", "Private editable files for this installation; paths may use ~.", ("persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist")),
+        ("paths", "Arquivos privados editáveis deste perfil; caminhos podem usar ~.", "Private editable files for this profile; paths may use ~.", ("persona", "context", "waiting_messages", "goodbye_messages", "blacklist", "whitelist", "learning_context")),
         ("appearance", "Modo de cores: auto, always ou never.", "Color mode: auto, always, or never.", ("color_mode",)),
     )
     for name, pt_br, en, children in definitions:
@@ -387,10 +404,13 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(model, "directory", settings.model_directory)
     _set(model, "path", settings.model_path)
     _set(model, "context_size", settings.context_size)
+    _set(model, "server_port", settings.server_port)
     _set(_section(root, "model_profiles"), "template_thinking", json.dumps(advanced.model_template_thinking, ensure_ascii=False, sort_keys=True))
     identity = _section(root, "identity")
     _set(identity, "assistant_name", settings.assistant_name)
     _set(identity, "command_name", settings.command_name)
+    _set(identity, "profile_id", settings.profile_id)
+    _set(identity, "learning_state", settings.learning_state)
     behavior = _section(root, "behavior")
     _set(behavior, "autostart", settings.autostart)
     _set(behavior, "keep_llm_running", settings.keep_llm_running)
@@ -420,6 +440,7 @@ def _write_values(root: ET.Element, config: JarvisConfig) -> None:
     _set(paths, "goodbye_messages", settings.goodbye_messages_path)
     _set(paths, "blacklist", settings.blacklist_path)
     _set(paths, "whitelist", settings.whitelist_path)
+    _set(paths, "learning_context", settings.learning_context_path)
     _set(_section(root, "appearance"), "color_mode", settings.color_mode.value)
 
 

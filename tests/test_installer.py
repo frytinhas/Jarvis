@@ -18,6 +18,7 @@ def test_repair_user_config_preserves_settings_and_creates_missing_resources(
         goodbye_messages_path=paths["goodbye_messages"],
         blacklist_path=paths["blacklist"],
         whitelist_path=paths["whitelist"],
+        learning_context_path=paths["learning_context"],
     ))
     save_config(config, target)
 

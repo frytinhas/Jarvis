@@ -93,12 +93,16 @@ class ToolRegistry:
         audit: AuditLog,
         path_policy: PathPolicy,
         activity_observer: ActivityObserver | None = None,
+        protected_directories: tuple[Path, ...] = (),
     ) -> None:
         self.policy = policy
         self.confirmations = confirmations
         self.audit = audit
         self.path_policy = path_policy
         self.activity_observer = activity_observer
+        self.protected_directories = tuple(
+            path.expanduser().resolve(strict=False) for path in protected_directories
+        )
         self._tools: dict[str, Tool] = {}
 
     def register(self, tool: Tool) -> None:
@@ -283,11 +287,14 @@ class ToolRegistry:
         if tool.name == "search_conversation_logs":
             return tool.handler(
                 **arguments,
-                can_read=lambda candidate: self._can_read_descendant(candidate, confirmed),
+                can_read=lambda candidate: self._can_read_descendant(candidate, confirmed, allow_private=True),
             )
         return tool.handler(**arguments)
 
-    def _can_read_descendant(self, path: Path, confirmed: bool) -> bool:
+    def _can_read_descendant(self, path: Path, confirmed: bool, allow_private: bool = False) -> bool:
+        resolved = path.resolve(strict=False)
+        if not allow_private and self._is_protected(resolved):
+            return False
         decision = self.path_policy.decide(
             self.policy.decide(Risk.READ),
             Risk.READ,
@@ -299,7 +306,14 @@ class ToolRegistry:
         global_decision = self.policy.decide(tool.risk)
         if not tool.path_based:
             return global_decision
-        return self.path_policy.decide(global_decision, tool.risk, self._affected_paths(tool, arguments))
+        paths = self._affected_paths(tool, arguments)
+        if tool.name != "search_conversation_logs" and any(self._is_protected(path) for path in paths):
+            return Decision.DENY
+        return self.path_policy.decide(global_decision, tool.risk, paths)
+
+    def _is_protected(self, path: Path) -> bool:
+        resolved = path.expanduser().resolve(strict=False)
+        return any(resolved == root or root in resolved.parents for root in self.protected_directories)
 
     @staticmethod
     def _affected_paths(tool: Tool, arguments: dict[str, Any]) -> list[Path]:
@@ -355,10 +369,13 @@ def build_registry(
     path_policy: PathPolicy | None = None,
     memory_store: ConversationLogStore | None = None,
     activity_observer: ActivityObserver | None = None,
+    protected_directories: tuple[Path, ...] = (),
 ) -> ToolRegistry:
     if path_policy is None:
         path_policy = PathPolicy.empty(project_directory=Path(__file__).resolve().parents[2])
-    registry = ToolRegistry(policy, confirmations, audit, path_policy, activity_observer)
+    registry = ToolRegistry(
+        policy, confirmations, audit, path_policy, activity_observer, protected_directories
+    )
     definitions = (
         Tool("list_directory", "Lista arquivos e diretórios", Risk.READ, ListDirectoryInput, filesystem.list_directory),
         Tool(

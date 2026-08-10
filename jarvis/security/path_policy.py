@@ -32,11 +32,15 @@ class PathPolicy:
         *,
         project_directory: Path,
         whitelist: tuple[Path, ...] | None = None,
+        private_directories: tuple[Path, ...] = (),
         error: str | None = None,
     ) -> None:
         self.rules = rules
         self.project_directory = project_directory.expanduser().resolve(strict=False)
         self.whitelist = whitelist
+        self.private_directories = tuple(
+            item.expanduser().resolve(strict=False) for item in private_directories
+        )
         self.error = error
 
     @property
@@ -46,6 +50,7 @@ class PathPolicy:
     @classmethod
     def load(
         cls, path: Path, *, project_directory: Path, whitelist_path: Path | None = None,
+        private_directories: tuple[Path, ...] = (),
     ) -> "PathPolicy":
         try:
             text = path.read_text(encoding="utf-8")
@@ -55,8 +60,8 @@ class PathPolicy:
                 if whitelist_path is not None else None
             )
         except (OSError, UnicodeError, RuntimeError, PathPolicyError) as error:
-            return cls(project_directory=project_directory, error=str(error))
-        return cls(rules, project_directory=project_directory, whitelist=whitelist)
+            return cls(project_directory=project_directory, private_directories=private_directories, error=str(error))
+        return cls(rules, project_directory=project_directory, whitelist=whitelist, private_directories=private_directories)
 
     @classmethod
     def empty(cls, *, project_directory: Path) -> "PathPolicy":
@@ -74,6 +79,8 @@ class PathPolicy:
 
     def _path_decision(self, path: Path, risk: Risk) -> Decision:
         resolved = path.expanduser().resolve(strict=False)
+        if any(_contains(private, resolved) for private in self.private_directories):
+            return Decision.DENY
         if self.whitelist is not None and not any(_contains(root, resolved) for root in self.whitelist):
             return Decision.DENY
         project_match = _contains(self.project_directory, resolved)

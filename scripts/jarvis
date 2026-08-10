@@ -12,12 +12,20 @@ JARVIS_BIN="$PROJECT_DIR/.venv/bin/jarvis"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
 SERVER_SCRIPT="$PROJECT_DIR/scripts/jarvis-server"
 UNINSTALL_SCRIPT="$PROJECT_DIR/Uninstall.sh"
-STATE_DIR="$HOME/.local/state/jarvis"
+PROFILE_NAME="${JARVIS_PROFILE:-$(basename "$0")}"
+if [[ ! "$PROFILE_NAME" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; then
+    echo "Nome de perfil inválido: $PROFILE_NAME" >&2
+    exit 1
+fi
+export JARVIS_PROFILE="$PROFILE_NAME"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+export JARVIS_CONFIG_PATH="${JARVIS_CONFIG_PATH:-$config_home/jarvis/profiles/$PROFILE_NAME/config.xml}"
+STATE_DIR="$HOME/.local/state/jarvis/profiles/$PROFILE_NAME"
 RUNTIME_FILE="$STATE_DIR/runtime.env"
 PID_FILE="$STATE_DIR/llama-server.pid"
 RESTART_MARKER="$STATE_DIR/restart-required"
 SESSION_DIR="$STATE_DIR/sessions"
-UNIT_NAME="jarvis-llm.service"
+UNIT_NAME="jarvis-llm@$PROFILE_NAME.service"
 RUNTIME_LOG_DIR="$STATE_DIR/logs/runtime"
 SERVER_LOG="$RUNTIME_LOG_DIR/llama-server.log"
 
@@ -32,6 +40,21 @@ fi
 if [[ ! -f "$INSTALL_FILE" || ! -x "$JARVIS_BIN" || ! -x "$PYTHON_BIN" ]]; then
     echo "A instalação do Jarvis não está completa."
     echo "Execute novamente o Setup.sh a partir do repositório clonado."
+    exit 1
+fi
+
+if [[ "${1:-}" == "--full-stop-all" ]]; then
+    (($# == 1)) || { echo "Use --full-stop-all sem mensagem adicional."; exit 2; }
+    while IFS= read -r profile; do
+        [[ -n "$profile" ]] || continue
+        JARVIS_PROFILE="$profile" JARVIS_CONFIG_PATH= "$SCRIPT_PATH" --full-stop || true
+    done < <("$PYTHON_BIN" -P -m jarvis.profile_cli list)
+    echo "Todos os servidores gerenciados foram solicitados a encerrar."
+    exit 0
+fi
+
+if [[ ! -f "$JARVIS_CONFIG_PATH" ]]; then
+    echo "Perfil '$PROFILE_NAME' não configurado. Execute jarvis-config." >&2
     exit 1
 fi
 
@@ -60,6 +83,10 @@ server_healthy() {
 correct_model_loaded() {
     server_healthy && curl --silent --fail --max-time 2 "$SERVER_URL/v1/models" \
         | grep --fixed-strings --quiet "\"id\":\"$MODEL_ALIAS\""
+}
+
+port_in_use() {
+    "$PYTHON_BIN" -P -m jarvis.profile_cli port-in-use "$SERVER_PORT" >/dev/null 2>&1
 }
 
 user_systemd_available() {
@@ -128,6 +155,9 @@ cleanup_session() {
     session_registered=false
     if [[ "${defer_server_stop:-false}" != true && "$KEEP_LLM_RUNNING" != true ]] && ! has_active_sessions; then
         stop_managed_server || true
+    fi
+    if [[ "${preserve_switch_request:-false}" != true && -n "${JARVIS_SWITCH_REQUEST_PATH:-}" ]]; then
+        rm -f "$JARVIS_SWITCH_REQUEST_PATH"
     fi
 }
 
@@ -213,6 +243,15 @@ run_client_sessions() {
             defer_server_stop=true
             return 0
         fi
+        if ((status == 77)); then
+            local target
+            target="$("$PYTHON_BIN" -P -m jarvis.profile_cli switch-target "$JARVIS_SWITCH_REQUEST_PATH")" \
+                || return 1
+            preserve_switch_request=true
+            cleanup_session
+            exec env JARVIS_HANDOFF_PATH="$JARVIS_SWITCH_REQUEST_PATH" \
+                JARVIS_PROFILE="$target" JARVIS_CONFIG_PATH= "$SCRIPT_PATH"
+        fi
         if ((status != 75)); then
             return "$status"
         fi
@@ -259,6 +298,9 @@ if [[ "${1:-}" == "--full-stop" ]]; then
 fi
 
 register_session
+JARVIS_SWITCH_REQUEST_PATH="$STATE_DIR/switch-$$.json"
+export JARVIS_SWITCH_REQUEST_PATH
+rm -f "$JARVIS_SWITCH_REQUEST_PATH"
 ask_log_preferences
 
 if user_systemd_available; then
@@ -296,6 +338,11 @@ elif server_healthy; then
 fi
 
 if ! correct_model_loaded && [[ "$server_start_requested" == false ]]; then
+    if port_in_use; then
+        echo "A porta $SERVER_PORT do perfil $PROFILE_NAME já está ocupada por outro processo."
+        echo "O processo externo foi mantido; escolha outra porta no config.xml."
+        exit 1
+    fi
     server_message "Iniciando o modelo configurado..."
     if user_systemd_available; then
         systemctl --user start "$UNIT_NAME"

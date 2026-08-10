@@ -13,11 +13,10 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 CONFIG_DIR="$CONFIG_HOME/jarvis"
 XDG_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
 DATA_DIR="$XDG_DATA_DIR/jarvis"
-UNIT_FILE="$HOME/.config/systemd/user/jarvis-llm.service"
-DESKTOP_FILE="$XDG_DATA_DIR/applications/jarvis-local.desktop"
+UNIT_FILE="$HOME/.config/systemd/user/jarvis-llm@.service"
+LEGACY_UNIT_FILE="$HOME/.config/systemd/user/jarvis-llm.service"
 ICON_FILE="$XDG_DATA_DIR/icons/jarvis-local.png"
-PID_FILE="$STATE_DIR/llama-server.pid"
-UNIT_NAME=jarvis-llm.service
+UNIT_NAME='jarvis-llm@*.service'
 
 [[ "$(readlink -m "$PROJECT_DIR")" == "$(readlink -m "$DATA_DIR/app")" ]] || {
     echo "A instalação não está no diretório local esperado: $DATA_DIR/app" >&2
@@ -50,17 +49,23 @@ fi
 stop_managed_server() {
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 || true
+        systemctl --user disable --now jarvis-llm.service >/dev/null 2>&1 || true
     fi
-    if [[ -f "$PID_FILE" ]]; then
-        local pid cmdline
-        pid="$(<"$PID_FILE")"
-        if [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]]; then
+    local pid_file pid cmdline runtime port
+    shopt -s nullglob
+    for pid_file in "$STATE_DIR"/profiles/*/llama-server.pid; do
+        runtime="$(dirname "$pid_file")/runtime.env"
+        port=""
+        [[ -f "$runtime" ]] && port="$(sed -n 's/^SERVER_PORT=//p' "$runtime" | head -n 1)"
+        pid="$(<"$pid_file")"
+        if [[ "$pid" =~ ^[0-9]+$ && "$port" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]]; then
             cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline")"
-            if [[ "$cmdline" == *llama* && "$cmdline" == *"--port 8080"* ]]; then
+            if [[ "$cmdline" == *llama* && "$cmdline" == *"--port $port"* ]]; then
                 kill "$pid" 2>/dev/null || true
             fi
         fi
-    fi
+    done
+    shopt -u nullglob
 }
 
 remove_owned_commands() {
@@ -91,13 +96,28 @@ safe_remove_local_directory() {
 }
 
 stop_managed_server
+profile_names=()
+if [[ -d "$CONFIG_DIR/profiles" ]]; then
+    while IFS= read -r profile; do
+        [[ "$profile" =~ ^[a-z][a-z0-9_-]{0,31}$ ]] && profile_names+=("$profile")
+    done < <(find "$CONFIG_DIR/profiles" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
+fi
 remove_owned_commands
-rm -f -- "$UNIT_FILE" "$DESKTOP_FILE" "$ICON_FILE"
+rm -f -- "$UNIT_FILE" "$LEGACY_UNIT_FILE" "$ICON_FILE" \
+    "$XDG_DATA_DIR/applications/jarvis-local.desktop"
+for profile in "${profile_names[@]}"; do
+    rm -f -- "$XDG_DATA_DIR/applications/jarvis-$profile.desktop"
+done
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
 
-rm -f -- "$PID_FILE" "$STATE_DIR/restart-required" "$STATE_DIR/runtime.env"
+find "$STATE_DIR/profiles" -mindepth 2 -maxdepth 2 -type f \
+    \( -name 'llama-server.pid' -o -name 'restart-required' -o -name 'runtime.env' -o -name 'switch-*.json' \) \
+    -delete 2>/dev/null || true
+find "$STATE_DIR/profiles" -mindepth 2 -maxdepth 2 -type d -name sessions \
+    -exec rm -rf -- {} + 2>/dev/null || true
+rm -f -- "$STATE_DIR/llama-server.pid" "$STATE_DIR/restart-required" "$STATE_DIR/runtime.env"
 rm -rf -- "$STATE_DIR/sessions"
 if [[ "$MODE" == --purge ]]; then
     safe_remove_local_directory "$CONFIG_DIR"

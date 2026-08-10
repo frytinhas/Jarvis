@@ -6,8 +6,6 @@ PROJECT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 source "$PROJECT_DIR/scripts/jarvis-env"
 jarvis_prepare_environment "$PROJECT_DIR" || exit 1
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
-UNIT_NAME="jarvis-llm.service"
-RUNTIME_FILE="$HOME/.local/state/jarvis/runtime.env"
 
 if [[ ! -x "$PYTHON_BIN" || ! -f "$PROJECT_DIR/.install" ]]; then
     echo "Jarvis ainda não foi instalado. Execute novamente o Setup.sh do repositório clonado."
@@ -19,18 +17,7 @@ if (($# > 0)); then
     if [[ "$1" == "--setup" && $# -eq 1 ]]; then
         config_arguments=(--setup)
     elif [[ "$1" == "--a" && $# -eq 1 ]]; then
-        config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-        config_file="${JARVIS_CONFIG_PATH:-$config_home/jarvis/config.xml}"
-        if [[ ! -f "$config_file" ]]; then
-            echo "Configuração não encontrada em $config_file."
-            echo "Execute jarvis-config sem argumentos para criá-la."
-            exit 1
-        fi
-        if ! command -v nano >/dev/null 2>&1; then
-            echo "O editor nano não está instalado."
-            exit 1
-        fi
-        exec nano "$config_file"
+        config_arguments=(--edit-xml)
     else
         echo "Uso: jarvis-config [--a]"
         exit 2
@@ -40,26 +27,28 @@ fi
 cd "$PROJECT_DIR"
 "$PYTHON_BIN" -m jarvis.configurator "${config_arguments[@]}"
 
-if [[ ! -f "$RUNTIME_FILE" ]]; then
-    echo "Configuração não alterada."
-    exit 0
-fi
-
-# Gerado pelo configurador após a confirmação final.
-source "$RUNTIME_FILE"
+"$PYTHON_BIN" -P -m jarvis.runtime --all
 
 if command -v systemctl >/dev/null 2>&1 \
     && systemctl --user daemon-reload >/dev/null 2>&1; then
-    if [[ "$AUTOSTART" == "true" ]]; then
-        systemctl --user enable "$UNIT_NAME" >/dev/null
-        if ! curl --silent --fail --max-time 2 http://127.0.0.1:8080/health >/dev/null 2>&1; then
-            systemctl --user start "$UNIT_NAME"
+    while IFS= read -r profile; do
+        runtime="$HOME/.local/state/jarvis/profiles/$profile/runtime.env"
+        [[ -f "$runtime" ]] || continue
+        AUTOSTART=false
+        source "$runtime"
+        unit="jarvis-llm@$profile.service"
+        if [[ "$AUTOSTART" == "true" ]]; then
+            systemctl --user enable "$unit" >/dev/null
+            if [[ -f "$HOME/.local/state/jarvis/profiles/$profile/restart-required" ]]; then
+                systemctl --user restart "$unit" >/dev/null 2>&1 || true
+            else
+                systemctl --user start "$unit" >/dev/null 2>&1 || true
+            fi
+            echo "Início automático ativado para $profile."
+        else
+            systemctl --user disable "$unit" >/dev/null 2>&1 || true
         fi
-        echo "Início automático ativado."
-    else
-        systemctl --user disable "$UNIT_NAME" >/dev/null 2>&1 || true
-        echo "Início automático desativado. O servidor atual não foi interrompido."
-    fi
+    done < <("$PYTHON_BIN" -P -m jarvis.profile_cli list)
 else
     echo "systemd do usuário indisponível; o servidor iniciará sob demanda."
 fi

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import os
 from pathlib import Path
 import shlex
 import sys
@@ -13,6 +15,7 @@ from jarvis.configurator import (
     template_thinking_enabled,
 )
 from jarvis.settings import runtime_path
+from jarvis.profiles import active_profile, validate_profile_uniqueness
 
 
 def _read_runtime(path: Path) -> dict[str, str]:
@@ -38,6 +41,10 @@ def sync_runtime() -> None:
     if source.is_file() and f'version="{CONFIG_VERSION}"' not in source.read_text(encoding="utf-8", errors="ignore")[:200]:
         save_config(config, source)
     settings = config.settings
+    selected_profile = active_profile()
+    if selected_profile is not None and settings.command_name != selected_profile:
+        raise ValueError("Renomeie o perfil pelo jarvis-config, não editando somente o XML")
+    validate_profile_uniqueness(config, source)
     normalize_command_name(settings.command_name)
     target_runtime = runtime_path()
     previous = _read_runtime(target_runtime)
@@ -67,9 +74,33 @@ def sync_runtime() -> None:
         marker.touch()
 
 
-def main() -> None:
+def main(arguments: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--all", action="store_true")
+    options = parser.parse_args(arguments)
     try:
-        sync_runtime()
+        if options.all:
+            from jarvis.profiles import profile_locations
+            previous_profile = os.environ.get("JARVIS_PROFILE")
+            previous_config = os.environ.get("JARVIS_CONFIG_PATH")
+            try:
+                for location in profile_locations():
+                    if location.slug is None:
+                        continue
+                    os.environ["JARVIS_PROFILE"] = location.slug
+                    os.environ["JARVIS_CONFIG_PATH"] = str(location.config_file)
+                    sync_runtime()
+            finally:
+                if previous_profile is None:
+                    os.environ.pop("JARVIS_PROFILE", None)
+                else:
+                    os.environ["JARVIS_PROFILE"] = previous_profile
+                if previous_config is None:
+                    os.environ.pop("JARVIS_CONFIG_PATH", None)
+                else:
+                    os.environ["JARVIS_CONFIG_PATH"] = previous_config
+        else:
+            sync_runtime()
     except (ConfigFileError, OSError, ValueError) as error:
         print(error, file=sys.stderr)
         raise SystemExit(1) from error

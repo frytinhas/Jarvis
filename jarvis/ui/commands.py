@@ -6,10 +6,11 @@ from pathlib import Path
 import shlex
 
 from jarvis.agent.orchestrator import Orchestrator
-from jarvis.config import JarvisConfig, config_path, save_config
+from jarvis.config import ConfigFileError, JarvisConfig, config_path, load_config, save_config
 from jarvis.configurator import REASONING_LABELS, discover_models
 from jarvis.hardware import recommended_context_size
 from jarvis.legal import license_text, schedule_license_notice
+from jarvis.profiles import profile_locations
 from jarvis.security.policy import Decision, Risk
 from jarvis.settings import state_directory
 
@@ -34,7 +35,8 @@ CONFIGURABLE_RISKS = (Risk.READ, Risk.CREATE, Risk.MODIFY, Risk.DELETE, Risk.EXE
 EXIT_COMMANDS = {"/exit", "/sair"}
 LICENSE_COMMANDS = {"/license", "/licenca", "/licença"}
 COMMANDS = (
-    "/help", "/reasoning", "/model", "/context", "/permissions", "/config", "/clear", "/license", "/exit", "/quit"
+    "/help", "/reasoning", "/model", "/context", "/permissions", "/config", "/clear",
+    "/learning", "/finish", "/license", "/exit", "/quit"
 )
 
 
@@ -43,6 +45,7 @@ class SessionExit(StrEnum):
     EXIT = "exit"
     RESTART_MODEL = "restart_model"
     FULL_STOP = "full_stop"
+    SWITCH_PROFILE = "switch_profile"
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,8 @@ class CommandResult:
     action: SessionExit = SessionExit.CONTINUE
     clear_screen: bool = False
     ask_model_restart: bool = False
+    ask_profile_switch: bool = False
+    target_profile: str | None = None
 
 
 class LocalCommands:
@@ -86,6 +91,10 @@ class LocalCommands:
             return self._model(argument)
         if command == "/context":
             return self._context(argument)
+        if command == "/finish":
+            return CommandResult(True, "`/finish` só é usado durante uma sessão de aprendizado.")
+        if command == "/learning":
+            return CommandResult(True, "Use `/learning` sem argumentos para iniciar o aprendizado.")
         suggestion = next((item for item in COMMANDS if item.startswith(command)), None)
         suffix = f" Você quis dizer `{suggestion}`?" if suggestion else " Use `/help`."
         return CommandResult(True, f"Comando local desconhecido: `{command}`.{suffix}")
@@ -96,7 +105,7 @@ class LocalCommands:
         if lowered.startswith("/reasoning "):
             candidates = [f"/reasoning {level}" for level in REASONING_LEVELS]
         elif lowered.startswith("/model "):
-            candidates = [f"/model {label}" for label, _ in self._models()]
+            candidates = [f"/model {label}" for label, _ in self._profiles()]
         elif lowered.startswith("/context "):
             candidates = ["/context reset"]
         elif lowered.startswith("/permissions "):
@@ -143,49 +152,45 @@ class LocalCommands:
             ask_model_restart=template_changed,
         )
 
-    def _models(self) -> list[tuple[str, Path]]:
-        directory = self.config.settings.model_directory
-        if directory is None:
-            return []
-        try:
-            models = discover_models(directory)
-        except (OSError, ValueError):
-            return []
-        return [(str(model.relative_to(directory)), model) for model in models]
+    def _profiles(self) -> list[tuple[str, Path]]:
+        profiles: list[tuple[str, Path]] = []
+        for location in profile_locations():
+            if location.slug is None:
+                continue
+            try:
+                configured = load_config(location.config_file)
+            except ConfigFileError:
+                continue
+            if configured.settings.model_path is not None:
+                profiles.append((location.slug, configured.settings.model_path))
+        return profiles
 
     def _model(self, argument: str) -> CommandResult:
-        models = self._models()
+        models = self._profiles()
         current = self.config.settings.model_path
         if not argument:
             choices = "\n".join(
                 f"- {'**' if path == current else ''}{label}{'**' if path == current else ''}"
                 for label, path in models
-            ) or "- Nenhum GGUF encontrado na pasta configurada."
-            return CommandResult(True, f"Modelo atual: `{current}`\n\nModelos disponíveis:\n{choices}")
+            ) or "- Nenhum outro perfil configurado."
+            return CommandResult(True, f"Modelo atual: `{current}`\n\nPerfis disponíveis:\n{choices}")
         try:
             parsed = shlex.split(argument)
         except ValueError as error:
             return CommandResult(True, f"Nome de modelo inválido: {error}")
         requested = " ".join(parsed)
-        exact = [(label, path) for label, path in models if label == requested]
+        exact = [(label, path) for label, path in models if label == requested.lower()]
         if not exact:
-            by_name = [(label, path) for label, path in models if path.name == requested]
-            exact = by_name if len(by_name) == 1 else []
-        if not exact:
-            return CommandResult(True, "Modelo não encontrado ou nome ambíguo. Use `/model` para listar.")
+            return CommandResult(True, "Perfil não encontrado. Use `/model` para listar.")
         label, selected = exact[0]
         if selected == current:
-            return CommandResult(True, f"`{label}` já é o modelo configurado.")
-        context_size = recommended_context_size()
-        self._persist_settings(model_path=selected, context_size=context_size)
-        marker = state_directory() / "restart-required"
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.touch()
+            return CommandResult(True, f"`{label}` já é o perfil atual.")
         return CommandResult(
             True,
-            f"Modelo **{label}** e contexto automático de **{context_size} tokens** salvos. "
-            "A troca só será aplicada após reiniciar o servidor.",
-            ask_model_restart=True,
+            f"Trocar para **{label}** (`{selected}`) encerrará esta sessão e poderá carregar outro "
+            "modelo em RAM/VRAM. Um resumo transitório da conversa será entregue ao novo perfil.",
+            ask_profile_switch=True,
+            target_profile=label,
         )
 
     def _context(self, argument: str) -> CommandResult:
@@ -278,6 +283,8 @@ class LocalCommands:
 - `/permissions [categoria decisão]` — consulta ou altera permissões.
 - `/config` — mostra a configuração atual.
 - `/clear` — limpa a tela sem apagar o contexto.
+- `/learning` — recria, após confirmação, o contexto privado de aprendizado.
+- `/finish` — conclui uma sessão de aprendizado e propõe o resumo para aprovação.
 - `/license` — mostra a licença completa.
 - `/exit` — encerra a sessão.
 - `/quit` — encerra a sessão e desliga o servidor após finalizar a memória."""
@@ -287,6 +294,8 @@ class LocalCommands:
         return (
             "## Configuração atual\n\n"
             f"- Modelo: `{settings.model_path}`\n"
+            f"- Perfil: **{settings.assistant_name}** (`{settings.command_name}`)\n"
+            f"- Porta local: **{settings.server_port}**\n"
             f"- Contexto: **{settings.context_size} tokens**\n"
             f"- Reasoning: **{REASONING_LABELS[settings.default_reasoning_level]}**\n"
             f"- Timeout do LLM: {settings.llm_request_timeout_seconds}s\n"
@@ -294,5 +303,6 @@ class LocalCommands:
             f"- Painel: {settings.display_log_level.value}\n"
             f"- Cores: {settings.color_mode.value}\n"
             f"- Configuração: `{config_path()}`\n"
+            f"- Aprendizado: **{settings.learning_state}** (`{settings.learning_context_path}`)\n"
             f"- Paleta: `{config_path().parent / 'colors.toml'}`"
         )

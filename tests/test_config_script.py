@@ -6,7 +6,7 @@ import shutil
 import subprocess
 
 
-def test_advanced_flag_opens_config_xml_in_nano(tmp_path: Path) -> None:
+def test_advanced_flag_is_forwarded_to_profile_aware_configurator(tmp_path: Path) -> None:
     source_root = Path(__file__).resolve().parent.parent
     project = tmp_path / "project"
     binary = project / ".venv/bin"
@@ -21,13 +21,10 @@ def test_advanced_flag_opens_config_xml_in_nano(tmp_path: Path) -> None:
         f"INSTALL_UID={os.getuid()}\nINSTALL_HOME={tmp_path}\n", encoding="utf-8"
     )
     python = binary / "python"
-    python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    python.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$HOME/python-calls"\n', encoding="utf-8")
     python.chmod(0o755)
     config = tmp_path / "config.xml"
     config.write_text("<jarvis />\n", encoding="utf-8")
-    nano = mock_bin / "nano"
-    nano.write_text('#!/usr/bin/env bash\nprintf "%s" "$1" > "$HOME/nano-target"\n', encoding="utf-8")
-    nano.chmod(0o755)
     environment = dict(os.environ)
     environment.update(
         {
@@ -46,7 +43,7 @@ def test_advanced_flag_opens_config_xml_in_nano(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "nano-target").read_text(encoding="utf-8") == str(config)
+    assert "-m jarvis.configurator --edit-xml" in (tmp_path / "python-calls").read_text(encoding="utf-8")
 
 
 def test_setup_flag_is_forwarded_to_configurator(tmp_path: Path) -> None:
@@ -63,7 +60,7 @@ def test_setup_flag_is_forwarded_to_configurator(tmp_path: Path) -> None:
     )
     python = binary / "python"
     python.write_text(
-        '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$HOME/python-arguments"\n',
+        '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$HOME/python-arguments"\n',
         encoding="utf-8",
     )
     python.chmod(0o755)
@@ -77,8 +74,6 @@ def test_setup_flag_is_forwarded_to_configurator(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert (tmp_path / "python-arguments").read_text(encoding="utf-8").splitlines() == [
-        "-m",
-        "jarvis.configurator",
-        "--setup",
-    ]
+    assert (tmp_path / "python-arguments").read_text(encoding="utf-8").splitlines()[0] == (
+        "-m jarvis.configurator --setup"
+    )

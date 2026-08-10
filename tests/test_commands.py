@@ -51,19 +51,24 @@ def test_reasoning_command_applies_persists_and_completes(tmp_path: Path, monkey
     assert "/reasoning medium" in commands.completion_candidates("/reasoning m")
 
 
-def test_model_command_persists_and_requests_restart(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_model_command_requests_confirmed_profile_switch_without_reassociation(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     commands, _, config_file = _commands(tmp_path, monkeypatch)
     selected = tmp_path / "models/other model.gguf"
     selected.write_bytes(b"gguf")
-    monkeypatch.setattr("jarvis.ui.commands.recommended_context_size", lambda: 6144)
+    target_file = tmp_path / ".config/jarvis/profiles/bryan/config.xml"
+    target = JarvisConfig(settings=UserSettings(
+        assistant_name="Bryan", command_name="bryan", model_directory=selected.parent,
+        model_path=selected, persona_path=target_file.parent / "Persona.md",
+        server_port=8081,
+    ))
+    save_config(target, target_file)
 
-    result = commands.handle('/model "other model.gguf"')
+    result = commands.handle("/model bryan")
 
-    assert result.ask_model_restart
-    assert load_config(config_file).settings.model_path == selected.resolve()
-    assert load_config(config_file).settings.context_size == 6144
-    assert (tmp_path / ".local/state/jarvis/restart-required").is_file()
-    assert "/model other model.gguf" in commands.completion_candidates("/model oth")
+    assert result.ask_profile_switch
+    assert result.target_profile == "bryan"
+    assert load_config(config_file).settings.model_path.name == "current.gguf"
+    assert "/model bryan" in commands.completion_candidates("/model b")
 
 
 def test_context_command_persists_reset_and_validates_values(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

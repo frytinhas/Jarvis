@@ -25,7 +25,7 @@ STATE_DIR="$INSTALL_HOME/.local/state/jarvis"
 LLAMA_SOURCE_DIR="$DATA_DIR/llama.cpp"
 LLAMA_BUILD_DIR="$LLAMA_SOURCE_DIR/build"
 UNIT_DIR="$INSTALL_HOME/.config/systemd/user"
-UNIT_FILE="$UNIT_DIR/jarvis-llm.service"
+UNIT_FILE="$UNIT_DIR/jarvis-llm@.service"
 USER_CONFIG="$CONFIG_HOME/jarvis/config.xml"
 
 info() { printf '\n==> %s\n' "$1"; }
@@ -83,8 +83,9 @@ mkdir -p "$payload"
 cp -a "$SOURCE_DIR/jarvis" "$SOURCE_DIR/scripts" "$payload/"
 cp -a "$SOURCE_DIR/Config.sh" "$SOURCE_DIR/Uninstall.sh" "$SOURCE_DIR/Setup.sh" "$payload/"
 cp -a "$SOURCE_DIR/pyproject.toml" "$SOURCE_DIR/LICENSE" "$payload/"
-cp -a "$SOURCE_DIR/README.md" "$SOURCE_DIR/README.pt-BR.md" \
-    "$SOURCE_DIR/README.simple.md" "$SOURCE_DIR/README.simple.pt-BR.md" "$payload/"
+for readme in README.md README.pt-BR.md README.simple.md README.simple.pt-BR.md; do
+    [[ -f "$SOURCE_DIR/$readme" ]] && cp -a "$SOURCE_DIR/$readme" "$payload/"
+done
 find "$payload" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
 INSTALL_KIND=new
@@ -228,14 +229,15 @@ escaped_app="${escaped_app//\"/\\\"}"
 {
     printf '%s\n' '[Unit]' 'Description=Jarvis local AI server' 'After=default.target' ''
     printf '%s\n' '[Service]' 'Type=simple'
-    printf 'ExecStart="%s/scripts/jarvis-server"\n' "$escaped_app"
-    printf '%s\n' 'ExecStartPost=/usr/bin/rm -f %h/.local/state/jarvis/restart-required' \
+    printf 'ExecStart="%s/scripts/jarvis-server" %%i\n' "$escaped_app"
+    printf '%s\n' 'ExecStartPost=/usr/bin/rm -f %h/.local/state/jarvis/profiles/%i/restart-required' \
         'Restart=on-failure' 'RestartSec=3' 'StandardOutput=null' 'StandardError=null' ''
     printf '%s\n' '[Install]' 'WantedBy=default.target'
 } >"$UNIT_FILE"
 
 if command -v systemctl >/dev/null 2>&1; then
     run_as_install_user systemctl --user daemon-reload >/dev/null 2>&1 || true
+    run_as_install_user systemctl --user disable --now jarvis-llm.service >/dev/null 2>&1 || true
 fi
 if [[ ":${PATH:-}:" != *":$LOCAL_BIN:"* ]]; then
     shell_config="$INSTALL_HOME/.bashrc"
@@ -248,17 +250,36 @@ if [[ "$INSTALL_KIND" == repair && -f "$USER_CONFIG" ]]; then
     info "Reparando a configuração existente e seus recursos ausentes"
     run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.installer \
         --repair-user "$USER_CONFIG"
-else
+elif [[ "$INSTALL_KIND" != repair ]]; then
     info "Instalação concluída. Iniciando a configuração"
     run_as_install_user "$APP_DIR/Config.sh" --setup
 fi
 
-[[ -f "$USER_CONFIG" ]] \
-    || fail "A configuração não foi salva. Execute jarvis-config e rode o Setup novamente."
-command_name="$(run_as_install_user "$APP_DIR/.venv/bin/python" -P -c \
-    'from jarvis.config import load_config; from jarvis.configurator import normalize_command_name; print(normalize_command_name(load_config().settings.command_name))')"
-install_local_link "$APP_DIR/scripts/jarvis" "$LOCAL_BIN/$command_name" /scripts/jarvis
-run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.runtime
+if [[ -f "$USER_CONFIG" ]]; then
+    run_as_install_user "$APP_DIR/.venv/bin/python" -P -c \
+        'from jarvis.profiles import migrate_legacy_profile; migrate_legacy_profile()'
+fi
+profile_count=0
+while IFS= read -r command_name; do
+    [[ -n "$command_name" ]] || continue
+    profile_count=$((profile_count + 1))
+    install_local_link "$APP_DIR/scripts/jarvis" "$LOCAL_BIN/$command_name" /scripts/jarvis
+done < <(run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.profile_cli list)
+((profile_count > 0)) \
+    || fail "Nenhum perfil foi salvo. Execute jarvis-config e rode o Setup novamente."
+run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.runtime --all
+if command -v systemctl >/dev/null 2>&1; then
+    while IFS= read -r command_name; do
+        runtime_file="$STATE_DIR/profiles/$command_name/runtime.env"
+        [[ -f "$runtime_file" ]] || continue
+        AUTOSTART=false
+        source "$runtime_file"
+        if [[ "$AUTOSTART" == true ]]; then
+            run_as_install_user systemctl --user enable "jarvis-llm@$command_name.service" >/dev/null 2>&1 || true
+            run_as_install_user systemctl --user start "jarvis-llm@$command_name.service" >/dev/null 2>&1 || true
+        fi
+    done < <(run_as_install_user "$APP_DIR/.venv/bin/python" -P -m jarvis.profile_cli list)
+fi
 rm -rf -- "$app_previous"
 trap cleanup EXIT
 info "Jarvis instalado somente para o usuário atual em $APP_DIR"

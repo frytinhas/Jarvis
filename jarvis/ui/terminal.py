@@ -1,23 +1,37 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
 import random
 import re
 import sys
-from typing import Iterator
+from typing import Callable, Iterator
 
 from jarvis.agent.orchestrator import AgentReply, Orchestrator
 from jarvis.config import ConfigFileError, JarvisConfig
+from jarvis.config import save_config
 from jarvis.legal import COPYRIGHT_NOTICE, STARTUP_LICENSE_NOTICE, license_text
 from jarvis.ui.commands import LocalCommands, SessionExit
 from jarvis.ui.markdown import render_markdown
 from jarvis.ui.theme import PLAIN_THEME, Theme
 from jarvis.ui.waiting import WaitingIndicator
+from jarvis.memory import LearningContextStore, summarize_conversation, summarize_learning
 
 
 POSITIVE = {"s", "sim", "y", "yes", "pode", "confirmo", "execute", "faça", "faca"}
 NEGATIVE = {"n", "não", "nao", "no", "cancela", "cancelar", "deixa"}
 LICENSE_COMMANDS = {"/licenca", "/licença", "/license"}
+LEARNING_ALLOWED = {"/help", "/clear", "/license", "/licenca", "/licença", "/finish", "/exit", "/sair", "/quit"}
+
+LEARNING_NOTICE = (
+    "Esta é uma sessão de aprendizado deste perfil. As informações aprovadas aqui serão usadas "
+    "como principal contexto privado nas próximas conversas. Explique quem você é, o que pretende "
+    "fazer com o assistente, projetos e pastas frequentes, preferências e restrições. Não informe "
+    "senhas, tokens ou credenciais. Pastas mencionadas são somente contexto: não concedem acesso, "
+    "não substituem as políticas e nunca viram alvo implícito de tools. Use /finish quando terminar."
+)
 
 
 def confirmation_intent(text: str) -> bool | None:
@@ -42,6 +56,10 @@ class TerminalUI:
         config: JarvisConfig | None = None,
         theme: Theme = PLAIN_THEME,
         show_license_notice: bool = False,
+        learning_store: LearningContextStore | None = None,
+        learning_mode: bool = False,
+        learning_prompt: str | None = None,
+        normal_prompt: Callable[[str], str] | None = None,
     ) -> None:
         self.orchestrator = orchestrator
         self.assistant_name = assistant_name
@@ -51,6 +69,12 @@ class TerminalUI:
         self.theme = theme
         self.show_license_notice = show_license_notice
         self.commands = LocalCommands(orchestrator, config) if config is not None else None
+        self.config = config
+        self.learning_store = learning_store
+        self.learning_mode = learning_mode
+        self.learning_prompt = learning_prompt
+        self.normal_prompt = normal_prompt
+        self.completed_transcripts: list[tuple[list[dict[str, str]], object, object]] = []
 
     def run(
         self, initial_message: str | None = None, continue_after_initial: bool = True
@@ -62,6 +86,8 @@ class TerminalUI:
             print(self.theme.paint(STARTUP_LICENSE_NOTICE, "warning"))
         if self.startup_warning:
             print(self.theme.paint(f"AVISO: {self.startup_warning}", "warning"))
+        if self.learning_mode:
+            print(self.theme.paint(f"AVISO: {LEARNING_NOTICE}", "warning"))
         if initial_message:
             action = self._handle_local_command(initial_message)
             if action is None:
@@ -79,7 +105,30 @@ class TerminalUI:
                     return self._exit()
                 if not user_text:
                     continue
-                if user_text.lower() in {"/sair", "/exit"}:
+                lowered = user_text.lower()
+                if self.learning_mode:
+                    command = lowered.partition(" ")[0]
+                    if command in {"/finish", "/exit", "/sair", "/quit"}:
+                        if not self._finish_learning():
+                            continue
+                        if command in {"/exit", "/sair"}:
+                            return self._exit()
+                        if command == "/quit":
+                            return self._exit(SessionExit.FULL_STOP)
+                        continue
+                    if command == "/help":
+                        print("\nDurante o aprendizado: converse normalmente e use /finish, /exit ou /quit para propor o resumo. /clear e /license também estão disponíveis.")
+                        continue
+                    if command.startswith("/") and command not in LEARNING_ALLOWED:
+                        print(self.theme.paint(
+                            "Este comando fica bloqueado durante o aprendizado. Use /finish, /exit ou /quit.",
+                            "warning",
+                        ))
+                        continue
+                elif lowered == "/learning":
+                    if self._enter_learning():
+                        continue
+                if lowered in {"/sair", "/exit"}:
                     return self._exit()
                 action = self._handle_local_command(user_text)
                 if action is not None:
@@ -119,10 +168,119 @@ class TerminalUI:
                     print("Responda sim ou não.")
                     continue
                 return SessionExit.RESTART_MODEL if intent is True else SessionExit.CONTINUE
+        if result.ask_profile_switch:
+            while True:
+                answer = input("Confirmar a troca de perfil? [y/N] ")
+                intent = confirmation_intent(answer)
+                if intent is None and answer.strip():
+                    print("Responda sim ou não.")
+                    continue
+                if intent is not True:
+                    return SessionExit.CONTINUE
+                try:
+                    handoff = summarize_conversation(self.orchestrator.llm, self.orchestrator.transcript)
+                    self._write_switch_request(result.target_profile, handoff)
+                except Exception as error:
+                    print(self.theme.paint(f"Não foi possível preparar a troca: {error}", "error"))
+                    return SessionExit.CONTINUE
+                return SessionExit.SWITCH_PROFILE
         if result.action is SessionExit.FULL_STOP:
             print(self.theme.paint("Finalizando memória em segundo plano e desligando o servidor.", "warning"))
             return self._exit(SessionExit.FULL_STOP)
         return result.action
+
+    def _enter_learning(self) -> bool:
+        if self.learning_store is None or self.learning_prompt is None or self.config is None:
+            print(self.theme.paint("O aprendizado não está disponível nesta sessão.", "error"))
+            return True
+        print(self.theme.paint(
+            "O contexto de aprendizado anterior será substituído somente depois que você aprovar "
+            "um novo resumo. A sessão atual será encerrada e salva normalmente.",
+            "warning",
+        ))
+        answer = input("Iniciar um novo aprendizado? [y/N] ")
+        if confirmation_intent(answer) is not True:
+            return True
+        if self.orchestrator.transcript:
+            self.completed_transcripts.append((
+                list(self.orchestrator.transcript), self.orchestrator.started_at, Path.cwd().resolve()
+            ))
+        settings = self.config.settings.model_copy(update={"learning_state": "pending"})
+        pending_config = self.config.model_copy(update={"settings": settings})
+        try:
+            save_config(pending_config)
+        except (ConfigFileError, OSError, ValueError) as error:
+            print(self.theme.paint(f"Não foi possível iniciar o aprendizado: {error}", "error"))
+            return True
+        self.config = pending_config
+        if self.commands is not None:
+            self.commands.config = self.config
+        self.orchestrator.reset_session(self.learning_prompt)
+        self.learning_mode = True
+        print(self.theme.paint(f"AVISO: {LEARNING_NOTICE}", "warning"))
+        return True
+
+    def _finish_learning(self) -> bool:
+        if self.learning_store is None or self.config is None or self.normal_prompt is None:
+            print(self.theme.paint("O aprendizado não está disponível nesta sessão.", "error"))
+            return False
+        try:
+            with self.waiting.active():
+                summary = summarize_learning(
+                    self.orchestrator.llm,
+                    self.orchestrator.transcript,
+                    self.config.settings.context_size,
+                )
+        except Exception as error:
+            print(self.theme.paint(f"Não foi possível resumir o aprendizado: {error}", "error"))
+            return False
+        if not summary:
+            print(self.theme.paint(
+                "Ainda não há informações úteis suficientes. Continue explicando e tente /finish novamente.",
+                "warning",
+            ))
+            return False
+        print("\nResumo privado proposto:\n")
+        print(render_markdown(summary, self.theme))
+        answer = input("Aprovar e substituir o contexto de aprendizado? [y/N] ")
+        if confirmation_intent(answer) is not True:
+            print("Resumo rejeitado. O contexto anterior foi preservado; continue o aprendizado.")
+            return False
+        previous_learning = self.learning_store.read()
+        settings = self.config.settings.model_copy(update={"learning_state": "complete"})
+        completed_config = self.config.model_copy(update={"settings": settings})
+        try:
+            self.learning_store.replace(summary, self.config.settings.context_size)
+            save_config(completed_config)
+        except (ConfigFileError, OSError, ValueError) as error:
+            try:
+                self.learning_store.restore(previous_learning)
+            except OSError:
+                pass
+            print(self.theme.paint(f"Não foi possível salvar o aprendizado: {error}", "error"))
+            return False
+        self.config = completed_config
+        if self.commands is not None:
+            self.commands.config = self.config
+        self.orchestrator.reset_session(self.normal_prompt(summary))
+        self.learning_mode = False
+        print("Aprendizado aprovado. Uma nova conversa normal foi iniciada neste terminal.")
+        return True
+
+    def _write_switch_request(self, target: str | None, handoff: str) -> None:
+        request_path = os.environ.get("JARVIS_SWITCH_REQUEST_PATH")
+        if not request_path or not target:
+            raise OSError("O launcher não preparou uma troca de perfil segura")
+        path = Path(request_path).expanduser().absolute()
+        if path.is_symlink():
+            raise OSError("O pedido de troca não pode ser um symlink")
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps({"target": target, "handoff": handoff}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary.chmod(0o600)
+        temporary.replace(path)
 
     @contextmanager
     def _completion(self) -> Iterator[None]:

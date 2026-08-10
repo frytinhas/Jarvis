@@ -8,7 +8,15 @@ source "$PROJECT_DIR/scripts/jarvis-env"
 jarvis_prepare_environment "$PROJECT_DIR" || exit 1
 INSTALL_FILE="$PROJECT_DIR/.install"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
-STATE_DIR="$HOME/.local/state/jarvis"
+PROFILE_NAME="${1:-${JARVIS_PROFILE:-}}"
+if [[ ! "$PROFILE_NAME" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; then
+    echo "Perfil inválido para o servidor." >&2
+    exit 1
+fi
+export JARVIS_PROFILE="$PROFILE_NAME"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+export JARVIS_CONFIG_PATH="$config_home/jarvis/profiles/$PROFILE_NAME/config.xml"
+STATE_DIR="$HOME/.local/state/jarvis/profiles/$PROFILE_NAME"
 RUNTIME_FILE="$STATE_DIR/runtime.env"
 SERVER_LOG="$STATE_DIR/logs/runtime/llama-server.log"
 

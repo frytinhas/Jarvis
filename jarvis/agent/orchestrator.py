@@ -81,6 +81,20 @@ class Orchestrator:
     def disable_tools_for_session(self) -> None:
         self._tools_disabled_for_session = True
 
+    def reset_session(self, system_prompt: str) -> None:
+        """Start a clean visible conversation while retaining the validated dependencies."""
+        if self._pending_calls:
+            raise ValueError("Não é possível reiniciar o contexto com uma ação pendente")
+        self.messages = [{"role": "system", "content": system_prompt}]
+        self.transcript = []
+        self.started_at = datetime.now(timezone.utc)
+        self._active_seconds = 0.0
+        self._tool_rounds = 0
+        self._route = ToolRoute()
+        self._route_requirement_satisfied = True
+        self._route_retry_used = False
+        self._tools_disabled_for_session = False
+
     def confirm(self, action_id: str) -> AgentReply:
         pending_call = self._pending_calls.pop(action_id, None)
         if pending_call is None:

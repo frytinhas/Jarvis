@@ -31,16 +31,22 @@ def _launcher_fixture(tmp_path: Path, keep_running: bool) -> tuple[Path, dict[st
         "LLAMA_BIN=/bin/true\nLLAMA_STYLE=server\nSERVER_HOST=127.0.0.1\nSERVER_PORT=8080\n",
         encoding="utf-8",
     )
-    state = tmp_path / ".local/state/jarvis"
+    config = tmp_path / ".config/jarvis/profiles/jarvis/config.xml"
+    config.parent.mkdir(parents=True)
+    config.write_text("config\n", encoding="utf-8")
+    state = tmp_path / ".local/state/jarvis/profiles/jarvis"
     state.mkdir(parents=True)
     (state / "runtime.env").write_text(
-        "MODEL_PATH=/tmp/model.gguf\nMODEL_ALIAS=jarvis-model\nCOMMAND_NAME=jarvis\n"
+        "MODEL_PATH=/tmp/model.gguf\nMODEL_ALIAS=jarvis-model\nSERVER_PORT=8080\nCOMMAND_NAME=jarvis\n"
         "ASSISTANT_NAME=Jarvis\nAUTOSTART=true\n"
         f"KEEP_LLM_RUNNING={'true' if keep_running else 'false'}\n",
         encoding="utf-8",
     )
     python = binary / "python"
-    python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    python.write_text(
+        '#!/usr/bin/env bash\n[[ "$*" == *"profile_cli port-in-use"* ]] && exit 1\nexit 0\n',
+        encoding="utf-8",
+    )
     python.chmod(0o755)
     client = binary / "jarvis"
     client.write_text(
@@ -87,7 +93,7 @@ def test_launcher_preserves_cwd_and_applies_server_lifecycle(
     assert (tmp_path / "client-args").read_text(encoding="utf-8").strip() == "resuma esta pasta"
     log_path = tmp_path / "systemctl-log"
     systemctl_log = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
-    assert ("--user stop jarvis-llm.service" in systemctl_log) is should_stop
+    assert ("--user stop jarvis-llm@jarvis.service" in systemctl_log) is should_stop
 
 
 def test_full_stop_stops_managed_server_without_opening_client(tmp_path: Path) -> None:
@@ -105,7 +111,7 @@ def test_full_stop_stops_managed_server_without_opening_client(tmp_path: Path) -
     assert result.returncode == 0
     assert "início automático foi mantida" in result.stdout
     assert not (tmp_path / "client-cwd").exists()
-    assert "--user stop jarvis-llm.service" in (tmp_path / "systemctl-log").read_text(encoding="utf-8")
+    assert "--user stop jarvis-llm@jarvis.service" in (tmp_path / "systemctl-log").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("mode", ["--remove", "--purge"])
@@ -165,6 +171,6 @@ def test_launcher_restarts_model_and_reopens_client_on_internal_exit_code(tmp_pa
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "client-count").read_text(encoding="utf-8").strip() == "2"
-    assert "--user restart jarvis-llm.service" in (
+    assert "--user restart jarvis-llm@jarvis.service" in (
         tmp_path / "systemctl-log"
     ).read_text(encoding="utf-8")

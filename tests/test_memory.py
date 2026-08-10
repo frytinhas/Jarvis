@@ -246,6 +246,22 @@ def test_memory_search_is_a_controlled_read_tool(tmp_path: Path) -> None:
     assert result.result["results"]
 
 
+def test_general_file_tools_cannot_read_private_profile_state_but_memory_tool_can(tmp_path: Path) -> None:
+    store = ConversationLogStore(tmp_path / "profile-state/logs", now=lambda: NOW)
+    store.create(_transcript(), started_at=NOW, invocation_directory=tmp_path)
+    registry = build_registry(
+        PolicyEngine(), ConfirmationManager(), AuditLog(tmp_path / "audit.db"),
+        PathPolicy.empty(project_directory=tmp_path / "project"), store,
+        protected_directories=(tmp_path / "profile-state",),
+    )
+
+    direct = registry.request("read_file", {"path": str(store.database_path)})
+    searched = registry.request("search_conversation_logs", {"query": "brain"})
+
+    assert direct.status == "denied"
+    assert searched.status == "ok"
+
+
 def test_blacklist_can_block_memory_search(tmp_path: Path) -> None:
     store = ConversationLogStore(tmp_path / "logs", now=lambda: NOW)
     store.create(_transcript(), started_at=NOW, invocation_directory=tmp_path)

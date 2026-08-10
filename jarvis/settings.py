@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from jarvis.profiles import active_profile, config_root, profile_config_directory, profile_state_directory
 from jarvis.security.policy import Decision, Risk
 
 
@@ -41,10 +42,13 @@ class ColorMode(StrEnum):
 class UserSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 12
+    version: int = 13
+    profile_id: str = Field(default="", pattern=r"^(?:[a-f0-9]{32})?$")
+    learning_state: str = Field(default="complete", pattern=r"^(pending|complete)$")
     model_directory: Path | None = None
     model_path: Path | None = None
     context_size: int = Field(default=4096, gt=0, multiple_of=1024)
+    server_port: int = Field(default=8080, ge=1024, le=65535)
     permissions: dict[Risk, Decision] = Field(default_factory=lambda: dict(DEFAULT_DECISIONS))
     assistant_name: str = "Jarvis"
     command_name: str = "jarvis"
@@ -67,6 +71,7 @@ class UserSettings(BaseModel):
     goodbye_messages_path: Path = Field(default_factory=lambda: editable_paths()["goodbye_messages"])
     blacklist_path: Path = Field(default_factory=lambda: editable_paths()["blacklist"])
     whitelist_path: Path = Field(default_factory=lambda: editable_paths()["whitelist"])
+    learning_context_path: Path = Field(default_factory=lambda: editable_paths()["learning_context"])
 
 
 def project_root() -> Path:
@@ -74,11 +79,17 @@ def project_root() -> Path:
 
 
 def state_directory() -> Path:
+    profile = active_profile()
+    if profile is not None:
+        return profile_state_directory(profile)
     return Path.home() / ".local/state/jarvis"
 
 
 def configuration_directory() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")).expanduser() / "jarvis"
+    profile = active_profile()
+    if profile is not None:
+        return profile_config_directory(profile)
+    return config_root()
 
 
 def editable_paths(directory: Path | None = None) -> dict[str, Path]:
@@ -91,6 +102,7 @@ def editable_paths(directory: Path | None = None) -> dict[str, Path]:
         "blacklist": root / "Blacklist.txt",
         "whitelist": root / "Whitelist.txt",
         "notes": root / "jarvis-notes",
+        "learning_context": root / "LearningContext.md",
     }
 
 

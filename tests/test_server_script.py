@@ -43,15 +43,15 @@ def test_server_logging_flags_follow_display_level(
         f"LLAMA_BIN={llama}\nLLAMA_STYLE=server\nSERVER_HOST=127.0.0.1\nSERVER_PORT=8080\n",
         encoding="utf-8",
     )
-    state = tmp_path / ".local/state/jarvis"
+    state = tmp_path / ".local/state/jarvis/profiles/jarvis"
     state.mkdir(parents=True)
     (state / "runtime.env").write_text(
-        f"MODEL_PATH={model}\nMODEL_ALIAS=jarvis-model\nCONTEXT_SIZE=8192\nDISPLAY_LOG_LEVEL={level}\n",
+        f"MODEL_PATH={model}\nMODEL_ALIAS=jarvis-model\nSERVER_PORT=8080\nCONTEXT_SIZE=8192\nDISPLAY_LOG_LEVEL={level}\n",
         encoding="utf-8",
     )
 
     result = subprocess.run(
-        [str(scripts / "jarvis-server")],
+        [str(scripts / "jarvis-server"), "jarvis"],
         env={**os.environ, "HOME": str(tmp_path)},
         text=True,
         capture_output=True,
@@ -65,4 +65,4 @@ def test_server_logging_flags_follow_display_level(
     assert "--ctx-size\n8192" in arguments
     if level != "Essential":
         assert "--log-file" in arguments
-        assert (tmp_path / ".local/state/jarvis/logs/runtime/llama-server.log").is_file()
+        assert (tmp_path / ".local/state/jarvis/profiles/jarvis/logs/runtime/llama-server.log").is_file()

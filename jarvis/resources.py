@@ -27,6 +27,7 @@ def ensure_private_resources(settings: UserSettings) -> None:
         (settings.blacklist_path, b"# path READ MODIFY CREATE DELETE EXECUTE\n"),
         (settings.whitelist_path, f"{installation_home}\n/mnt\n".encode()),
         (settings.whitelist_path.parent / "jarvis-notes", b""),
+        (settings.learning_context_path, b""),
     )
     for path, content in resources:
         path = path.expanduser()
