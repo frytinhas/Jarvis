@@ -13,6 +13,7 @@ from jarvis.llm.client import LLM, LLMTimeoutError, LLMToolGrammarError
 from jarvis.llm.schemas import AssistantMessage, Message
 from jarvis.security.confirmation import ConfirmationError, PendingAction
 from jarvis.security.policy import Decision, Risk
+from jarvis.security.input_guard import unsafe_chat_input_reason
 from jarvis.tools.registry import ToolRegistry, ToolResult
 
 
@@ -62,6 +63,11 @@ class Orchestrator:
     def handle(self, user_text: str) -> AgentReply:
         if self._pending_calls:
             return self._reply("Há uma ação aguardando confirmação.", self._current_pending())
+        reason = unsafe_chat_input_reason(user_text)
+        if reason:
+            return AgentReply(
+                f"Mensagem bloqueada por conter {reason}. Remova esse conteúdo e tente novamente."
+            )
         self.transcript.append({"role": "user", "content": user_text})
         self.messages.append({"role": "user", "content": user_text})
         self._active_seconds = 0.0
@@ -85,6 +91,14 @@ class Orchestrator:
         """Start a clean visible conversation while retaining the validated dependencies."""
         if self._pending_calls:
             raise ValueError("Não é possível reiniciar o contexto com uma ação pendente")
+        self._reset_session(system_prompt)
+
+    def discard_session(self, system_prompt: str) -> None:
+        """Forget an abandoned conversation, including any unconfirmed pending action."""
+        self._pending_calls.clear()
+        self._reset_session(system_prompt)
+
+    def _reset_session(self, system_prompt: str) -> None:
         self.messages = [{"role": "system", "content": system_prompt}]
         self.transcript = []
         self.started_at = datetime.now(timezone.utc)

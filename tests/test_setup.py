@@ -11,6 +11,8 @@ def test_setup_is_local_and_never_invokes_sudo() -> None:
     assert "/usr/local" not in setup
     assert 'APP_DIR="$DATA_DIR/app"' in setup
     assert 'LOCAL_BIN="$INSTALL_HOME/.local/bin"' in setup
+    assert 'INSTALL_SOURCE_DIR=%q' in setup
+    assert 'install_local_link "$APP_DIR/Update.sh" "$update_command" /Update.sh' in setup
     assert "INSTALL_UID=%s" in setup
     assert '"$APP_DIR/.venv/bin/python" -P -m jarvis.installer' in setup
     assert '"$APP_DIR/.venv/bin/python" -P -m jarvis.runtime' in setup
@@ -30,3 +32,10 @@ def test_package_and_setup_do_not_require_readme() -> None:
 
     assert "README" not in setup
     assert 'readme = "README.md"' not in pyproject
+
+
+def test_setup_supports_noninteractive_repair_mode() -> None:
+    setup = (PROJECT_ROOT / "Setup.sh").read_text(encoding="utf-8")
+
+    assert '""|--repair)' in setup
+    assert '"$SETUP_MODE" == --repair' in setup

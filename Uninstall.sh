@@ -76,7 +76,8 @@ remove_owned_commands() {
         [[ -L "$candidate" ]] || continue
         target="$(readlink -f "$candidate" 2>/dev/null || true)"
         if [[ "$target" == "$PROJECT_DIR/scripts/jarvis" \
-            || "$target" == "$PROJECT_DIR/Config.sh" ]]; then
+            || "$target" == "$PROJECT_DIR/Config.sh" \
+            || "$target" == "$PROJECT_DIR/Update.sh" ]]; then
             rm -f -- "$candidate"
         fi
     done

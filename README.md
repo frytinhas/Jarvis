@@ -27,6 +27,8 @@ Run Setup as the user who will use Jarvis. Do not run a normal-user installation
 
 If `~/.local/bin` is not already on your `PATH`, open a new shell after Setup finishes.
 
+After updating the source checkout, run `jarvis-update` to apply it with the safe repair flow; it preserves configuration and state.
+
 ## Use
 
 Start the profile command chosen during configuration (for example, `jarvis`):
@@ -50,6 +52,8 @@ Inside the chat, these commands are the most useful:
 - `/quit` — close the chat and stop its managed model server after memory work completes.
 
 `Ctrl+C` cancels the current generation or execution without closing the chat. Use `jarvis --full-stop` to stop the managed server without opening a session.
+
+The interactive prompt handles long wrapped input without duplicating text. It supports cursor editing and Shift+arrow selection before sending, without retaining sent-message history. Terminal pastes stay as one editable draft, even when they contain line breaks; press Enter explicitly to send.
 
 ## Safety in brief
 

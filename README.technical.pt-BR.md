@@ -27,6 +27,8 @@ Os perfis ficam em `~/.config/jarvis/profiles/<perfil>/`; seu estado fica em `~/
 
 Reexecutar o Setup oferece reparo com retenção dos dados ou reinstalação limpa para aquele usuário. O clone fonte não é modificado.
 
+`jarvis-update` valida o proprietário da instalação e executa `Setup.sh --repair` no checkout fonte registrado. Atualize primeiro esse checkout; o repair substitui o aplicativo instalado e preserva configuração e estado.
+
 ## Operação
 
 Use o comando do perfil escolhido durante a configuração:
@@ -56,6 +58,8 @@ jarvis --full-stop-all
 | `/quit` | Fecha o chat e solicita o encerramento do servidor após a memória. |
 
 Os recursos editáveis do perfil são `Persona.md`, `Context.md`, `WaitingMessages.txt`, `GoodbyeMessages.txt`, `Whitelist.txt`, `Blacklist.txt` e `LearningContext.md`. Use as opções correspondentes — como `jarvis --persona`, `jarvis --context` e `jarvis --blacklist` — para abri-los no Nano.
+
+Em um terminal interativo, o chat usa prompt_toolkit em vez de redesenho ANSI manual, para que textos longos quebrados visualmente, movimento de cursor e seleção com Shift+setas sejam renderizados corretamente. O editor não mantém histórico de mensagens enviadas. Uma colagem bracketed fica como rascunho editável até um Enter explícito.
 
 ## Tools e modelo de segurança
 

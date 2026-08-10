@@ -27,6 +27,8 @@ Profiles live in `~/.config/jarvis/profiles/<profile>/`; profile state lives in 
 
 Running Setup again offers repair while retaining user data, or a clean reinstall for that user. It does not modify the source clone.
 
+`jarvis-update` validates the installation owner, then runs `Setup.sh --repair` from the recorded source checkout. Update that checkout first; the repair flow replaces the installed application while retaining configuration and state.
+
 ## Operation
 
 Use the profile command selected during configuration:
@@ -56,6 +58,8 @@ jarvis --full-stop-all
 | `/quit` | Closes the chat and requests server shutdown after memory work. |
 
 The editable profile resources are `Persona.md`, `Context.md`, `WaitingMessages.txt`, `GoodbyeMessages.txt`, `Whitelist.txt`, `Blacklist.txt`, and `LearningContext.md`. Use the respective CLI options such as `jarvis --persona`, `jarvis --context`, and `jarvis --blacklist` to open them in Nano.
+
+On an interactive terminal, the chat uses prompt_toolkit rather than manual ANSI redraws, so long wrapped input, cursor movement, and Shift+arrow selection render correctly. The editor has no sent-message history. Bracketed paste remains one editable draft until an explicit Enter.
 
 ## Tools and security model
 

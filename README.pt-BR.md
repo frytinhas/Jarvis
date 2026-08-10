@@ -27,6 +27,8 @@ Execute o Setup com o usuário que usará o Jarvis. Não use `sudo` para uma ins
 
 Caso `~/.local/bin` ainda não esteja no seu `PATH`, abra um novo terminal após o Setup terminar.
 
+Depois de atualizar o checkout fonte, execute `jarvis-update` para aplicar a atualização no modo repair, preservando configuração e estado.
+
 ## Uso
 
 Inicie o comando do perfil escolhido na configuração (por exemplo, `jarvis`):
@@ -50,6 +52,8 @@ No chat, estes são os comandos mais úteis:
 - `/quit` — fecha o chat e encerra o servidor de modelo gerenciado após finalizar a memória.
 
 `Ctrl+C` cancela a geração ou execução atual sem fechar o chat. Use `jarvis --full-stop` para encerrar o servidor gerenciado sem abrir uma sessão.
+
+O prompt interativo lida com textos longos quebrados visualmente sem duplicá-los. Ele permite editar o cursor e selecionar texto com Shift+setas antes de enviar, sem manter histórico de mensagens enviadas. Uma colagem no terminal fica em um único rascunho editável, mesmo com quebras de linha; pressione Enter explicitamente para enviar.
 
 ## Segurança, em resumo
 

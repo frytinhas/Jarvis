@@ -3,6 +3,14 @@
 set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SETUP_MODE="${1:-}"
+case "$SETUP_MODE" in
+    ""|--repair) ;;
+    *)
+        echo "Uso: bash Setup.sh [--repair]" >&2
+        exit 2
+        ;;
+esac
 INSTALL_UID="$(id -u)"
 if ((INSTALL_UID == 0)); then
     passwd_entry="$(getent passwd 0 2>/dev/null || true)"
@@ -81,7 +89,7 @@ trap cleanup EXIT
 payload="$temporary_root/app"
 mkdir -p "$payload"
 cp -a "$SOURCE_DIR/jarvis" "$SOURCE_DIR/scripts" "$payload/"
-cp -a "$SOURCE_DIR/Config.sh" "$SOURCE_DIR/Uninstall.sh" "$SOURCE_DIR/Setup.sh" "$payload/"
+cp -a "$SOURCE_DIR/Config.sh" "$SOURCE_DIR/Uninstall.sh" "$SOURCE_DIR/Update.sh" "$SOURCE_DIR/Setup.sh" "$payload/"
 cp -a "$SOURCE_DIR/pyproject.toml" "$SOURCE_DIR/LICENSE" "$payload/"
 find "$payload" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
@@ -89,22 +97,28 @@ INSTALL_KIND=new
 if [[ -f "$APP_DIR/.install" || -f "$USER_CONFIG" || -d "$STATE_DIR" ]]; then
     INSTALL_KIND=repair
     info "Uma instalação local existente do Jarvis foi detectada."
-    while true; do
-        read -r -p "Escolha [r]eparar preservando seus dados ou [z]erar tudo e reinstalar: " setup_choice
-        case "${setup_choice,,}" in
-            r|reparar|repair) break ;;
-            z|zerar|reinstalar|reinstall)
-                if [[ -x "$APP_DIR/Uninstall.sh" ]]; then
-                    printf 'jarvis purge\n' | run_as_install_user bash "$APP_DIR/Uninstall.sh" --purge
-                else
-                    rm -rf -- "$DATA_DIR" "$CONFIG_HOME/jarvis" "$STATE_DIR"
-                fi
-                INSTALL_KIND=clean
-                break
-                ;;
-            *) echo "Digite r para reparar ou z para reinstalar do zero." ;;
-        esac
-    done
+    if [[ "$SETUP_MODE" == --repair ]]; then
+        info "Modo repair selecionado: preservando configuração e estado existentes."
+    else
+        while true; do
+            read -r -p "Escolha [r]eparar preservando seus dados ou [z]erar tudo e reinstalar: " setup_choice
+            case "${setup_choice,,}" in
+                r|reparar|repair) break ;;
+                z|zerar|reinstalar|reinstall)
+                    if [[ -x "$APP_DIR/Uninstall.sh" ]]; then
+                        printf 'jarvis purge\n' | run_as_install_user bash "$APP_DIR/Uninstall.sh" --purge
+                    else
+                        rm -rf -- "$DATA_DIR" "$CONFIG_HOME/jarvis" "$STATE_DIR"
+                    fi
+                    INSTALL_KIND=clean
+                    break
+                    ;;
+                *) echo "Digite r para reparar ou z para reinstalar do zero." ;;
+            esac
+        done
+    fi
+elif [[ "$SETUP_MODE" == --repair ]]; then
+    fail "Não existe uma instalação local do Jarvis para reparar. Execute bash Setup.sh sem --repair."
 fi
 
 LLAMA_BIN=""
@@ -190,6 +204,7 @@ install_file="$APP_DIR/.install"
     printf 'INSTALL_HOME=%q\n' "$INSTALL_HOME"
     printf 'INSTALL_DATA_HOME=%q\n' "$DATA_HOME"
     printf 'INSTALL_CONFIG_HOME=%q\n' "$CONFIG_HOME"
+    printf 'INSTALL_SOURCE_DIR=%q\n' "$SOURCE_DIR"
     printf 'APP_DIR=%q\n' "$APP_DIR"
     printf 'LLAMA_BIN=%q\n' "$LLAMA_BIN"
     printf 'LLAMA_STYLE=%q\n' "$LLAMA_STYLE"
@@ -197,11 +212,12 @@ install_file="$APP_DIR/.install"
     printf 'SERVER_PORT=8080\n'
 } >"$install_file"
 chmod 600 "$install_file"
-chmod +x "$APP_DIR/Config.sh" "$APP_DIR/Uninstall.sh" "$APP_DIR/Setup.sh" \
+chmod +x "$APP_DIR/Config.sh" "$APP_DIR/Uninstall.sh" "$APP_DIR/Update.sh" "$APP_DIR/Setup.sh" \
     "$APP_DIR/scripts/jarvis" "$APP_DIR/scripts/jarvis-server" "$APP_DIR/scripts/jarvis-env"
 
 mkdir -p "$LOCAL_BIN"
 config_command="$LOCAL_BIN/jarvis-config"
+update_command="$LOCAL_BIN/jarvis-update"
 install_local_link() {
     local target="$1" link="$2" legacy_suffix="$3" resolved=""
     if [[ -e "$link" || -L "$link" ]]; then
@@ -219,6 +235,7 @@ install_local_link() {
     ln -sfn "$target" "$link"
 }
 install_local_link "$APP_DIR/Config.sh" "$config_command" /Config.sh
+install_local_link "$APP_DIR/Update.sh" "$update_command" /Update.sh
 
 mkdir -p "$UNIT_DIR"
 escaped_app="${APP_DIR//\\/\\\\}"

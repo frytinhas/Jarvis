@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import random
 import re
 import sys
-from typing import Callable, Iterator
+from typing import Callable
 
 from jarvis.agent.orchestrator import AgentReply, Orchestrator
 from jarvis.config import ConfigFileError, JarvisConfig
@@ -18,6 +17,9 @@ from jarvis.ui.markdown import render_markdown
 from jarvis.ui.theme import PLAIN_THEME, Theme
 from jarvis.ui.waiting import WaitingIndicator
 from jarvis.memory import LearningContextStore, summarize_conversation, summarize_learning
+from jarvis.memory.learning import LearningSummaryError
+from jarvis.security.input_guard import unsafe_chat_input_reason
+from jarvis.ui.line_editor import read_line
 
 
 POSITIVE = {"s", "sim", "y", "yes", "pode", "confirmo", "execute", "faça", "faca"}
@@ -25,12 +27,18 @@ NEGATIVE = {"n", "não", "nao", "no", "cancela", "cancelar", "deixa"}
 LICENSE_COMMANDS = {"/licenca", "/licença", "/license"}
 LEARNING_ALLOWED = {"/help", "/clear", "/license", "/licenca", "/licença", "/finish", "/exit", "/sair", "/quit"}
 
+FIRST_LEARNING_NOTICE = (
+    "FIRST-RUN LEARNING SESSION: nothing said here is saved unless you run /finish and explicitly "
+    "approve the proposed summary. /exit, closing the terminal, or Ctrl+C discards this entire "
+    "learning conversation. Describe only durable preferences, projects, and constraints. Never "
+    "provide passwords, tokens, credentials, or other secrets. Mentioned paths are context only; "
+    "they never grant access or authorize tools."
+)
+
 LEARNING_NOTICE = (
-    "Esta é uma sessão de aprendizado deste perfil. As informações aprovadas aqui serão usadas "
-    "como principal contexto privado nas próximas conversas. Explique quem você é, o que pretende "
-    "fazer com o assistente, projetos e pastas frequentes, preferências e restrições. Não informe "
-    "senhas, tokens ou credenciais. Pastas mencionadas são somente contexto: não concedem acesso, "
-    "não substituem as políticas e nunca viram alvo implícito de tools. Use /finish quando terminar."
+    "Learning session: only a summary explicitly approved with /finish can replace the existing "
+    "learning context. Exiting discards this session. Never provide secrets; paths are context only "
+    "and never authorize tools."
 )
 
 
@@ -75,6 +83,7 @@ class TerminalUI:
         self.learning_prompt = learning_prompt
         self.normal_prompt = normal_prompt
         self.completed_transcripts: list[tuple[list[dict[str, str]], object, object]] = []
+        self._first_learning_session = learning_mode
 
     def run(
         self, initial_message: str | None = None, continue_after_initial: bool = True
@@ -87,57 +96,68 @@ class TerminalUI:
         if self.startup_warning:
             print(self.theme.paint(f"AVISO: {self.startup_warning}", "warning"))
         if self.learning_mode:
-            print(self.theme.paint(f"AVISO: {LEARNING_NOTICE}", "warning"))
+            self._show_learning_notice(first_run=self._first_learning_session)
         if initial_message:
             action = self._handle_local_command(initial_message)
             if action is None:
-                self._handle(initial_message)
+                if self._unsafe_message(initial_message):
+                    print(self.theme.paint("Mensagem inicial bloqueada; remova os marcadores internos e tente novamente.", "warning"))
+                else:
+                    self._handle(initial_message)
             elif action is not SessionExit.CONTINUE:
                 return action
             if not continue_after_initial:
                 return SessionExit.EXIT
-        with self._completion():
-            while True:
-                try:
-                    prompt = self.theme.paint("Você > ", "user", strong=True)
-                    user_text = input(f"\n{prompt}").strip()
-                except (EOFError, KeyboardInterrupt):
-                    return self._exit()
-                if not user_text:
+        while True:
+            try:
+                prompt = self.theme.paint("Você > ", "user", strong=True)
+                print()
+                user_text = read_line(
+                    prompt, validator=unsafe_chat_input_reason,
+                    completer=self.commands.completion_candidates if self.commands else None,
+                    blocked_message="Mensagem bloqueada",
+                ).strip()
+            except (EOFError, KeyboardInterrupt):
+                return self._exit()
+            if not user_text:
+                continue
+            if self._unsafe_message(user_text):
+                print(self.theme.paint("Mensagem bloqueada; remova os marcadores internos e tente novamente.", "warning"))
+                continue
+            lowered = user_text.lower()
+            if self.learning_mode:
+                command = lowered.partition(" ")[0]
+                if command == "/finish":
+                    if not self._finish_learning():
+                        continue
                     continue
-                lowered = user_text.lower()
-                if self.learning_mode:
-                    command = lowered.partition(" ")[0]
-                    if command in {"/finish", "/exit", "/sair", "/quit"}:
-                        if not self._finish_learning():
-                            continue
-                        if command in {"/exit", "/sair"}:
-                            return self._exit()
-                        if command == "/quit":
-                            return self._exit(SessionExit.FULL_STOP)
-                        continue
-                    if command == "/help":
-                        print("\nDurante o aprendizado: converse normalmente e use /finish, /exit ou /quit para propor o resumo. /clear e /license também estão disponíveis.")
-                        continue
-                    if command.startswith("/") and command not in LEARNING_ALLOWED:
-                        print(self.theme.paint(
-                            "Este comando fica bloqueado durante o aprendizado. Use /finish, /exit ou /quit.",
-                            "warning",
-                        ))
-                        continue
-                elif lowered == "/learning":
-                    if self._enter_learning():
-                        continue
-                if lowered in {"/sair", "/exit"}:
+                if command in {"/exit", "/sair"}:
                     return self._exit()
-                action = self._handle_local_command(user_text)
-                if action is not None:
-                    if action is not SessionExit.CONTINUE:
-                        return action
+                if command == "/quit":
+                    return self._exit(SessionExit.FULL_STOP)
+                if command == "/help":
+                    print("\nDurante o aprendizado: converse normalmente e use /finish, /exit ou /quit para propor o resumo. /clear e /license também estão disponíveis.")
                     continue
-                self._handle(user_text)
+                if command.startswith("/") and command not in LEARNING_ALLOWED:
+                    print(self.theme.paint(
+                        "Este comando fica bloqueado durante o aprendizado. Use /finish, /exit ou /quit.",
+                        "warning",
+                    ))
+                    continue
+            elif lowered == "/learning":
+                if self._enter_learning():
+                    continue
+            if lowered in {"/sair", "/exit"}:
+                return self._exit()
+            action = self._handle_local_command(user_text)
+            if action is not None:
+                if action is not SessionExit.CONTINUE:
+                    return action
+                continue
+            self._handle(user_text)
 
     def _exit(self, action: SessionExit = SessionExit.EXIT) -> SessionExit:
+        self._discard_learning()
         message = random.choice(self.goodbye_messages) if self.goodbye_messages else "Até logo."
         label = self.theme.paint(f"{self.assistant_name}:", "assistant", strong=True)
         print(f"\n{label}\n{render_markdown(message, self.theme)}")
@@ -217,7 +237,8 @@ class TerminalUI:
             self.commands.config = self.config
         self.orchestrator.reset_session(self.learning_prompt)
         self.learning_mode = True
-        print(self.theme.paint(f"AVISO: {LEARNING_NOTICE}", "warning"))
+        self._first_learning_session = False
+        self._show_learning_notice(first_run=False)
         return True
 
     def _finish_learning(self) -> bool:
@@ -231,6 +252,12 @@ class TerminalUI:
                     self.orchestrator.transcript,
                     self.config.settings.context_size,
                 )
+        except LearningSummaryError as error:
+            print(self.theme.paint(
+                f"O resumo proposto foi recusado ({error}). Continue o aprendizado e tente /finish novamente.",
+                "warning",
+            ))
+            return False
         except Exception as error:
             print(self.theme.paint(f"Não foi possível resumir o aprendizado: {error}", "error"))
             return False
@@ -267,6 +294,31 @@ class TerminalUI:
         print("Aprendizado aprovado. Uma nova conversa normal foi iniciada neste terminal.")
         return True
 
+    def _unsafe_message(self, user_text: str) -> bool:
+        return unsafe_chat_input_reason(user_text) is not None
+
+    def _show_learning_notice(self, *, first_run: bool) -> None:
+        notice = FIRST_LEARNING_NOTICE if first_run else LEARNING_NOTICE
+        role = "error" if first_run else "warning"
+        print(self.theme.paint(notice, role, strong=first_run))
+
+    def _discard_learning(self) -> None:
+        """Forget the in-memory onboarding conversation before ending the terminal."""
+        if not self.learning_mode:
+            return
+        self.orchestrator.discard_session(self.learning_prompt or "")
+        if not self._first_learning_session and self.config is not None:
+            settings = self.config.settings.model_copy(update={"learning_state": "complete"})
+            restored_config = self.config.model_copy(update={"settings": settings})
+            try:
+                save_config(restored_config)
+            except (ConfigFileError, OSError, ValueError) as error:
+                print(self.theme.paint(f"Could not restore the prior learning state: {error}", "error"))
+            else:
+                self.config = restored_config
+                if self.commands is not None:
+                    self.commands.config = self.config
+
     def _write_switch_request(self, target: str | None, handoff: str) -> None:
         request_path = os.environ.get("JARVIS_SWITCH_REQUEST_PATH")
         if not request_path or not target:
@@ -281,35 +333,6 @@ class TerminalUI:
         )
         temporary.chmod(0o600)
         temporary.replace(path)
-
-    @contextmanager
-    def _completion(self) -> Iterator[None]:
-        if self.commands is None or not sys.stdin.isatty():
-            yield
-            return
-        try:
-            import readline
-        except ImportError:
-            yield
-            return
-        previous = readline.get_completer()
-        previous_delimiters = readline.get_completer_delims()
-        matches: list[str] = []
-
-        def complete(text: str, state: int) -> str | None:
-            nonlocal matches
-            if state == 0:
-                matches = self.commands.completion_candidates(readline.get_line_buffer())
-            return matches[state] if state < len(matches) else None
-
-        readline.set_completer_delims("")
-        readline.set_completer(complete)
-        readline.parse_and_bind("tab: complete")
-        try:
-            yield
-        finally:
-            readline.set_completer(previous)
-            readline.set_completer_delims(previous_delimiters)
 
     def _handle(self, user_text: str) -> None:
         try:

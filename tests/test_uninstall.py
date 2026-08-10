@@ -18,6 +18,7 @@ def _installation(tmp_path: Path) -> tuple[Path, dict[str, str], dict[str, Path]
     mock_bin.mkdir()
     script = project / "Uninstall.sh"
     shutil.copy2(source_root / "Uninstall.sh", script)
+    shutil.copy2(source_root / "Update.sh", project / "Update.sh")
     shutil.copy2(source_root / "scripts/jarvis-env", project / "scripts/jarvis-env")
     (project / "scripts/jarvis").write_text("launcher\n", encoding="utf-8")
     (project / "Config.sh").write_text("config\n", encoding="utf-8")
@@ -28,6 +29,7 @@ def _installation(tmp_path: Path) -> tuple[Path, dict[str, str], dict[str, Path]
     local_bin.mkdir(parents=True)
     (local_bin / "jarvis").symlink_to(project / "scripts/jarvis")
     (local_bin / "jarvis-config").symlink_to(project / "Config.sh")
+    (local_bin / "jarvis-update").symlink_to(project / "Update.sh")
     config = home / ".config/jarvis"
     state = home / ".local/state/jarvis"
     data = project.parent
@@ -97,6 +99,7 @@ def test_remove_keeps_configuration_logs_and_audit(tmp_path: Path) -> None:
     assert not paths["project"].exists()
     assert not (paths["local_bin"] / "jarvis").exists()
     assert not (paths["local_bin"] / "jarvis-config").exists()
+    assert not (paths["local_bin"] / "jarvis-update").exists()
     assert not paths["unit"].exists()
     assert not paths["desktop"].exists()
     assert not paths["icon"].exists()
