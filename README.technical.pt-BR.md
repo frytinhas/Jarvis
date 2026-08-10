@@ -2,110 +2,143 @@
 
 <p align="center"><img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="140"></p>
 
-Jarvis é um assistente de linha de comando para Linux, construído em torno de um modelo GGUF servido pelo `llama.cpp`. O LLM planeja e responde, mas não recebe acesso direto ao sistema operacional. Toda ação local passa por tools validadas, política de permissões, política de paths quando aplicável, confirmação, revalidação e auditoria SQLite.
+Referência operacional e de segurança do Jarvis. Para instalação e uso diário, comece pelo [guia principal](README.pt-BR.md). [English](README.technical.md) · [Contribuindo](CONTRIBUTING.md)
 
-Guia principal: [README.pt-BR.md](README.pt-BR.md). English: [README.technical.md](README.technical.md).
+## Fronteira de confiança
 
-## Instalação e perfis
+O Jarvis executa um GGUF instruct/chat pelo `llama.cpp`. O LLM planeja e escreve respostas, mas nunca recebe acesso direto ao sistema operacional. Toda ação pedida pelo modelo passa pela seleção de tool registrada, validação Pydantic, política, verificações de path quando aplicável, confirmação, revalidação imediata, execução e auditoria SQLite.
 
-Os requisitos são Linux, Python 3.12+, `curl` e um GGUF instruct/chat. Execute o instalador a partir de um clone, com o usuário que usará o programa:
+O modelo não é uma fronteira de segurança. Prompts, arquivos de persona/contexto, saída do modelo, memória, logs, arquivos e resultados de tools são dados não confiáveis. Eles não podem conceder permissões nem alterar políticas.
+
+## Instalação, reparo e runtime
+
+Os requisitos são Linux, Python 3.12+, `curl` e um GGUF instruct/chat. Instale a partir de um clone com o usuário que usará o programa:
 
 ```bash
 bash Setup.sh
 ```
 
-O Setup não eleva privilégios numa instalação normal. Ele instala aplicativo e ambiente virtual em `~/.local/share/jarvis/app`, comandos em `~/.local/bin`, configuração em `~/.config/jarvis` e estado em `~/.local/state/jarvis`. Se não houver `llama` ou `llama-server` compatível, clona e compila o `llama.cpp` para CPU. Para usuários comuns, dependências de sistema ausentes são informadas; quando o Setup é executado intencionalmente como root, ele avisa e limita a instalação a `/root`.
+Uma instalação normal nunca eleva privilégios. Ela instala aplicativo e ambiente virtual em `~/.local/share/jarvis/app`, comandos em `~/.local/bin`, configuração em `~/.config/jarvis` e estado em `~/.local/state/jarvis`. Quando necessário, o Setup compila o `llama.cpp` para CPU; pacotes de sistema ausentes são informados, não instalados com elevação.
 
-O configurador encontra GGUFs. Perfis são configurações compartilhadas por nome e podem conter vários GGUFs; o perfil inicial permanente é `jarvis`. Logs de conversa/depuração e notas privadas são isolados pelo path canônico do GGUF dentro do perfil, enquanto recursos, aprendizado e auditoria são compartilhados. Execute-o novamente com:
+`jarvis-update` valida a propriedade e executa o reparo a partir do checkout fonte registrado. Reexecutar o Setup oferece reparo preservando dados ou reinstalação limpa para aquele usuário. Nenhum desses fluxos modifica ou remove o checkout fonte.
+
+O launcher gerencia o `llama-server` por `systemd --user` quando disponível; caso contrário usa um processo fallback rastreado. Ele só encerra servidores que iniciou ou gerencia.
 
 ```bash
-jarvis-config
-jarvis-config --a  # abre o XML do perfil ativo no nano
+jarvis --full-stop      # encerra o servidor gerenciado do perfil ativo
+jarvis --full-stop-all  # solicita encerramento de todos os servidores gerenciados
+```
+
+## Perfis, GGUFs e dados salvos
+
+Perfis são espaços compartilhados por nome, armazenados em:
+
+```text
+~/.config/jarvis/profiles/<perfil>/
+~/.local/state/jarvis/profiles/<perfil>/
+```
+
+O XML do perfil é a configuração compartilhada: persona, contexto, aprendizado, permissões, comportamento, configurações do servidor e banco de auditoria. O catálogo `models.json` registra os paths de GGUF associados; o modelo ativo no XML é o último GGUF escolhido no perfil.
+
+Cada GGUF também recebe um diretório privado identificado pelo path canônico. Isso mantém conversas, logs de runtime/depuração, marcadores de sessão e `jarvis-notes` isolados, mesmo quando modelos compartilham perfil. Contexto de aprendizado e auditoria continuam no perfil inteiro.
+
+| Operação | Resultado |
+| --- | --- |
+| Selecionar GGUF conhecido | Abre seu perfil associado; escolha explicitamente se ele pertencer a vários. |
+| Selecionar GGUF `★` | Escolha perfil existente ou crie um perfil nomeado. |
+| `/profile nome` | Abre o perfil usando seu último GGUF. |
+| Rodar o mesmo GGUF duas vezes | Permitido; sessões posteriores recebem somente aviso interno com diretórios das outras sessões. |
+| Rodar outro GGUF em perfil ocupado | Recusado até a sessão do modelo ativo terminar. |
+
+O perfil `jarvis` sempre existe e não pode ser apagado. Resetá-lo remove associações e informações, mas preserva o perfil permanente vazio. Outros perfis podem ser resetados ou apagados somente após confirmação:
+
+```bash
 jarvis-config --reset-profile jarvis
 jarvis-config --delete-profile trabalho
 ```
 
-Excluir um perfil exige confirmação e remove todos os dados dele. O perfil original `jarvis` não pode ser apagado; o reset mantém somente seu nome permanente.
+Perfis antigos de um único GGUF migram automaticamente: seu GGUF ativo entra no catálogo e logs/notas legados são movidos para a área privada desse GGUF.
 
-Os perfis ficam em `~/.config/jarvis/profiles/<perfil>/`; seu estado fica em `~/.local/state/jarvis/profiles/<perfil>/`. O XML é validado estritamente e gravado com permissões privadas. Configuração inválida interrompe a inicialização, sem aplicar defaults silenciosos.
+## Configuração e comandos
 
-Reexecutar o Setup oferece reparo com retenção dos dados ou reinstalação limpa para aquele usuário. O clone fonte não é modificado.
+Execute `jarvis-config` para selecionar perfil/modelo e editar ajustes. `jarvis-config --a` abre o XML ativo no Nano. A leitura do XML é estrita: configuração inválida interrompe a inicialização, sem defaults silenciosos. Arquivos são gravados atomicamente e com permissões privadas.
 
-`jarvis-update` valida o proprietário da instalação e executa `Setup.sh --repair` no checkout fonte registrado. Atualize primeiro esse checkout; o repair substitui o aplicativo instalado e preserva configuração e estado.
+Use `jarvis --persona`, `--context`, `--blacklist`, `--whitelist`, `--waiting-messages` ou `--goodbye-messages` para editar o recurso correspondente do perfil.
 
-## Operação
+### Controle do chat
 
-Use o comando do perfil escolhido durante a configuração:
-
-```bash
-jarvis
-jarvis "mostre o diretório atual"
-jarvis --r 2 "resuma este projeto"
-jarvis --full-stop
-jarvis --full-stop-all
-```
-
-`--r N` aceita `0` a `4`: Off, Low, Medium, High e Max. Sem `--r`, vale o padrão configurado. O launcher inicia o `llama-server` do perfil por `systemd --user` quando disponível, com fallback gerenciado quando não estiver. Ele só encerra servidores iniciados ou gerenciados pelo Jarvis.
-
-| Comando do chat | Efeito |
+| Comando | Efeito |
 | --- | --- |
-| `/help` | Mostra os comandos locais. |
-| `/reasoning off|low|medium|high|max` | Salva o reasoning; mudança de modo de template pode pedir reinício do servidor. |
-| `/model [GGUF]` | Lista GGUFs ou troca um deles; `★` indica que ainda não há associação de perfil. |
-| `/profile [nome]` | Lista perfis ou troca para o último GGUF escolhido. |
-| `/context [tokens|reset]` | Consulta ou muda o contexto; tokens devem ser múltiplos positivos de 1024. |
-| `/permissions [risco decisão]` | Consulta ou altera permissões globais. |
+| `/help` | Mostra a referência local. |
+| `/model [GGUF]` | Lista ou seleciona GGUFs; `★` marca modelo sem associação. |
+| `/profile [nome]` | Lista ou seleciona perfis. |
 | `/config` | Mostra o resumo do perfil ativo. |
-| `/learning` e `/finish` | Gerenciam o contexto privado de aprendizado interativo. |
 | `/clear` | Limpa o terminal sem limpar o contexto do chat. |
-| `/license` | Exibe a GPL-3.0. |
 | `/exit` ou `/sair` | Fecha o chat. |
-| `/quit` | Fecha o chat e solicita o encerramento do servidor após a memória. |
+| `/quit` | Fecha o chat e solicita desligamento do servidor após a memória. |
+| `/license` | Exibe a GPL-3.0. |
 
-Os recursos editáveis do perfil são `Persona.md`, `Context.md`, `WaitingMessages.txt`, `GoodbyeMessages.txt`, `Whitelist.txt`, `Blacklist.txt` e `LearningContext.md`. Use as opções correspondentes — como `jarvis --persona`, `jarvis --context` e `jarvis --blacklist` — para abri-los no Nano.
+### Comportamento da conversa
 
-Em um terminal interativo, o chat usa prompt_toolkit em vez de redesenho ANSI manual, para que textos longos quebrados visualmente, movimento de cursor e seleção com Shift+setas sejam renderizados corretamente. O editor não mantém histórico de mensagens enviadas. Uma colagem bracketed fica como rascunho editável até um Enter explícito.
+| Comando | Efeito |
+| --- | --- |
+| `/reasoning off|low|medium|high|max` | Salva o nível padrão; mudança de modo do template pode exigir reinício. |
+| `/context N` | Define contexto positivo e múltiplo de 1024. |
+| `/context reset` | Restaura o contexto recomendado automaticamente. |
+| `/learning` | Inicia uma nova sessão interativa de aprendizado. |
+| `/finish` | Propõe um resumo de aprendizado que depende de aprovação. |
 
-## Tools e modelo de segurança
+### Permissões
 
-Não existe tool de shell genérico. As tools registradas listam diretórios, leem texto de forma limitada, consultam metadados e buscam arquivos, processos, sistema, diretório atual e diretórios do usuário; também criam arquivos/diretórios, escrevem/anexam/movem/renomeiam, apagam arquivos ou diretórios vazios e executam um `.sh` ou binário por path explícito. A busca no histórico de conversas existe somente quando o armazenamento de memória está configurado.
+`/permissions` mostra a política configurável atual. `/permissions risco decisão` altera uma decisão global, onde os riscos aceitos são `read`, `create`, `modify`, `delete` e `exec`; as decisões são `allow`, `confirmation` ou `deny`.
 
-| Risco | Decisão padrão | Exemplos |
+| Risco | Padrão | Exemplos |
 | --- | --- | --- |
-| `READ` | `ALLOW` | consultar arquivos, buscar, processos, hardware |
+| `READ` | `ALLOW` | inspecionar arquivos, processos e sistema |
 | `CREATE` | `ALLOW` | criar arquivo ou diretório |
-| `MODIFY` | `CONFIRM` | escrever, anexar, mover, renomear |
+| `MODIFY` | `CONFIRM` | escrever, acrescentar, mover, renomear |
 | `DELETE` | `CONFIRM` | apagar arquivo ou diretório vazio |
-| `EXECUTE` | `ALLOW` | executar um path explícito |
-| `PRIVILEGED` | `DENY` fixo | operações privilegiadas do sistema |
+| `EXECUTE` | `ALLOW` | executar path explícito de arquivo |
+| `PRIVILEGED` | `DENY` fixo | elevação de privilégio e caminhos equivalentes |
 
-Os cinco riscos configuráveis podem ser alterados com `/permissions` ou pelo configurador. Uma confirmação autoriza uma única ação pendente exata, expira e é consumida uma vez. `execute_file` usa argumentos separados com `shell=False`; exige path explícito e intenção do usuário, além de rejeitar elevação de privilégio, avaliação inline, executáveis setuid/setgid e operações destrutivas selecionadas.
+## Tools e política de paths
 
-`Whitelist.txt` pode limitar as tools de path às raízes absolutas listadas. `Blacklist.txt` só torna a política global mais restritiva. Cada linha não comentada contém um path absoluto (ou iniciado por `~`) e de um a cinco códigos na ordem `READ MODIFY CREATE DELETE EXECUTE`; `0` nega, `1` confirma, `2` permite e `-` não altera aquela posição. Exemplo:
+Não existe tool de shell genérico. As tools registradas fornecem leitura/pesquisa limitada de arquivos, metadados, listagem de diretórios, inspeção de processos e sistema, criação e alteração de arquivos/diretórios, exclusão de arquivos ou diretórios vazios, e execução de `.sh` ou executável explícito.
+
+`execute_file` usa argumentos separados com `shell=False`. Ele exige intenção do usuário e path explícito permitido, e rejeita elevação de privilégios, avaliação inline, executáveis setuid/setgid e operações destrutivas selecionadas.
+
+`Whitelist.txt` pode restringir tools de path às raízes absolutas listadas. `Blacklist.txt` só pode tornar a política mais restritiva. Cada linha não comentada da blacklist tem um path absoluto ou iniciado com `~`, seguido de um a cinco códigos para `READ MODIFY CREATE DELETE EXECUTE`: `0` nega, `1` confirma, `2` permite e `-` não altera.
 
 ```text
 ~/Projetos 21202
 ```
 
-Arquivo de política ausente, ilegível ou inválido fecha as tools baseadas em path. Paths são canonicalizados; symlinks, origem, destino, diretórios-pai e diretório de trabalho da execução são verificados. Áreas críticas do sistema, configuração/estado do Jarvis e acessos não somente-leitura ao projeto fonte continuam protegidos.
+Arquivos de política inválidos ou ilegíveis fecham as tools baseadas em path. O Jarvis canonicaliza paths e verifica destinos de symlink, origens, destinos, diretórios-pai e diretórios de trabalho de execução. Áreas críticas do sistema, configuração/estado do Jarvis e acesso não-leitura ao projeto fonte continuam protegidos.
 
-Arquivos, persona/contexto, saída do modelo, memória e resultados de tools são dados não confiáveis. Eles não mudam a política nem autorizam ações. Se o modelo falhar ao fazer chamadas estruturadas, a falha é informada em vez de substituída por informação local inventada.
+## Privacidade, retenção e remoção
 
-## Dados, privacidade e remoção
+Logs de conversa e diagnóstico são privados para o perfil/GGUF ativo. JSONL de depuração está sempre ativo em `logs/debug` daquele GGUF, independentemente do nível visual. O limite combinado padrão é 200 MB; retenção e tamanho são configuráveis. A configuração é sanitizada e credenciais, além de conteúdo bruto de arquivos/tools, são redigidos.
 
-Logs de conversa, runtime, auditoria, metadados e logs JSONL de depuração sempre ativos por sessão ficam no diretório de estado do perfil. Os logs de depuração ficam em `logs/debug`, são privados (`0600`), não dependem do nível de exibição e usam o limite/retenção configurados, cujo padrão é 200 MB. Eles incluem configuração sanitizada, mensagens, requisições/respostas do LLM, normalização textual de tools e ciclo de vida das tools. Credenciais e conteúdo bruto de arquivos/tools são redigidos. Personalização e notas compactas ficam no diretório de configuração do perfil. Retenção e limites de tamanho são configuráveis; os dados não são criptografados, portanto não coloque credenciais em prompts, persona ou logs.
-
-No modo de aprendizado, cada requisição usa `thinking_budget_tokens` igual a zero. O fallback textual compatível com Qwen aceita apenas um objeto JSON completo com exatamente `tool_name` e `parameters` como objeto, e somente se o nome estiver entre as tools oferecidas naquela requisição. A chamada segue então o caminho normal de orquestrador, validação, política, confirmação, revalidação e auditoria; JSON malformado, desconhecido ou ambíguo continua sendo texto comum do modelo.
-
-Por padrão, o Jarvis é local. Configurar um endpoint externo compatível com OpenAI faz com que prompts e contexto enviados a ele deixem de ser locais.
+Os dados não são criptografados. Não coloque senhas, tokens, chaves de API ou outros segredos em prompts, recursos de perfil, notas ou logs. Configurar endpoint externo compatível com OpenAI envia prompts e contexto para esse endpoint.
 
 ```bash
 jarvis --remove  # mantém configuração e estado
-jarvis --purge   # remove também configuração e estado padrão
+jarvis --purge   # também remove configuração e estado padrão
 ```
 
-A desinstalação exige a frase exata `jarvis remove` ou `jarvis purge`, atua somente para o usuário atual, remove serviços e comandos de usuário gerenciados e preserva o checkout fonte. Um banco de auditoria configurado fora do path de estado padrão não é apagado automaticamente.
+A desinstalação exige a frase exata `jarvis remove` ou `jarvis purge`, vale somente para o usuário atual, remove serviços/comandos gerenciados e preserva o checkout fonte. Um banco de auditoria configurado fora do estado padrão do Jarvis não é removido automaticamente.
 
-## Licença e limites
+## Solução de problemas
 
-Copyright (C) 2026 Jose Nunes. Licenciado sob [GPL-3.0-only](LICENSE). O projeto é experimental e fornecido sem garantias. Revise permissões, paths, confirmações, modelo e endpoint selecionados antes de autorizar ações.
+| Sintoma | Verifique |
+| --- | --- |
+| Perfil ou configuração ausente | Execute `jarvis-config`; não crie XML ausente manualmente. |
+| GGUF não aparece | Reabra `jarvis-config`, selecione a pasta dele e use `/model`. |
+| Não é possível trocar GGUF no perfil | Feche antes sessões que usam outro GGUF nesse perfil. |
+| Porta do servidor ocupada | Mantenha o processo externo e escolha outra porta de perfil na configuração. |
+| Erro de configuração ao iniciar | Corrija o erro de XML/política informado; o Jarvis não usa fallback silencioso. |
+| Servidor do modelo não responde | Use `jarvis --full-stop` e inicie o Jarvis de novo; só servidores do Jarvis são encerrados. |
+
+## Licença e limitações
+
+Copyright (C) 2026 Jose Nunes. Licenciado sob [GPL-3.0-only](LICENSE). Jarvis é software experimental, fornecido sem garantias. Revise modelo, endpoint, paths, permissões e cada confirmação antes de autorizar uma ação.

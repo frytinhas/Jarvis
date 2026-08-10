@@ -2,20 +2,28 @@
 
 <p align="center"><img src="jarvis/ui/Icon.png" alt="Jarvis-CLI" width="140"></p>
 
-Jarvis is a local assistant for Linux. It runs an instruct/chat GGUF model through `llama.cpp`; the model can inspect or act on the computer only through controlled tools, permissions, confirmations, and an audit log.
+Jarvis is a local Linux assistant for GGUF chat models served by `llama.cpp`. It can inspect or act on your computer only through narrowly scoped tools, permission rules, confirmations, and an audit log.
 
-Português: [README.pt-BR.md](README.pt-BR.md). For installation internals, profiles, security rules, and the complete command reference, see the [technical guide](README.technical.md).
+[Leia em português](README.pt-BR.md) · [Technical guide](README.technical.md) · [Contributing](CONTRIBUTING.md)
 
-## What you need
+## What Jarvis is for
+
+Use Jarvis to talk to a local model about your work, inspect files and system information, and request supported actions with visible safeguards. The model is a planner, not a security boundary: it never receives a general shell or permission to elevate privileges.
+
+## Before you start
+
+You need:
 
 - Linux
-- Python 3.12 or later
+- Python 3.12 or newer
 - `curl`
 - An instruct/chat model in `.gguf` format
 
-The automatic setup is officially supported on Debian, Ubuntu, and their derivatives. Other distributions may need their system dependencies installed manually.
+Automatic setup is supported on Debian, Ubuntu, and derivatives. On other distributions, install any missing system dependencies first.
 
 ## Install
+
+Clone the project and run Setup as the same user who will use Jarvis:
 
 ```bash
 git clone https://github.com/frytinhas/Jarvis-CLI.git
@@ -23,15 +31,11 @@ cd Jarvis-CLI
 bash Setup.sh
 ```
 
-Run Setup as the user who will use Jarvis. Do not run a normal-user installation with `sudo`. The setup creates an isolated installation for that user, prepares `llama.cpp` when necessary, then opens an interactive configurator. The first permanent profile is `jarvis`; choose a GGUF and create other named profiles later when needed.
+Do not use `sudo` for a normal user installation. Setup creates an isolated user installation, prepares `llama.cpp` when needed, and opens the configurator so you can choose your first GGUF. The permanent initial profile is named `jarvis`.
 
-If `~/.local/bin` is not already on your `PATH`, open a new shell after Setup finishes.
+If `~/.local/bin` is not in your `PATH`, open a new terminal after setup finishes.
 
-After updating the source checkout, run `jarvis-update` to apply it with the safe repair flow; it preserves configuration and state.
-
-## Use
-
-Start the profile command chosen during configuration (for example, `jarvis`):
+## Start chatting
 
 ```bash
 jarvis
@@ -39,41 +43,71 @@ jarvis "list the files in this directory"
 jarvis --r 3 "analyze this project"
 ```
 
-`--r` selects reasoning for this invocation: `0` is off, `1` low, `2` medium, `3` high, and `4` max. Use `jarvis-config` whenever you want to create, edit, or choose profiles again.
+`--r` selects reasoning for this run: `0` off, `1` low, `2` medium, `3` high, and `4` max. Run `jarvis-config` whenever you want to review configuration.
 
-Learning sessions always use reasoning off, independently of this setting. On the first run, learning is discarded unless you explicitly approve a summary with `/finish`; closing the terminal, Ctrl+C, or `/exit` saves none of that learning conversation.
+Your first interactive session can collect optional learning information. Nothing from that session is retained unless you approve a summary with `/finish`.
 
-Jarvis always writes a private diagnostic JSONL session log in the active profile's private GGUF state (`logs/debug`), regardless of the display log setting. The default combined limit is 200 MB and retention is configurable. These logs redact credentials and raw file/tool content.
+## Models and profiles
 
-Inside the chat, these commands are the most useful:
+A profile is a shared workspace for one or more GGUFs. It keeps shared persona, context, learning, permissions, and audit history. Conversation logs, diagnostic logs, and private notes stay separate for each GGUF inside that profile.
 
-- `/help` — show all local commands.
-- `/model` — list or switch GGUFs; `★` marks a model not yet associated with a profile.
-- `/profile` — list or switch profiles, reopening its last selected GGUF.
-- `/reasoning off|low|medium|high|max` — save the default reasoning level.
-- `/permissions` — display or change the global permission policy.
-- `/config` — show the active profile settings.
-- `/exit` — close the chat.
-- `/quit` — close the chat and stop its managed model server after memory work completes.
+Use `/model` to see known GGUFs. A `★` means the model has not been assigned to a profile yet.
 
-`Ctrl+C` cancels the current generation or execution without closing the chat. Use `jarvis --full-stop` to stop the managed server without opening a session.
+```text
+/model                 # list GGUFs
+/model my-model.gguf   # select a GGUF
+/profile               # list profiles
+/profile work          # open work with its last selected GGUF
+```
 
-The interactive prompt handles long wrapped input without duplicating text. It supports cursor editing and Shift+arrow selection before sending, without retaining sent-message history. Terminal pastes stay as one editable draft, even when they contain line breaks; press Enter explicitly to send.
+When selecting a new GGUF, Jarvis lets you choose an existing profile or create one. A GGUF may belong to multiple profiles; if so, Jarvis asks which one to use. Different GGUFs cannot run simultaneously in the same profile, but multiple sessions of the same GGUF can.
 
-## Safety in brief
-
-Jarvis does not provide the model with a generic shell. It uses narrowly defined tools for files, processes, and system information. File changes and deletion require confirmation by default; permissions can be made more restrictive. Privileged operations are never offered to the model.
-
-Review every confirmation before accepting it. Persona files, conversations, files read by the model, and tool output are untrusted data—not authorization. Jarvis is local by default, but configuring a remote OpenAI-compatible endpoint sends prompts and context to that endpoint.
-
-## Remove
+The original `jarvis` profile is permanent. It can be reset, but not deleted:
 
 ```bash
-jarvis --remove  # remove the application and keep configuration and state
+jarvis-config --reset-profile jarvis
+jarvis-config --delete-profile work
+```
+
+Both operations require confirmation. Deleting another profile removes its configuration and data.
+
+## Useful chat commands
+
+| Command | What it does |
+| --- | --- |
+| `/help` | Shows all local commands. |
+| `/model [GGUF]` | Lists or changes GGUFs. |
+| `/profile [name]` | Lists or changes profiles. |
+| `/reasoning off|low|medium|high|max` | Saves the default reasoning level. |
+| `/context [tokens|reset]` | Shows or changes context size. |
+| `/permissions` | Shows or changes tool permissions. |
+| `/config` | Shows the active configuration. |
+| `/exit` | Closes the chat. |
+| `/quit` | Closes the chat and requests managed-server shutdown. |
+
+Use `Ctrl+C` to cancel current generation or execution without closing the chat. Use `jarvis --full-stop` to stop the managed model server without opening a session.
+
+## Safety and privacy
+
+- Jarvis has no generic shell tool and never offers privileged operations.
+- File changes and deletions require confirmation by default; permissions can only be made more restrictive by path rules.
+- Prompts, model output, files, memory, and tool results are untrusted data. They cannot authorize an action.
+- Diagnostic logs redact credentials and raw file/tool content, but local data is not encrypted. Do not put secrets in prompts, persona files, or notes.
+
+Jarvis is local by default. Configuring an external OpenAI-compatible endpoint sends prompts and context to that endpoint.
+
+Read the [technical guide](README.technical.md) for the complete security model, data layout, command reference, and operational details.
+
+## Update or remove
+
+After updating the source checkout, run `jarvis-update` to use the safe repair flow; it preserves configuration and state.
+
+```bash
+jarvis --remove  # remove Jarvis, keep configuration and state
 jarvis --purge   # also remove standard local configuration and state
 ```
 
-Removal asks for an exact confirmation phrase, affects only the current user, and preserves the source clone.
+Removal is user-scoped, requires an exact confirmation phrase, and never removes the source checkout.
 
 ## License
 
