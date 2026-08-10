@@ -22,3 +22,11 @@ def test_root_setup_warns_and_uses_direct_package_manager() -> None:
     assert "Setup está sendo executado como root" in setup
     assert "apt-get update" in setup
     assert "apt-get install" in setup
+
+
+def test_package_and_setup_do_not_require_readme() -> None:
+    setup = (PROJECT_ROOT / "Setup.sh").read_text(encoding="utf-8")
+    pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "README" not in setup
+    assert 'readme = "README.md"' not in pyproject

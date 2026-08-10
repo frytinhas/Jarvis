@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "jarvis-local"
 version = "0.1.0"
 description = "Assistente local seguro usando llama.cpp"
-readme = "README.md"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 authors = [

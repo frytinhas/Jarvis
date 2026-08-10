@@ -83,9 +83,6 @@ mkdir -p "$payload"
 cp -a "$SOURCE_DIR/jarvis" "$SOURCE_DIR/scripts" "$payload/"
 cp -a "$SOURCE_DIR/Config.sh" "$SOURCE_DIR/Uninstall.sh" "$SOURCE_DIR/Setup.sh" "$payload/"
 cp -a "$SOURCE_DIR/pyproject.toml" "$SOURCE_DIR/LICENSE" "$payload/"
-for readme in README.md README.pt-BR.md README.simple.md README.simple.pt-BR.md; do
-    [[ -f "$SOURCE_DIR/$readme" ]] && cp -a "$SOURCE_DIR/$readme" "$payload/"
-done
 find "$payload" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
 INSTALL_KIND=new
