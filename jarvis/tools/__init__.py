@@ -1,2 +1,0 @@
-"""Tools explicitamente permitidas."""
-
