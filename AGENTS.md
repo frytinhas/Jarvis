@@ -654,6 +654,14 @@ Before execution, the UI must clearly display exactly which categories will be e
 
 Reset must require confirmation.
 
+Reset means restoration to the applicable centrally defined, versioned product defaults.
+
+It does not mean cloning the current mutable configuration of the `jarvis` profile and it does not restore an undocumented creation-time snapshot.
+
+Profile creation is a separate operation: new profiles clone the current configurable state of `jarvis` as described above.
+
+Reset and deletion must be coordinated centrally across every profile-owned subsystem. Before destructive work begins, Jarvis must quiesce or explicitly cancel active profile sessions, generations and runtimes. Each participating store must report its planned and completed work so partial external cleanup cannot be reported as success.
+
 ---
 
 # 25. Reset Options
@@ -700,6 +708,10 @@ ONE ACTIVE MODEL SERVER MAXIMUM PER PROFILE
 ```
 
 A profile must never run two model-server instances simultaneously.
+
+Initially, generations targeting the same profile runtime must be serialized through a deterministic FIFO queue. Different profiles may generate concurrently.
+
+Changing the active model for a profile must wait for the active generation to finish or explicitly cancel it and record that outcome. Only after the old runtime is no longer active may the replacement runtime start.
 
 ---
 
@@ -813,6 +825,8 @@ Each model working inside a profile gets its own:
 
 Model-private notes must not automatically cross model boundaries.
 
+Initial learned and derived private data, including learning history, episodic memory and semantic memory, must also remain scoped to `profile_id + model_id`. A future explicitly designed profile-shared memory class may be added, but it must not be inferred implicitly from model-private data.
+
 ---
 
 # 32. Model Log Isolation
@@ -870,6 +884,10 @@ and:
 ```text
 interactive logging verbosity
 ```
+
+Profile/model chat diagnostics are owned by `profile_id + model_id` and additionally carry session/request/turn identifiers where applicable. Installation and infrastructure diagnostics are stored separately and are not model-private data. Audit records are a third operational store.
+
+None of these diagnostic or audit stores may implement a model-context or memory-retrieval interface. Human-facing diagnostic access must use a dedicated Core-to-client route that cannot be passed to the Context Builder.
 
 ---
 
@@ -1101,6 +1119,10 @@ warn before storage exhaustion
 Critical active-session data must not be deleted while being written.
 
 Deletion policies must be documented.
+
+Quota defaults, accounting and reservation primitives must exist before the first data-producing subsystem. Each subsystem must enforce its applicable limits from the moment that subsystem is introduced; enforcement must not be deferred until a later cleanup interface exists.
+
+Before a chat starts, Jarvis must be able to reserve enough bounded storage for the minimum diagnostic record required for that session. It may rotate only closed, eligible records. If it cannot preserve a sufficient auditable record, it must fail safely before unlogged work begins. Large payloads may be replaced by bounded excerpts plus explicit truncation metadata, while structural lifecycle and error events remain recorded.
 
 ---
 
@@ -1478,6 +1500,12 @@ Do not rely on only a process-name search.
 
 Stale runtime artifacts must be detectable and recoverable.
 
+Exactly one Jarvis Core owner may coordinate a given user's XDG state at a time. Core startup must use atomic ownership of its lock and Unix socket and must distinguish a live owner from stale artifacts.
+
+Runtime recovery and process actions must bind identity using more than a PID or process name. Use runtime IDs plus appropriate process evidence such as PID start time, executable identity, owned endpoint and health response. Jarvis must never terminate an unrelated process because a PID was reused or a stale record was trusted.
+
+Port allocation and ownership must be race-safe. A runtime may become `READY` only after Jarvis verifies that the expected owned process is serving the expected local endpoint.
+
 ---
 
 # 60. Profile Autostart
@@ -1498,6 +1526,10 @@ When enabled:
 4. it must not silently select an unrelated model unless explicitly designed and communicated.
 
 Autostart is per profile.
+
+Autostart does not create a second Core or a separate owner of a profile runtime. One user-level Jarvis Core owns runtime coordination. Per-profile autostart is desired state consumed by that Core, or by a thin activation request sent to that Core.
+
+Runtime startup, health checks and autostart do not consume first-run learning state.
 
 ---
 
@@ -1639,6 +1671,8 @@ It must not upload user data.
 
 Only minimal version/repository information should be exchanged.
 
+Update checking is installation-scoped. It is not a profile INTERNET tool and it must use a narrowly configured update-check network path that cannot apply an update or transmit profile data.
+
 ---
 
 # 69. Update Application
@@ -1656,6 +1690,10 @@ jarvis-update
 according to the updater's explicit workflow.
 
 Do not silently replace the active installation while the user is chatting.
+
+Jarvis Core must expose no IPC or conversational operation capable of applying an application update.
+
+Only the separately invoked `jarvis-update` executable may acquire update authority and mutate protected installation files.
 
 ---
 
@@ -1749,6 +1787,8 @@ listing processes
 
 when no mutation occurs.
 
+`process.list` and other non-mutating process inspection inherit READ.
+
 Sensitive future read categories may have more specific permission rules.
 
 ---
@@ -1769,6 +1809,10 @@ INTERNET permits explicit Jarvis web tools to access external resources.
 
 It does not grant unrestricted outbound network access to the LLM runtime.
 
+Network access for an explicitly executed program is denied by default at the execution boundary. An execution request must explicitly declare that network access is required; only then may Jarvis evaluate both EXECUTE and INTERNET. Omitting that declaration keeps process networking disabled even when both profile categories are configured as `allow`.
+
+The Tool Broker must not claim that it can prevent arbitrary data upload after granting a process unrestricted network access. Networked execution therefore requires explicit bounded execution semantics and must still preserve the prohibition on silently uploading conversations, profile context, notes, memories or private files.
+
 ---
 
 # 77. Meaning of EXECUTE
@@ -1782,6 +1826,21 @@ EXECUTE permits supported:
 Execution must still pass Tool Broker validation.
 
 It does not grant sudo.
+
+EXECUTE authorizes the ordinary side effects of the explicitly selected executable or script. Internal side effects performed by that program are not reinterpreted as separate Jarvis MODIFY, MOVE or DELETE tool calls.
+
+This does not override absolute Jarvis security boundaries. Executed programs remain subject to:
+
+- active Jarvis installation protection;
+- sudo and elevation denial;
+- controlled executable identity;
+- controlled working directory;
+- a filtered environment;
+- resource, time and output limits;
+- no conversational access to `jarvis-update` or protected installation lifecycle paths;
+- the separate INTERNET requirement for process network access.
+
+Process termination requires both EXECUTE and DELETE. Authorization must bind to a fresh process identity, including appropriate start-time/executable evidence, and never only to a PID.
 
 ---
 
@@ -1999,6 +2058,10 @@ Jarvis should support:
 
 Recursive destructive deletion must be explicitly designed and guarded.
 
+Authorization based only on a previously canonicalized path is insufficient. Path-sensitive operations must use execution-time, descriptor-relative resolution and appropriate no-follow/link checks. Existing targets must be checked against expected identity/version metadata immediately before mutation.
+
+Mutating tools must reject unsafe symlink swaps, hardlinks into the protected installation, changed targets, unexpected special files and stale path decisions. Protected-installation checks must account for protected file identity, not only path spelling.
+
 ---
 
 # 87. File Size Protection
@@ -2046,6 +2109,10 @@ shell=True
 ```
 
 unless explicitly justified.
+
+Validation and execution must refer to the same executable identity. Jarvis must fail safely if the executable, script, interpreter, working directory or relevant target changes between validation and execution. Where Linux facilities permit, execution should remain bound to an already validated file descriptor or equivalent stable identity.
+
+Execution must not inherit an interactive privilege prompt, unrestricted stdin, secret environment variables or update authority. Network access remains disabled unless both EXECUTE and INTERNET authorize the bounded execution.
 
 ---
 
@@ -2173,6 +2240,10 @@ This includes:
 - the first model used by a newly created profile.
 
 The user must be clearly informed that learning mode is active.
+
+For lifecycle purposes, the first run is the first user-facing Agent Engine chat transaction for a `profile_id + model_id` pair. Learning state must be initialized transactionally before that generation begins.
+
+Model discovery, runtime startup, health checks and autostart do not consume or complete first-run learning state.
 
 ---
 
@@ -2797,6 +2868,8 @@ Use structured versioned messages.
 
 Never use `pickle` for untrusted IPC serialization.
 
+IPC operations and payloads must be client-neutral; Core business contracts must not contain CLI-formatted presentation data. Protocol negotiation must include version and capability negotiation so CLI, TUI, Voice and Desktop clients can share the same Core without assuming identical presentation features.
+
 ---
 
 # 131. Streaming IPC
@@ -2816,6 +2889,10 @@ error
 
 Do not assume model responses arrive as one final block.
 
+Events for a request must carry a monotonically ordered sequence and every accepted request must produce exactly one terminal `response_completed` or `error` event. Approval requests must expire and bind to the originating validated request and tool call.
+
+Reconnect and replay support, when available, must be bounded and explicit. When replay is unavailable, the client must receive an authoritative status instead of guessing whether an operation completed.
+
 ---
 
 # 132. Cancellation
@@ -2825,6 +2902,8 @@ Client cancellation should propagate to active model generation where supported.
 Tool cancellation must be explicit and safe.
 
 Closing a terminal must not silently interrupt partially completed destructive operations without recording the result.
+
+Disconnect does not imply cancellation. Core retains ownership of accepted work until it reaches a recorded terminal state or processes an explicit valid cancellation request.
 
 ---
 
@@ -2852,6 +2931,8 @@ Responsibilities:
 - runtime coordination.
 
 It does not own CLI/TUI rendering.
+
+There is exactly one user-level Core owner for a user's Jarvis XDG state. Multiple clients and multiple profile runtimes share that owner.
 
 ---
 
@@ -2990,6 +3071,16 @@ log isolation from model context
 IPC serialization
 timeouts
 update boundary
+single-Core ownership and stale socket recovery
+per-profile FIFO generation serialization
+model switch during active generation
+profile reset/delete with active runtime
+quota reservation and storage exhaustion
+human-only diagnostic IPC routes
+hardlink, symlink-swap and changed-target protection
+executable identity replacement races
+autostart duplicate activation
+IPC event ordering and exactly-one terminal event
 ```
 
 ---
@@ -3008,6 +3099,12 @@ model cannot invoke sudo silently
 model cannot overwrite via CREATE permission alone
 model cannot MOVE when MOVE is ASK without approval
 model cannot MODIFY existing file under CREATE permission
+model cannot invoke jarvis-update through conversational execution
+executed process cannot access the network under EXECUTE alone
+process termination requires EXECUTE and DELETE
+process termination cannot trust a reused PID
+executed process cannot alter the active installation
+diagnostic and audit response types cannot enter the Context Builder
 ```
 
 ---
@@ -3043,9 +3140,8 @@ configuration schemas
 SQLite
 migrations
 logging foundation
-profile identities
-profile aliases
 installation path detection
+quota/accounting/reservation primitives
 ```
 
 ---
@@ -3057,14 +3153,29 @@ Implement:
 ```text
 permanent Jarvis profile
 profile creation
-Jarvis-config profile selector
 name normalization
-dynamic commands
 rename
 delete protection
 reset
 profile cloning
 ```
+
+---
+
+## Phase 2A — Core and Profile Clients
+
+Implement:
+
+```text
+single user-level Core ownership
+versioned client-neutral IPC
+profile/configuration Core operations
+Jarvis-config profile selector over IPC
+dynamic profile commands
+help without model startup
+```
+
+No real client may access repositories or the database directly.
 
 ---
 
@@ -3074,6 +3185,7 @@ Implement:
 
 ```text
 model directories
+minimum jarvis-manage model/runtime settings
 GGUF scanning
 stable model IDs
 model metadata
@@ -3103,14 +3215,13 @@ timeouts
 Implement:
 
 ```text
-one-shot request
-interactive sessions
-streaming
-persona
-context
-conversation persistence
-slash commands
-help
+Core chat pipeline first
+central Context Builder
+conversation and diagnostic persistence
+first-chat learning activation
+per-profile FIFO generation scheduling
+then simple one-shot and interactive CLI
+streaming and client commands over IPC
 ```
 
 ---
@@ -3158,7 +3269,9 @@ modify
 move
 delete
 script execution
-process termination where supported
+EXECUTE-owned ordinary program side effects
+networked execution requires EXECUTE + INTERNET
+process termination requires EXECUTE + DELETE
 ```
 
 with strong tests.
@@ -3171,6 +3284,7 @@ Implement:
 
 ```text
 conversation retrieval
+FTS and ownership-filtered search first
 semantic memory
 episodic memory
 private note retrieval
@@ -3218,11 +3332,11 @@ Implement:
 
 ```text
 jarvis-manage
-autostart
 update checking
 diagnostics
 repair
 installation health
+then one-Core per-profile autostart
 ```
 
 ---
@@ -3234,11 +3348,11 @@ Implement:
 ```text
 installer
 uninstaller
-jarvis-update
 jarvis-clear
 desktop entry
 systemd user services
 release packaging
+then separate authenticated jarvis-update
 ```
 
 ---
@@ -3323,6 +3437,10 @@ SUDO DEFAULTS TO DENY
 
 FIRST MODEL RUN IN A PROFILE/MODEL PAIR STARTS LEARNING MODE
 
+FIRST RUN MEANS THE FIRST USER-FACING AGENT ENGINE CHAT TRANSACTION
+
+RUNTIME STARTUP, HEALTH CHECKS AND AUTOSTART DO NOT CONSUME FIRST-RUN STATE
+
 LEARNING MODE IS EXPLICITLY VISIBLE TO THE USER
 
 THE ACTIVE JARVIS INSTALLATION IS PROTECTED FROM MODEL MODIFICATION
@@ -3354,6 +3472,14 @@ FUTURE VOICE AND DESKTOP APP REUSE THE SAME CORE
 THE LLM NEVER DIRECTLY EXECUTES HOST OPERATIONS
 
 ALL OS CAPABILITIES GO THROUGH THE TOOL BROKER
+
+EXECUTE OWNS ORDINARY SIDE EFFECTS OF THE EXPLICITLY SELECTED PROGRAM
+
+EXECUTED PROGRAM NETWORK ACCESS REQUIRES EXECUTE AND INTERNET
+
+PROCESS INSPECTION REQUIRES READ
+
+PROCESS TERMINATION REQUIRES EXECUTE AND DELETE
 
 PERMISSIONS ARE ENFORCED BY THE POLICY ENGINE
 

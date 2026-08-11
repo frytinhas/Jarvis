@@ -10,14 +10,16 @@ Do not create all milestone ExecPlans in advance. Create only the plan for the n
 
 ## Location and naming
 
-ExecPlans live under `docs/plans/` and use a zero-padded milestone number plus a short stable slug:
+ExecPlans live under `docs/plans/` and use a zero-padded stable milestone identifier plus a short stable slug. An unsplit milestone uses its three-digit number. A roadmap milestone deliberately split before implementation uses that number plus a lowercase letter:
 
 ```text
 docs/plans/000-foundation.md
 docs/plans/001-profile-system.md
+docs/plans/006a-chat-core.md
+docs/plans/006b-simple-cli-chat.md
 ```
 
-Use the milestone number from `ROADMAP.md`. Do not renumber completed milestones. If the roadmap is intentionally revised, record how existing plans map to the revision.
+Use the exact stable identifier from `ROADMAP.md`, lowercased in the filename (`006A` becomes `006a`). Each submilestone has its own independent ExecPlan and completion evidence; never combine `006A` and `006B` into one plan merely because they share a number. Do not renumber completed milestones. If the roadmap is intentionally revised, record how existing plans map to the revision.
 
 ## Self-contained continuation rule
 
@@ -163,7 +165,7 @@ Before implementing a milestone, the agent must:
 
 1. read `AGENTS.md` in full;
 2. inspect `ROADMAP.md`, `PLANS.md`, the active ExecPlan, and repository state;
-3. verify all predecessor definitions of done on which the milestone relies;
+3. verify every exact milestone or submilestone dependency named by `ROADMAP.md` and the predecessor definitions of done on which the active work relies;
 4. create or update only the active milestone’s ExecPlan;
 5. resolve or explicitly block on conflicts before changing implementation files.
 
@@ -188,7 +190,7 @@ At milestone completion, the agent must:
 
 ## Scope and amendment rules
 
-- One ExecPlan normally covers exactly one roadmap milestone. If a milestone proves too large, revise `ROADMAP.md` deliberately before splitting it; do not create hidden subprojects.
+- One ExecPlan covers exactly one roadmap milestone or explicitly identified submilestone. If a milestone proves too large, revise `ROADMAP.md` deliberately before splitting it; assign stable lettered identifiers and do not create hidden subprojects inside one ExecPlan.
 - Do not pull work from a later milestone merely because it is convenient. Add only the minimum compatibility contract required now, and record the later implementation as out of scope.
 - A security fix required to keep the active milestone safe is not optional scope. Document it and update affected plans/roadmap if its impact crosses milestones.
 - Changes to an authoritative product rule require user direction and then a corresponding `AGENTS.md` update. An ExecPlan cannot authorize such a change.
@@ -199,7 +201,7 @@ At milestone completion, the agent must:
 Use this as a structural starting point, expanding it to be genuinely self-contained:
 
 ```markdown
-# Milestone NNN — Name ExecPlan
+# Milestone NNN or NNNA — Name ExecPlan
 
 Status: NOT STARTED
 Last updated: YYYY-MM-DD TZ
