@@ -1,6 +1,6 @@
 # Milestone 000 — Repository and Security Foundation ExecPlan
 
-Status: **IN PROGRESS**
+Status: **DONE**
 Last updated: 2026-08-11 America/Sao_Paulo
 
 ## Purpose and user outcome
@@ -60,11 +60,11 @@ The intentionally deferred Milestone 014 web-provider and Milestone 019B release
 
 ## Current progress
 
-Milestone status: **IN PROGRESS**
+Milestone status: **DONE**
 
-- **DONE:** implementation sequence steps 1–10, documentation, all locally available automated
-  checks, manual verification, and final scope reconciliation.
-- **IN PROGRESS:** Step 11 completion verification on the required CPython 3.12 interpreter.
+- **DONE:** implementation sequence steps 1–11, documentation, the complete required CPython 3.12
+  and CPython 3.14 verification matrices, manual verification, and final scope reconciliation.
+- **IN PROGRESS:** none.
 - **NOT STARTED:** none.
 
 | Work item | Status |
@@ -79,7 +79,7 @@ Milestone status: **IN PROGRESS**
 | Structured infrastructure diagnostic sink | **DONE** |
 | Filesystem and installation identity | **DONE** |
 | Foundation initializer and inspector | **DONE** |
-| Automated and manual verification | **IN PROGRESS** |
+| Automated and manual verification | **DONE** |
 | Final scope and contract reconciliation | **DONE** |
 
 Progress log:
@@ -125,6 +125,19 @@ Progress log:
   `git diff --check`, offline wheel/resource/metadata inspection, installed-wheel protection, and
   disposable two-run manual verification all passed. CPython 3.12 remains unavailable and remains
   the only completion blocker.
+- 2026-08-11 America/Sao_Paulo — CPython 3.12.13 became available at
+  `/home/gabri/.local/bin/python3.12`, resolving to the uv-managed standalone interpreter at
+  `/home/gabri/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12`. Created the
+  isolated `/tmp/jarvis-m000-py312-venv` and installed only the approved Hatchling 1.32.0, pytest
+  9.1.1, Ruff 0.15.22, and mypy 2.3.0 tool ranges. The CPython 3.12 matrix passed unchanged: unit
+  75, integration 17, migration 12, security 20, and full 124 tests; source imports, Ruff
+  lint/format, strict mypy, wheel build, clean `--no-deps` wheel installation, installed imports,
+  packaged defaults TOML and migration SQL, empty runtime dependencies, `pip check`, disposable
+  XDG initialize twice/inspect, permissions, secret scan, and unsafe-runtime rejection all passed.
+  The first wheel-metadata probe stopped on quoting in the verification command; the corrected
+  probe passed and exposed no project defect. No compatibility bug or implementation/test change
+  was required. Step 11 and every completion criterion are `DONE`; Milestone 001 remains
+  **NOT STARTED**.
 
 ## Repository state and prerequisites
 
@@ -170,6 +183,10 @@ Current environment discovery:
 - `python3.12`, `python3.13`, Hatchling, Ruff, and mypy were not found on `PATH` or as installed
   Python 3.14 distributions during implementation preflight.
 - Dependency acquisition must not be hidden inside tests or application startup.
+- Completion verification found CPython 3.12.13 at `/home/gabri/.local/bin/python3.12` and used
+  only `/tmp/jarvis-m000-py312-venv` plus the clean installed-wheel environment
+  `/tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv`. CPython 3.13 remains unavailable, so
+  its explicitly conditional run was not required.
 
 ## Implementation sequence
 
@@ -341,7 +358,7 @@ Current environment discovery:
 - Prerequisites: steps 3–9.
 - Validate by initializing twice under temporary XDG roots and comparing paths, schema version, permissions, migration rows, and stable state.
 
-### 11. **IN PROGRESS — Complete documentation and verification**
+### 11. **DONE — Complete documentation and verification**
 
 - Document architecture ownership, dependency review, commands, XDG behavior, quota limits, migration recovery, and security limitations.
 - Run all automated and manual checks.
@@ -818,21 +835,14 @@ Any later deviation must record the date and authority, original and replacement
 
 ## Unresolved issues
 
-No known technical or product issue blocks implementation of Milestone 000.
-
-CPython 3.12 is unavailable locally (`command -v python3.12` and `/usr/bin/python*` inspection found
-only Python 3.14.4). This blocks the required complete-suite run on 3.12 and therefore blocks a
-truthful Milestone 000 `DONE` status. The exact resolution condition is: provision an approved
-CPython 3.12 environment with the declared development tools and pass the complete required check
-set. CPython 3.13 is also unavailable; its run remains conditional on availability and is not the
-current blocking criterion. Ruff, mypy, Hatchling, and pytest were explicitly approved and installed
-only in disposable `/tmp/jarvis-m000-venv`, and all their CPython 3.14 checks passed.
+No known technical or product issue blocks or remains open for Milestone 000. CPython 3.13 is
+unavailable; its verification was explicitly conditional and is not a completion blocker.
 
 If `/run/user/<uid>` cannot be safely simulated for a unit test without touching the host, use an injected runtime-base resolver. Production resolution must still inspect the real fixed path and retain fail-closed behavior.
 
 ## Completion criteria and evidence
 
-Every criterion remains **NOT STARTED** until implementation and verification.
+Every mandatory criterion is **DONE**.
 
 | Criterion | Status | Required evidence |
 |---|---|---|
@@ -850,14 +860,14 @@ Every criterion remains **NOT STARTED** until implementation and verification.
 | Active installation protected without blocking separate clone | **DONE** | 14-case link/inode/ancestry/source/wheel/editable security matrix and installed-wheel probe |
 | No intentional network or telemetry exists | **DONE** | Empty runtime dependencies, socket guard, import/static scan; optional strace unavailable due ptrace denial |
 | Tests never touch real Jarvis/user state | **DONE** | Autouse isolated HOME and all five XDG roots plus explicit path assertions |
-| CPython support verified | **IN PROGRESS** | Full suite passed on 3.14.4; 3.12 unavailable; 3.13 unavailable/conditional |
+| CPython support verified | **DONE** | Full 124-test suite and marker suites passed on 3.12.13 and 3.14.4; 3.13 unavailable/conditional |
 | No later milestone functionality exists | **DONE** | Final tree, API, schema, command-surface, AGENTS/ROADMAP review |
-| Full repository checks pass | **DONE** | 124 pytest, Ruff lint/format, strict mypy, wheel build/install, `git diff --check` on 3.14 |
+| Full repository checks pass | **DONE** | 124 pytest on 3.12.13 and 3.14.4; Ruff lint/format; strict mypy; wheel build/install/resource/import/dependency checks; `git diff --check` |
 | Manual verification completed in temporary state | **DONE** | Two-run/inspect/permissions/secrets/unsafe-runtime procedure recorded above |
-| Final repository status reconciled | **DONE** | Final `git status --short` evidence recorded below before handoff |
+| Final repository status reconciled | **DONE** | Final `git status --short` shows only `ROADMAP.md` and this ExecPlan modified for completion evidence |
 
-Milestone 000 remains **IN PROGRESS** until the required CPython 3.12 verification criterion becomes
-**DONE**. Implementation is complete within scope; the missing interpreter is the sole blocker.
+Milestone 000 is **DONE**. All mandatory completion criteria are satisfied, and no compatibility
+defect or unresolved issue remains.
 
 Final locally executed command evidence (CPython 3.14.4):
 
@@ -885,38 +895,98 @@ git diff --check
   passed with no output
 ```
 
+Final CPython 3.12.13 verification used `/tmp/jarvis-m000-py312-venv` and the clean installed-wheel
+environment `/tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv`:
+
+```text
+/home/gabri/.local/bin/python3.12 --version
+  Python 3.12.13
+/home/gabri/.local/bin/python3.12 -m venv /tmp/jarvis-m000-py312-venv
+/tmp/jarvis-m000-py312-venv/bin/python -m pip install \
+  'hatchling>=1.31,<2' 'pytest>=9.1,<10' 'ruff>=0.15,<0.16' 'mypy>=2.3,<3'
+  installed Hatchling 1.32.0, pytest 9.1.1, Ruff 0.15.22, and mypy 2.3.0
+PYTHONPATH=src /tmp/jarvis-m000-py312-venv/bin/pytest -m unit
+  75 passed, 49 deselected
+PYTHONPATH=src /tmp/jarvis-m000-py312-venv/bin/pytest -m integration
+  17 passed, 107 deselected
+PYTHONPATH=src /tmp/jarvis-m000-py312-venv/bin/pytest -m migration
+  12 passed, 112 deselected
+PYTHONPATH=src /tmp/jarvis-m000-py312-venv/bin/pytest -m security
+  20 passed, 104 deselected
+PYTHONPATH=src /tmp/jarvis-m000-py312-venv/bin/pytest
+  124 passed
+PYTHONPATH=src /tmp/jarvis-m000-py312-venv/bin/python -c '<all package source imports>'
+  source import smoke: passed
+/tmp/jarvis-m000-py312-venv/bin/ruff check .
+  All checks passed
+/tmp/jarvis-m000-py312-venv/bin/ruff format --check .
+  36 files already formatted
+/tmp/jarvis-m000-py312-venv/bin/mypy src tests
+  Success: no issues found in 36 source files
+/tmp/jarvis-m000-py312-venv/bin/python -m pip wheel --no-deps --no-build-isolation \
+  --wheel-dir /tmp/jarvis-m000-py312-wheelverify.haP41M/wheel .
+  Successfully built jarvis-cli; 27-entry archive/resource/metadata assertions passed
+/home/gabri/.local/bin/python3.12 -m venv \
+  /tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv
+/tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python -m pip install \
+  --no-deps /tmp/jarvis-m000-py312-wheelverify.haP41M/wheel/jarvis_cli-0.0.0-py3-none-any.whl
+  Successfully installed jarvis-cli-0.0.0
+/tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python -c \
+  '<all installed imports; metadata runtime-dependency assertion>'
+  installed-wheel imports: passed; runtime dependencies: none
+/tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python -c \
+  '<importlib.resources defaults TOML and migration SQL assertions>'
+  installed package resources: passed
+/tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python -m pip check
+  No broken requirements found
+env '<disposable HOME and all five XDG roots>' \
+  /tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python \
+  -m jarvis.foundation initialize --json
+  passed twice; first applied migration 1 and second applied none
+env '<same disposable HOME and XDG roots>' \
+  /tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python \
+  -m jarvis.foundation inspect --json
+  schema/defaults version 1; safe directories; complete wheel installation identity
+find /tmp/jarvis-m000-py312-wheelverify.haP41M/xdg -printf '%m %p\n' | sort
+  application directories 0700; files 0600
+rg -n '<synthetic secret corpus>' /tmp/jarvis-m000-py312-wheelverify.haP41M/xdg
+  no matches
+chmod 755 /tmp/jarvis-m000-py312-wheelverify.haP41M/xdg/runtime
+env '<same disposable HOME and XDG roots>' \
+  /tmp/jarvis-m000-py312-wheelverify.haP41M/install-venv/bin/python \
+  -m jarvis.foundation initialize --json
+  exit 1 with xdg.unsafe_runtime_directory and no traceback; runtime mode restored to 0700
+git diff --check
+  passed with no output
+git status --short
+  M ROADMAP.md
+  M docs/plans/000-foundation.md
+```
+
 ## Handoff summary
 
-Exact next action: provision an approved CPython 3.12 environment without changing runtime
-dependencies, install the declared development/build ranges in that environment, and rerun pytest
-marker suites, full pytest, Ruff, mypy, and the offline wheel build. If all pass, record evidence and
-mark Step 11, the CPython criterion, and Milestone 000 `DONE`. Do not begin Milestone 001.
+Milestone 000 is complete and ready for its final commit. Do not begin or plan Milestone 001 without
+separate authorization.
 
-Current failing tests: none. All 124 tests pass on CPython 3.14.4. Required CPython 3.12 tests were
-not run because the interpreter is unavailable.
+Current failing tests: none. All 124 tests and each marker suite pass on CPython 3.12.13 and CPython
+3.14.4. No Python 3.12 compatibility bug was found, so no implementation or regression-test change
+was required.
 
 Important local state:
 
-- Milestone 000 is **IN PROGRESS** only for missing CPython 3.12 verification.
-- Steps 1–10 and every locally executable Step 11 check are implemented and verified.
-- `AGENTS.md`, `PLANS.md`, and `docs/architecture.md` remain unmodified. The stale Milestone 000
-  status sentence in `ROADMAP.md` is corrected, and `docs/plans/000-foundation.md` contains the
-  implementation/review record. Milestone files are otherwise new/untracked, while `LICENSE`
-  remains the original tracked GPLv3 text.
-- Approved development tooling exists only in `/tmp/jarvis-m000-venv`; no runtime dependency or
-  application-startup/test dependency acquisition exists.
+- Milestone 000 and Steps 1–11 are **DONE**; every mandatory criterion is reconciled.
+- `AGENTS.md`, `PLANS.md`, and `docs/architecture.md` remain unmodified. `ROADMAP.md` records
+  Milestone 000 as **DONE**, and this ExecPlan contains the completion evidence.
+- Python 3.12 verification tooling exists only in `/tmp/jarvis-m000-py312-venv`; the clean installed
+  wheel and disposable XDG state are under `/tmp/jarvis-m000-py312-wheelverify.haP41M`. No system
+  Python was modified, no sudo was used, and the package has no runtime dependencies.
+- CPython 3.13 remains unavailable and was conditional, not blocking.
 
 Final `git status --short`:
 
 ```text
  M ROADMAP.md
  M docs/plans/000-foundation.md
-?? .gitignore
-?? README.md
-?? docs/development.md
-?? pyproject.toml
-?? src/
-?? tests/
 ```
 
 Hazards:
@@ -928,5 +998,5 @@ Hazards:
 - Never persist before centralized redaction and quota reservation.
 - Never let tests resolve or initialize the user's real XDG state.
 
-The plan is self-contained for the remaining interpreter verification. No unresolved product
-decision or implementation failure exists; CPython 3.12 availability is the exact blocker.
+The plan is complete and self-contained. No unresolved product decision, implementation failure, or
+verification blocker remains. Milestone 001 is **NOT STARTED**.
