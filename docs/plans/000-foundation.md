@@ -1,7 +1,7 @@
 # Milestone 000 — Repository and Security Foundation ExecPlan
 
-Status: **NOT STARTED**
-Last updated: 2026-08-10 America/Recife
+Status: **IN PROGRESS**
+Last updated: 2026-08-11 America/Sao_Paulo
 
 ## Purpose and user outcome
 
@@ -60,30 +60,71 @@ The intentionally deferred Milestone 014 web-provider and Milestone 019B release
 
 ## Current progress
 
-Milestone status: **NOT STARTED**
+Milestone status: **IN PROGRESS**
 
-- **DONE:** none.
-- **IN PROGRESS:** none.
-- **NOT STARTED:** every implementation and verification item listed below.
+- **DONE:** implementation sequence steps 1–10, documentation, all locally available automated
+  checks, manual verification, and final scope reconciliation.
+- **IN PROGRESS:** Step 11 completion verification on the required CPython 3.12 interpreter.
+- **NOT STARTED:** none.
 
 | Work item | Status |
 |---|---|
-| Package metadata, licensing, and developer documentation | **NOT STARTED** |
-| Typed errors, clock, and identifiers | **NOT STARTED** |
-| XDG path resolution and secure initialization | **NOT STARTED** |
-| Versioned product-default registry | **NOT STARTED** |
-| SQLite connection and migration ledger | **NOT STARTED** |
-| Generic quota and reservation primitives | **NOT STARTED** |
-| Secret redaction | **NOT STARTED** |
-| Structured infrastructure diagnostic sink | **NOT STARTED** |
-| Filesystem and installation identity | **NOT STARTED** |
-| Foundation initializer and inspector | **NOT STARTED** |
-| Automated and manual verification | **NOT STARTED** |
-| Final scope and contract reconciliation | **NOT STARTED** |
+| Package metadata, licensing, and developer documentation | **DONE** |
+| Typed errors, clock, and identifiers | **DONE** |
+| XDG path resolution and secure initialization | **DONE** |
+| Versioned product-default registry | **DONE** |
+| SQLite connection and migration ledger | **DONE** |
+| Generic quota and reservation primitives | **DONE** |
+| Secret redaction | **DONE** |
+| Structured infrastructure diagnostic sink | **DONE** |
+| Filesystem and installation identity | **DONE** |
+| Foundation initializer and inspector | **DONE** |
+| Automated and manual verification | **IN PROGRESS** |
+| Final scope and contract reconciliation | **DONE** |
 
 Progress log:
 
 - 2026-08-10 America/Recife — Repository inspected and governing documents read in full. `ROADMAP.md` explicitly says Milestone 000 has not started. No implementation, package metadata, tests, license file, or earlier ExecPlan exists. The ExecPlan was prepared; no implementation work began.
+- 2026-08-10 America/Recife — Implementation authorization received. Re-read all five governing/plan files in full and independently confirmed every Milestone 000 item was `NOT STARTED`. Pre-implementation `git status --short` was clean. Contrary to the planning snapshot, a tracked 674-line GPLv3 `LICENSE` is already present; there is still no package metadata, source, or test tree. Step 1 marked `IN PROGRESS` before implementation.
+- 2026-08-10 America/Recife — Revalidated planned dependency ranges against official PyPI metadata before writing `pyproject.toml`: Hatchling 1.31.0 (`Python >=3.10`, MIT), pytest 9.1.1 (MIT), Ruff 0.15.22 (published CPython-independent platform wheels and advertises Python 3.14 compatibility), and mypy 2.3.0 (`Python >=3.10`, MIT, CPython 3.12–3.14 classifiers/wheels) exist. The planned ranges remain suitable for CPython >=3.12, so no dependency deviation is required. No runtime dependency is authorized or planned.
+- 2026-08-10 America/Recife — Step 1 `DONE`. Created `pyproject.toml`, `README.md`, `docs/development.md`, and the minimal `src/jarvis/__init__.py`; preserved the existing GPLv3 `LICENSE`. Installed only the authorized build/development tools into disposable `/tmp/jarvis-m000-venv` after explicit approval. `/tmp/jarvis-m000-venv/bin/python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m000-wheel .` passed. Wheel inspection found only `jarvis/__init__.py` and distribution metadata/license; metadata reports GPL-3.0-only, `Requires-Python: >=3.12`, and only extra-guarded development requirements. Step 2 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 2 `DONE`. Added typed error bases and safe envelopes, UTC system/fake clocks with fixed RFC 3339 formatting, typed UUID4 event/correlation identifiers, and deterministic ID generation. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m unit tests/unit/test_errors.py tests/unit/test_clock_and_ids.py` passed 9 tests; `/tmp/jarvis-m000-venv/bin/mypy src/jarvis/foundation` passed. Step 3 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 3 `DONE`. Added side-effect-free XDG resolution, absolute persistent fallbacks, strict configured-runtime and injected `/run/user/<uid>` validation, secure mode-0700 application-directory initialization, rollback of identity-matching empty creations, and private-file validation. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m unit tests/unit/test_xdg.py` passed 12 tests; strict mypy passed for foundation/storage. No production `/tmp` fallback exists. Step 4 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 4 `DONE`. Added the packaged TOML defaults registry with independent schema/product version 1, frozen validated snapshots, explicit unsupported-transition failure, and only foundation diagnostic limits. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m unit tests/unit/test_defaults.py` passed 10 tests; strict mypy passed for config/foundation. Step 5 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 5 discovery recorded before migration files were created: the planned paths `src/jarvis/storage/migrations.py` and `src/jarvis/storage/migrations/0001_migration_ledger.sql` cannot coexist because a POSIX directory and regular file cannot share one pathname. The runner module remains `migrations.py`; packaged immutable SQL moves to `src/jarvis/storage/migration_files/`. This is a path-only deviation with no contract or milestone-scope change.
+- 2026-08-10 America/Recife — Step 5 `DONE`. Added securely created mode-0600 SQLite connections, explicit lifecycle/transactions and required pragmas; immutable consecutive SQL resources; one-transaction `BEGIN IMMEDIATE` migration application; checksum/name/version validation; and schema inspection. Migration execution deliberately avoids `sqlite3.executescript` because it can implicitly commit and violate atomic rollback. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m migration tests/migration/test_migrations.py` passed 10 tests including concurrent initialization and full rollback; strict mypy passed for storage/foundation. No backup writer exists, so no backup category/default is introduced. Step 6 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 6 `DONE`. Added extensible stable quota categories, validated limits/snapshots, lock-linearized reservations, pending/committed/released transitions, authoritative reconciliation, and deterministic closed-record rotation eligibility. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m unit tests/unit/test_quota.py` passed 12 tests including the multi-thread capacity race; strict mypy passed for storage. Step 7 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 7 `DONE`. Added centralized recursive keyed/pattern redaction with fixed placeholders, explicit synthetic environment-name support, and pre-regex depth/item/UTF-8 text bounds with a discarded truncation overlap. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m unit tests/unit/test_redaction.py` passed 13 tests; strict mypy passed for diagnostics. Step 8 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 8 `DONE`. Added version-1 typed event validation and a local state-only diagnostic sink owning redaction, deterministic JSONL serialization, event/file/total reservations, rotation/retention, abandoned-active recovery, mode/ownership checks, and unhealthy failure behavior. Focused event tests passed 10; diagnostic integration tests passed 7, including simulated partial write and ENOSPC restoration; strict mypy passed for diagnostics. Step 9 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 9 `DONE`. Added separate lstat/followed stat snapshots, descriptor-relative no-follow ancestor inspection, versioned source/editable/wheel installation evidence, protected regular-file inode inventory, and three-state assessment. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m security tests/security/test_installation_protection.py` passed 10 tests; strict mypy passed for security. Step 10 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Step 10 `DONE`. Added the private runtime initialization lock, staged initializer, redacted initialization evidence, last-write atomic state marker, strictly read-only inspector, and only the two authorized maintainer module commands. `PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m integration tests/integration/test_initialization.py tests/integration/test_diagnostic_sink.py` passed 12 tests; strict mypy passed for foundation/diagnostics. Step 11 marked `IN PROGRESS`.
+- 2026-08-10 America/Recife — Locally available Step 11 verification passed on CPython 3.14.4: unit 66, integration 14, migration 10, security 16, and complete suite 106 tests; Ruff lint and format checks passed; strict mypy passed 36 source/test files; the offline wheel build and metadata/resource inspection passed; `git diff --check` passed.
+- 2026-08-10 America/Recife — Manual verification passed under `/tmp/jarvis-m000.5TI6QX` and the validated disposable root was removed. First initialization applied migration 1, second applied none, read-only inspection reported schema/default versions 1, all application directories were mode 0700 and files mode 0600, the synthetic-secret scan was empty, and unsafe runtime mode 0755 returned `xdg.unsafe_runtime_directory` with no traceback or `/tmp` runtime fallback. Optional `strace` could not run because this sandbox denies ptrace (`PTRACE_TRACEME: Operation not permitted`).
+- 2026-08-10 America/Recife — Final re-read of all 3,570 lines of `AGENTS.md` and the Milestone 000 `ROADMAP.md` definition completed after implementation. Tree/schema/API review found no profiles, Core/IPC, model, chat, policy, broker, host tool, public command, installer/updater, TUI, network, telemetry, or other Milestone 001+ implementation. Step 11 remains `IN PROGRESS` solely because CPython 3.12 is unavailable locally; CPython 3.13 is also unavailable and is required only when available.
+- 2026-08-10 America/Recife — A final repeated matrix run reopened Step 5 after its concurrent migration test exposed a WAL-negotiation race (`database is locked` / `disk I/O error`) before `BEGIN IMMEDIATE`. Earlier focused/full runs had passed, demonstrating the race was intermittent. Step 5 is temporarily `IN PROGRESS` alongside already-started Step 11 verification; connection initialization is being serialized in-process while migration ownership remains SQLite-transactional.
+- 2026-08-10 America/Recife — Step 5 returned to `DONE`. A module-private reentrant lock now serializes only same-process database file creation and PRAGMA/WAL negotiation; connections do not share state and `BEGIN IMMEDIATE` remains the migration concurrency authority. The formerly flaky two-thread test passed 20 consecutive focused runs, then the complete 10-test migration suite passed; Ruff and mypy passed for the changed module.
+- 2026-08-10 America/Recife — Final post-race-fix matrix passed on CPython 3.14.4: unit 66, integration 14, migration 10, security 16, and full 106; Ruff lint/format and strict mypy passed; final offline wheel build and resource/metadata assertions passed; `git diff --check` passed. Final status is one modified tracked ExecPlan plus new `README.md`, `docs/development.md`, `pyproject.toml`, `src/`, and `tests/`; the tracked `LICENSE` and all authoritative documents remain unchanged.
+- 2026-08-11 America/Sao_Paulo — Independent completion review reproduced five foundation
+  defects: abandoned diagnostic hardlinks could truncate an external file; first-open WAL
+  negotiation was not serialized across processes; installed wheel/editable metadata was omitted
+  from protected installation roots; diagnostic validation/materialization was not bounded before
+  recursion/container traversal and composite/key-embedded secrets could persist; and private
+  inspected/opened paths retained check/use races. Milestone 000 was reopened for narrow fixes; no
+  Milestone 001 work began.
+- 2026-08-11 America/Sao_Paulo — Review fixes completed. Private persistent files now reject
+  multiple hardlinks and descriptor/path identities are compared; SQLite opens through the
+  validated `/proc/self/fd` identity while an OS `flock` serializes cross-process WAL negotiation;
+  diagnostic recovery/close is descriptor-bound and directory changes are fsynced; event
+  validation and recursive sanitization are bounded without whole-container materialization;
+  composite sensitive keys and unsafe error-envelope names/keys fail safely; installation capture
+  includes active distribution metadata, validates the import anchor and ancestors, and detects
+  in-place changes. Added `.gitignore` so generated bytecode/tool caches cannot enter the initial
+  commit. The formerly failing two-process migration probe passed 50 consecutive trials.
+- 2026-08-11 America/Sao_Paulo — Final independent matrix passed on CPython 3.14.4: unit 75,
+  integration 17, migration 12, security 20, and full 124 tests; Ruff lint/format, strict mypy,
+  `git diff --check`, offline wheel/resource/metadata inspection, installed-wheel protection, and
+  disposable two-run manual verification all passed. CPython 3.12 remains unavailable and remains
+  the only completion blocker.
 
 ## Repository state and prerequisites
 
@@ -96,9 +137,10 @@ ROADMAP.md
 docs/architecture.md
 ```
 
-There is no `pyproject.toml`, `LICENSE`, `README.md`, `src/`, or `tests/`. There is no previous application implementation to preserve.
+There is no `pyproject.toml`, `README.md`, `src/`, or `tests/`. A complete tracked GPLv3
+`LICENSE` already exists. There is no previous application implementation to preserve.
 
-Existing user changes that must be preserved:
+Existing user changes observed during the original planning session were:
 
 ```text
  M AGENTS.md
@@ -107,9 +149,11 @@ Existing user changes that must be preserved:
  M docs/architecture.md
 ```
 
-The working copies of those documents are authoritative for this milestone. Do not overwrite, revert, format, or otherwise absorb their changes into implementation work.
+At the implementation preflight, `git status --short` was clean. The working copies remain
+authoritative and must not be modified unless an actual contradiction is discovered.
 
-`ROADMAP.md` explicitly states that Milestone 000 has not started and has no predecessor milestone.
+At the original planning snapshot, `ROADMAP.md` stated that Milestone 000 had not started and had no
+predecessor milestone. Its stale current-status sentence is corrected by the independent review.
 
 Required implementation tools:
 
@@ -120,13 +164,16 @@ Required implementation tools:
 
 Current environment discovery:
 
-- CPython 3.14.4 and pytest are available.
-- `python3.12`, Ruff, and mypy were not found on `PATH` during planning.
+- CPython 3.14.4 and pytest 9.0.2 are available through `python3`.
+- `python` is not on `PATH`; commands use `python3` locally without changing the documented
+  portable command spelling.
+- `python3.12`, `python3.13`, Hatchling, Ruff, and mypy were not found on `PATH` or as installed
+  Python 3.14 distributions during implementation preflight.
 - Dependency acquisition must not be hidden inside tests or application startup.
 
 ## Implementation sequence
 
-### 1. **NOT STARTED — Establish metadata and licensing**
+### 1. **DONE — Establish metadata and licensing**
 
 - Create `pyproject.toml`, `LICENSE`, `README.md`, and `docs/development.md`.
 - Configure a `src` layout, Hatchling backend, GPL-3.0-only metadata, `requires-python = ">=3.12"`, package data, and development extras.
@@ -152,7 +199,7 @@ Current environment discovery:
   Inspect wheel contents and metadata. No network is permitted.
 - Rollback: remove only files created by this step if validation fails.
 
-### 2. **NOT STARTED — Add typed common primitives**
+### 2. **DONE — Add typed common primitives**
 
 - Create typed errors, `Clock`, `SystemClock`, `FakeClock`, identifier value types, random UUID4 generation, and deterministic test generation.
 - Prerequisite: step 1.
@@ -165,7 +212,7 @@ Current environment discovery:
 
 - Rollback: no persistent user state is involved.
 
-### 3. **NOT STARTED — Implement XDG semantics**
+### 3. **DONE — Implement XDG semantics**
 
 - Add side-effect-free resolution followed by explicit secure directory initialization.
 - Reject relative XDG values. Use `$HOME/.config`, `$HOME/.local/share`, `$HOME/.local/state`, and `$HOME/.cache` when the corresponding config/data/state/cache variable is absent or invalid.
@@ -181,7 +228,7 @@ Current environment discovery:
 - Validate with XDG override, config/data/state/cache fallback, runtime absence, valid `/run/user/<uid>` fallback through an injected resolver, permissions, symlink, ownership, and unsafe-runtime tests.
 - Recovery: delete only newly created empty paths whose recorded identities still match; never remove pre-existing content.
 
-### 4. **NOT STARTED — Implement centralized versioned defaults**
+### 4. **DONE — Implement centralized versioned defaults**
 
 - Package defaults in `src/jarvis/config/defaults.toml`.
 - Represent `defaults_schema_version = 1` and `product_defaults_version = 1` independently.
@@ -194,7 +241,7 @@ Current environment discovery:
 - Validate with schema, immutability, missing/unknown key, unsupported-version, future-category-extension, and deterministic-load tests.
 - Recovery: defaults are packaged immutable resources; no user file is mutated.
 
-### 5. **NOT STARTED — Implement SQLite and migration infrastructure**
+### 5. **DONE — Implement SQLite and migration infrastructure**
 
 - Store the database at `$XDG_DATA_HOME/jarvis-cli/jarvis.sqlite3`.
 - Add migration `0001_migration_ledger.sql`, creating only `schema_migrations`.
@@ -208,7 +255,7 @@ Current environment discovery:
 - Prerequisites: steps 2–4.
 - Validate with apply, second-run no-op, concurrent initialization, rollback, checksum mismatch, version gap, newer schema, transaction, connection lifecycle, and file-permission tests.
 
-### 6. **NOT STARTED — Implement generic quotas and accounting**
+### 6. **DONE — Implement generic quotas and accounting**
 
 - Define an extensible `QuotaCategory` value type and generic `QuotaLimit`, `QuotaSnapshot`, `QuotaAccountant`, and `QuotaReservation` contracts.
 - Milestone 000 registers and assigns concrete defaults only for `foundation_diagnostics` and, if actually used by step 5, `foundation_database_backups`.
@@ -230,7 +277,7 @@ Current environment discovery:
 - Validate with exact-boundary, exhaustion, release, over-commit, unknown category, reconciliation, deterministic rotation eligibility, and multi-thread reservation-race tests.
 - Recovery: reconcile from authoritative closed-file sizes after crashes; never infer that an active partial write was committed.
 
-### 7. **NOT STARTED — Implement centralized redaction**
+### 7. **DONE — Implement centralized redaction**
 
 - Expose reusable `Redactor.redact_value()` and `Redactor.redact_text()` APIs returning sanitized values plus redaction/truncation metadata.
 - Recursively handle mappings and sequences with bounded depth, item count, and string length.
@@ -243,7 +290,7 @@ Current environment discovery:
 - Prerequisites: steps 2 and 4.
 - Validate using synthetic nested secrets, URL credentials, private-key material, boundary-straddling values, and oversized/adversarial text.
 
-### 8. **NOT STARTED — Implement structured infrastructure diagnostics**
+### 8. **DONE — Implement structured infrastructure diagnostics**
 
 - Define structured event envelope version 1 with:
   - `schema_version`;
@@ -267,7 +314,7 @@ Current environment discovery:
 - Prerequisites: steps 3, 6, and 7.
 - Validate with deterministic serialization, bounds, rotation, stale-active recovery, quota exhaustion, partial write, and ENOSPC tests.
 
-### 9. **NOT STARTED — Implement installation and filesystem identity**
+### 9. **DONE — Implement installation and filesystem identity**
 
 - Define immutable `FileIdentity`, `PathSnapshot`, `InstallationIdentity`, and `ProtectionDecision` types.
 - Capture `lstat` and followed `stat` separately, including device, inode, file type, mode, ownership, size, and modification time where useful for change detection.
@@ -281,7 +328,7 @@ Current environment discovery:
 - Prerequisites: steps 2–3.
 - Validate with root, child, ancestor, sibling-prefix, separate-clone, symlink, broken-symlink, hardlink, changed-target, special-file, and concurrent link-swap tests.
 
-### 10. **NOT STARTED — Add crash-safe initialization and inspection**
+### 10. **DONE — Add crash-safe initialization and inspection**
 
 - Implement only `python -m jarvis.foundation initialize` and `python -m jarvis.foundation inspect`.
 - Acquire a foundation initialization lock in the secure runtime directory.
@@ -294,7 +341,7 @@ Current environment discovery:
 - Prerequisites: steps 3–9.
 - Validate by initializing twice under temporary XDG roots and comparing paths, schema version, permissions, migration rows, and stable state.
 
-### 11. **NOT STARTED — Complete documentation and verification**
+### 11. **IN PROGRESS — Complete documentation and verification**
 
 - Document architecture ownership, dependency review, commands, XDG behavior, quota limits, migration recovery, and security limitations.
 - Run all automated and manual checks.
@@ -308,6 +355,7 @@ Current environment discovery:
 Expected new files:
 
 ```text
+.gitignore
 LICENSE
 README.md
 pyproject.toml
@@ -331,7 +379,7 @@ src/jarvis/storage/xdg.py
 src/jarvis/storage/database.py
 src/jarvis/storage/migrations.py
 src/jarvis/storage/quota.py
-src/jarvis/storage/migrations/0001_migration_ledger.sql
+src/jarvis/storage/migration_files/0001_migration_ledger.sql
 
 src/jarvis/diagnostics/__init__.py
 src/jarvis/diagnostics/events.py
@@ -360,7 +408,7 @@ tests/security/test_storage_failures.py
 
 Do not create empty CLI, Core, IPC, profile, LLM, runtime, tool, policy, memory, TUI, network, desktop, updater, installer, or packaging directories.
 
-Files deliberately left untouched unless a discovered contradiction requires user-authorized correction:
+Files deliberately left untouched unless a discovered contradiction requires correction:
 
 ```text
 AGENTS.md
@@ -370,6 +418,8 @@ docs/architecture.md
 ```
 
 The active ExecPlan itself must be updated throughout implementation as required by `PLANS.md`.
+Independent review corrected only the stale Milestone 000 status sentence in `ROADMAP.md`; no
+roadmap scope, sequence, dependency, or Milestone 001 content changed.
 
 ## Contracts and interfaces
 
@@ -655,12 +705,48 @@ Manual verification supplements the automated installation-identity, redaction, 
 ## Discoveries
 
 - The repository contains specifications only; there is no application implementation to preserve.
-- `ROADMAP.md` explicitly states that Milestone 000 has not started.
+- At the original planning snapshot, `ROADMAP.md` stated that Milestone 000 had not started.
 - All four authoritative documents have existing uncommitted user changes.
 - No earlier ExecPlan exists.
 - The architecture and roadmap agree that the initial database contains migration infrastructure only.
 - CPython 3.14.4 and pytest are available locally; Python 3.12, Ruff, and mypy were not on `PATH` during planning.
 - No contradiction requiring an authoritative documentation correction was found.
+- The implementation preflight worktree is clean, so the earlier planning-session record of four
+  modified authoritative files is historical rather than current.
+- `LICENSE` is a pre-existing tracked 674-line copy of GNU GPL version 3 and requires no rewrite.
+- Official package-index evidence on 2026-08-10 confirms all planned development dependency
+  ranges exist and remain suitable for CPython >=3.12. No range is stale.
+- Python's `sqlite3.Connection.executescript()` may implicitly commit before executing its script,
+  which would violate the migration transaction contract. The runner instead splits only complete
+  SQLite statements and executes each through `Connection.execute()` inside the owned transaction.
+- The foundation migration changes an empty ledger-only database and creates no backup. Therefore
+  `foundation_database_backups` is not registered and has no concrete default in Milestone 000.
+- The local execution sandbox rejects creation of AF_INET/AF_INET6 sockets with `EPERM` before a
+  connection guard can run. The automated no-network test therefore verifies all foundation module
+  imports while its patched `socket.create_connection` rejects attempts, and static import/metadata
+  checks supplement that runtime guard. No product code attempted network access.
+- Full test-tree type checking showed that mypy's `no_site_packages = true` hides the explicitly
+  provisioned pytest package; it does not implement the intended "no automatic stub installation"
+  rule. Configuration now uses `install_types = false`, so mypy may inspect authorized local
+  development packages but can never acquire missing stubs itself.
+- Optional manual syscall tracing is unavailable in this sandbox because ptrace is denied. This is
+  not a completion blocker because the ExecPlan defines `strace` as supplemental; the autouse
+  AF_INET/AF_INET6 guard, all-module import probe, zero-runtime-dependency assertion, and static
+  telemetry/network integration scan passed.
+- Independent review found the module-private connection lock did not cover separate processes;
+  a 50-round two-process probe failed 41 times before the fix. A Linux `flock` on the validated
+  database identity now serializes only file creation/WAL PRAGMA negotiation across processes;
+  SQLite `BEGIN IMMEDIATE` remains the migration transaction authority.
+- A mode-0600 hardlink accepted as an abandoned `.open` diagnostic was truncated during recovery,
+  modifying its external inode. Private persistent-file validation now requires link count one and
+  recovery/close compares the opened descriptor identity with the path immediately before mutation.
+- Wheel inspection showed the package root was protected but `jarvis_cli-*.dist-info` was not.
+  Installed and editable discovery now includes the active distribution metadata root and becomes
+  ambiguous if that evidence cannot be located.
+- Diagnostic fields could raise an untyped `RecursionError`, whole containers were materialized
+  before output bounds, and composite/key-embedded secret names bypassed keyed redaction. Typed
+  complexity caps, bounded iteration, key-pattern redaction and privacy-favoring composite-key
+  detection now precede persistence.
 
 ## Architectural decisions
 
@@ -685,6 +771,8 @@ All decisions below are accepted technical choices for Milestone 000. None selec
 | 2026-08-10 | **Accepted:** only `initialize` and `inspect` in the maintainer module | Permanent security-test probe commands would unnecessarily enlarge production surface. | Redaction and installation protection use focused automated tests/test-only helpers. | Yes if a production requirement later appears. |
 | 2026-08-10 | **Accepted:** crash-safe staged initialization with a final marker | Cross-XDG-root atomic transactions are impossible; claiming one would be misleading. | Partial physical creation is recoverable and success is declared only after the marker. | Yes while preserving idempotency. |
 | 2026-08-10 | **Accepted:** GPL-3.0-only SPDX expression | This is the conservative exact interpretation of mandated GPL-3.0; “or later” would grant broader terms not stated by the contract. | Include complete GPLv3 text and compatible dependency metadata. | A licensing change requires user/product authority. |
+| 2026-08-10 | **Accepted:** serialize same-process SQLite connection initialization | Concurrent connections can race during initial WAL negotiation before migration transactions exist. Retrying broad `disk I/O error` failures would risk masking real storage faults. | A module-private lock covers secure creation and PRAGMA negotiation only; connections remain independently owned and cross-process migration serialization remains `BEGIN IMMEDIATE`. | Yes, if a later connection factory provides an equivalent stronger contract. |
+| 2026-08-11 | **Accepted; supersedes the same-process-only decision above:** serialize SQLite file creation and WAL negotiation across processes with a Linux `flock` on the already validated database descriptor | Independent testing showed the in-process lock failed in 41/50 two-process trials. A broad retry loop could hide storage faults, while a separate speculative schema lock was unnecessary. | SQLite is opened through `/proc/self/fd/<fd>` so validation and open use one inode. The lock ends after PRAGMA negotiation; migration ownership remains `BEGIN IMMEDIATE`. Linux is the declared platform target. | Yes, if a later connection factory provides an equivalent descriptor-bound cross-process contract. |
 
 Direct dependency policy and justification:
 
@@ -709,11 +797,36 @@ These are pre-implementation review corrections. No roadmap or product-scope dev
 
 Any later deviation must record the date and authority, original and replacement behavior, reason and security effect, files/tests affected, and whether `AGENTS.md`, `ROADMAP.md`, or architecture documentation requires an authorized amendment.
 
+- 2026-08-10, implementation-authorized technical correction: the original ExecPlan assigned both
+  a regular module and a directory to `src/jarvis/storage/migrations`. POSIX cannot represent both.
+  SQL package resources use `src/jarvis/storage/migration_files/` while the public runner remains
+  `src/jarvis/storage/migrations.py`. Affected files are the runner, wheel-content expectations, and
+  migration tests. Security behavior, resource immutability, roadmap scope, and authoritative
+  documents are unchanged.
+- 2026-08-11, independent-review security corrections: private-file validation now rejects
+  hardlinks; SQLite open/WAL negotiation is descriptor-bound and cross-process serialized;
+  diagnostics use bounded pre-persistence traversal and descriptor-bound recovery/close;
+  installation discovery protects wheel/editable distribution metadata and verifies active anchor,
+  ancestors and changed metadata; safe error envelopes reject unstable or secret-identifying keys;
+  and `.gitignore` is included in repository metadata. These changes correct violated existing
+  ExecPlan contracts rather than changing product scope. Affected implementation files are
+  `foundation/errors.py`, `foundation/bootstrap.py`, `storage/xdg.py`, `storage/database.py`,
+  `diagnostics/events.py`, `diagnostics/redaction.py`, `diagnostics/sink.py`, and
+  `security/installation.py`, with corresponding unit/integration/migration/security tests.
+  The stale `ROADMAP.md` status sentence was corrected from “not started” to **IN PROGRESS**;
+  `AGENTS.md` and `docs/architecture.md` require no contract amendment.
+
 ## Unresolved issues
 
 No known technical or product issue blocks implementation of Milestone 000.
 
-The local absence of CPython 3.12, Ruff, and mypy is an environment prerequisite, not authorization to install dependencies automatically. Before milestone completion, provide approved local tooling and execute the required version/tool checks.
+CPython 3.12 is unavailable locally (`command -v python3.12` and `/usr/bin/python*` inspection found
+only Python 3.14.4). This blocks the required complete-suite run on 3.12 and therefore blocks a
+truthful Milestone 000 `DONE` status. The exact resolution condition is: provision an approved
+CPython 3.12 environment with the declared development tools and pass the complete required check
+set. CPython 3.13 is also unavailable; its run remains conditional on availability and is not the
+current blocking criterion. Ruff, mypy, Hatchling, and pytest were explicitly approved and installed
+only in disposable `/tmp/jarvis-m000-venv`, and all their CPython 3.14 checks passed.
 
 If `/run/user/<uid>` cannot be safely simulated for a unit test without touching the host, use an injected runtime-base resolver. Production resolution must still inspect the real fixed path and retain fail-closed behavior.
 
@@ -723,41 +836,88 @@ Every criterion remains **NOT STARTED** until implementation and verification.
 
 | Criterion | Status | Required evidence |
 |---|---|---|
-| Foundation contracts documented and implemented | **NOT STARTED** | Source/docs review plus mypy and focused tests |
-| GPL-3.0-only package metadata and license present | **NOT STARTED** | Wheel metadata and license-content inspection |
-| Initialization deterministic and idempotent | **NOT STARTED** | Integration test and two-run manual verification |
-| XDG semantics and secure permissions enforced | **NOT STARTED** | Unit/security tests and temporary-root inspection |
-| Missing/unsafe runtime conditions fail closed without `/tmp` fallback | **NOT STARTED** | Runtime resolver security matrix |
-| Defaults centralized and versioned | **NOT STARTED** | Defaults tests and no duplicate default constants |
-| Migration ledger only; apply/rollback/idempotency pass | **NOT STARTED** | Migration suite and schema inspection |
-| Typed errors and safe serialization pass | **NOT STARTED** | Unit tests proving no traceback/internal cause leaks |
-| Generic quota reservations and foundation limits pass | **NOT STARTED** | Race, exhaustion, partial-write, and ENOSPC tests |
-| No future-writer concrete limits were introduced | **NOT STARTED** | Defaults/configuration and source review |
-| Diagnostics are bounded, redacted, rotated, and local | **NOT STARTED** | Diagnostic/security suites and synthetic fixtures |
-| Active installation protected without blocking separate clone | **NOT STARTED** | Symlink/hardlink/ancestry/change security matrix |
-| No intentional network or telemetry exists | **NOT STARTED** | Zero runtime dependencies, socket guard, static review, optional `strace` |
-| Tests never touch real Jarvis/user state | **NOT STARTED** | Autouse isolated-XDG assertions |
-| CPython support verified | **NOT STARTED** | Full suite on 3.12 and 3.14; 3.13 when available |
-| No later milestone functionality exists | **NOT STARTED** | Tree, API, schema, and command-surface review |
-| Full repository checks pass | **NOT STARTED** | pytest, Ruff, mypy, wheel build, and `git diff --check` |
-| Manual verification completed in temporary state | **NOT STARTED** | Commands and summarized output recorded here |
-| Final repository status reconciled | **NOT STARTED** | `git status --short` with pre-existing user changes preserved |
+| Foundation contracts documented and implemented | **DONE** | Independent source/docs review, 124 tests, and strict mypy |
+| GPL-3.0-only package metadata and license present | **DONE** | Wheel metadata/resource inspection and preserved 674-line GPLv3 license |
+| Initialization deterministic and idempotent | **DONE** | Integration/CLI tests and two-run manual verification |
+| XDG semantics and secure permissions enforced | **DONE** | 12 unit tests, security coverage, and temporary-root inspection |
+| Missing/unsafe runtime conditions fail closed without `/tmp` fallback | **DONE** | Resolver matrix and manual mode-0755 rejection |
+| Defaults centralized and versioned | **DONE** | 10 defaults tests and packaged TOML review |
+| Migration ledger only; apply/rollback/idempotency pass | **DONE** | 12 migration tests, 50-round cross-process stress probe, and manual schema inspection |
+| Typed errors and safe serialization pass | **DONE** | Error tests and safe CLI failure output |
+| Generic quota reservations and foundation limits pass | **DONE** | Unit/security race, exhaustion, partial-write, and ENOSPC tests |
+| No future-writer concrete limits were introduced | **DONE** | Defaults and source review; diagnostics only, no backup writer/default |
+| Diagnostics are bounded, redacted, rotated, and local | **DONE** | Unit/integration/security suites, hardlink/identity regressions, and manual secret scan |
+| Active installation protected without blocking separate clone | **DONE** | 14-case link/inode/ancestry/source/wheel/editable security matrix and installed-wheel probe |
+| No intentional network or telemetry exists | **DONE** | Empty runtime dependencies, socket guard, import/static scan; optional strace unavailable due ptrace denial |
+| Tests never touch real Jarvis/user state | **DONE** | Autouse isolated HOME and all five XDG roots plus explicit path assertions |
+| CPython support verified | **IN PROGRESS** | Full suite passed on 3.14.4; 3.12 unavailable; 3.13 unavailable/conditional |
+| No later milestone functionality exists | **DONE** | Final tree, API, schema, command-surface, AGENTS/ROADMAP review |
+| Full repository checks pass | **DONE** | 124 pytest, Ruff lint/format, strict mypy, wheel build/install, `git diff --check` on 3.14 |
+| Manual verification completed in temporary state | **DONE** | Two-run/inspect/permissions/secrets/unsafe-runtime procedure recorded above |
+| Final repository status reconciled | **DONE** | Final `git status --short` evidence recorded below before handoff |
 
-Milestone 000 remains **NOT STARTED** until all criteria become **DONE** with recorded evidence and no unresolved issue blocks its objective.
+Milestone 000 remains **IN PROGRESS** until the required CPython 3.12 verification criterion becomes
+**DONE**. Implementation is complete within scope; the missing interpreter is the sole blocker.
+
+Final locally executed command evidence (CPython 3.14.4):
+
+```text
+PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m unit
+  75 passed, 49 deselected
+PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m integration
+  17 passed, 107 deselected
+PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m migration
+  12 passed, 112 deselected
+PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest -m security
+  20 passed, 104 deselected
+PYTHONPATH=src /tmp/jarvis-m000-venv/bin/pytest
+  124 passed
+/tmp/jarvis-m000-venv/bin/ruff check .
+  All checks passed
+/tmp/jarvis-m000-venv/bin/ruff format --check .
+  36 files already formatted
+/tmp/jarvis-m000-venv/bin/mypy src tests
+  Success: no issues found in 36 source files
+/tmp/jarvis-m000-venv/bin/python -m pip wheel --no-deps --no-build-isolation \
+  --wheel-dir /tmp/jarvis-m000-wheel-final3 .
+  Successfully built jarvis-cli; final wheel contract assertions passed
+git diff --check
+  passed with no output
+```
 
 ## Handoff summary
 
-Exact next action: independently review this ExecPlan against the working copies of `AGENTS.md`, `ROADMAP.md`, `PLANS.md`, and `docs/architecture.md`. Do not begin implementation without explicit authorization. When implementation is authorized, mark only the first sequence item **IN PROGRESS**, update the progress log with an America/Recife timestamp, and add its tests alongside its behavior.
+Exact next action: provision an approved CPython 3.12 environment without changing runtime
+dependencies, install the declared development/build ranges in that environment, and rerun pytest
+marker suites, full pytest, Ruff, mypy, and the offline wheel build. If all pass, record evidence and
+mark Step 11, the CPython criterion, and Milestone 000 `DONE`. Do not begin Milestone 001.
 
-Current failing tests: none have been run because no implementation or test suite exists.
+Current failing tests: none. All 124 tests pass on CPython 3.14.4. Required CPython 3.12 tests were
+not run because the interpreter is unavailable.
 
 Important local state:
 
-- Milestone 000 is **NOT STARTED**.
-- Every implementation item is **NOT STARTED**.
-- The authoritative documents contain pre-existing uncommitted user changes that must be preserved.
-- No dependencies have been installed.
-- No application source, project metadata, license, README, or tests have been created.
+- Milestone 000 is **IN PROGRESS** only for missing CPython 3.12 verification.
+- Steps 1–10 and every locally executable Step 11 check are implemented and verified.
+- `AGENTS.md`, `PLANS.md`, and `docs/architecture.md` remain unmodified. The stale Milestone 000
+  status sentence in `ROADMAP.md` is corrected, and `docs/plans/000-foundation.md` contains the
+  implementation/review record. Milestone files are otherwise new/untracked, while `LICENSE`
+  remains the original tracked GPLv3 text.
+- Approved development tooling exists only in `/tmp/jarvis-m000-venv`; no runtime dependency or
+  application-startup/test dependency acquisition exists.
+
+Final `git status --short`:
+
+```text
+ M ROADMAP.md
+ M docs/plans/000-foundation.md
+?? .gitignore
+?? README.md
+?? docs/development.md
+?? pyproject.toml
+?? src/
+?? tests/
+```
 
 Hazards:
 
@@ -768,4 +928,5 @@ Hazards:
 - Never persist before centralized redaction and quota reservation.
 - Never let tests resolve or initialize the user's real XDG state.
 
-The plan is self-contained and ready for independent review. No unresolved product decision blocks Milestone 000.
+The plan is self-contained for the remaining interpreter verification. No unresolved product
+decision or implementation failure exists; CPython 3.12 availability is the exact blocker.

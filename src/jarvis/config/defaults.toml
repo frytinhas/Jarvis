@@ -1,0 +1,13 @@
+defaults_schema_version = 1
+product_defaults_version = 1
+
+[foundation_diagnostics]
+total_bytes = 268435456
+file_bytes = 8388608
+event_bytes = 65536
+text_bytes = 16384
+max_depth = 8
+max_container_entries = 100
+max_closed_files = 32
+retention_days = 30
+

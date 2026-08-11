@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.31,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jarvis-cli"
+version = "0.0.0"
+description = "Local-first security foundation for Jarvis-CLI"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=2.3,<3",
+    "pytest>=9.1,<10",
+    "ruff>=0.15,<0.16",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jarvis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers"]
+markers = [
+    "unit: isolated unit tests",
+    "integration: tests spanning foundation components",
+    "migration: SQLite migration contract tests",
+    "security: security-boundary and privacy tests",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "double"
+line-ending = "lf"
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+explicit_package_bases = true
+install_types = false
+warn_unreachable = true
