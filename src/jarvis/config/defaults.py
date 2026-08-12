@@ -11,12 +11,18 @@ from typing import Final
 
 from jarvis.foundation.errors import ConfigurationError
 
-SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 1
-CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 1
+SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 2
+CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 2
 FOUNDATION_DIAGNOSTICS_CATEGORY: Final = "foundation_diagnostics"
+PROFILE_DEFAULTS_CATEGORY: Final = "profile_defaults"
 
 _ROOT_KEYS: Final = frozenset(
-    {"defaults_schema_version", "product_defaults_version", FOUNDATION_DIAGNOSTICS_CATEGORY}
+    {
+        "defaults_schema_version",
+        "product_defaults_version",
+        FOUNDATION_DIAGNOSTICS_CATEGORY,
+        PROFILE_DEFAULTS_CATEGORY,
+    }
 )
 _DIAGNOSTIC_KEYS: Final = frozenset(
     {
@@ -29,6 +35,27 @@ _DIAGNOSTIC_KEYS: Final = frozenset(
         "max_closed_files",
         "retention_days",
     }
+)
+_PROFILE_KEYS: Final = frozenset(
+    {
+        "persona_text",
+        "profile_context_text",
+        "accent_color",
+        "foreground_color",
+        "background_color",
+        "waiting_messages",
+        "goodbye_messages",
+        "visible_logging_mode",
+        "start_with_computer",
+        "permissions",
+    }
+)
+_PERMISSION_KEYS: Final = frozenset(
+    {"create", "copy", "read", "screen", "internet", "execute", "delete", "modify", "move"}
+)
+_PERMISSION_VALUES: Final = frozenset({"allow", "ask", "deny"})
+_LOGGING_MODES: Final = frozenset(
+    {"full", "server-essential", "essential", "essential-minimum", "none"}
 )
 
 
@@ -45,10 +72,25 @@ class DiagnosticDefaults:
 
 
 @dataclass(frozen=True, slots=True)
+class ProfileDefaults:
+    persona_text: str
+    profile_context_text: str
+    accent_color: str
+    foreground_color: str
+    background_color: str
+    waiting_messages: tuple[str, ...]
+    goodbye_messages: tuple[str, ...]
+    visible_logging_mode: str
+    start_with_computer: bool
+    permissions: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
 class DefaultsSnapshot:
     defaults_schema_version: int
     product_defaults_version: int
     foundation_diagnostics: DiagnosticDefaults
+    profile_defaults: ProfileDefaults
 
 
 def _require_exact_keys(
@@ -77,6 +119,80 @@ def _positive_int(value: object, name: str) -> int:
             safe_details={"field": name, "reason": "expected_positive_integer"},
         )
     return value
+
+
+def _string(value: object, name: str) -> str:
+    if not isinstance(value, str):
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": name, "reason": "expected_string"},
+        )
+    return value
+
+
+def _string_tuple(value: object, name: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": name, "reason": "expected_string_array"},
+        )
+    return tuple(value)
+
+
+def _parse_profile_defaults(value: object) -> ProfileDefaults:
+    if not isinstance(value, dict):
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"section": PROFILE_DEFAULTS_CATEGORY},
+        )
+    _require_exact_keys(value, _PROFILE_KEYS, PROFILE_DEFAULTS_CATEGORY)
+    raw_permissions = value["permissions"]
+    if not isinstance(raw_permissions, dict):
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"section": "profile_defaults.permissions"},
+        )
+    _require_exact_keys(raw_permissions, _PERMISSION_KEYS, "profile_defaults.permissions")
+    permissions: dict[str, str] = {}
+    for capability, raw_decision in raw_permissions.items():
+        decision = _string(raw_decision, f"permissions.{capability}")
+        if decision not in _PERMISSION_VALUES:
+            raise ConfigurationError(
+                code="defaults.invalid",
+                message_key="error.defaults.invalid",
+                safe_details={"field": f"permissions.{capability}", "reason": "invalid_choice"},
+            )
+        permissions[capability] = decision
+    logging_mode = _string(value["visible_logging_mode"], "visible_logging_mode")
+    if logging_mode not in _LOGGING_MODES:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": "visible_logging_mode", "reason": "invalid_choice"},
+        )
+    startup = value["start_with_computer"]
+    if type(startup) is not bool:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": "start_with_computer", "reason": "expected_boolean"},
+        )
+    return ProfileDefaults(
+        persona_text=_string(value["persona_text"], "persona_text"),
+        profile_context_text=_string(value["profile_context_text"], "profile_context_text"),
+        accent_color=_string(value["accent_color"], "accent_color"),
+        foreground_color=_string(value["foreground_color"], "foreground_color"),
+        background_color=_string(value["background_color"], "background_color"),
+        waiting_messages=_string_tuple(value["waiting_messages"], "waiting_messages"),
+        goodbye_messages=_string_tuple(value["goodbye_messages"], "goodbye_messages"),
+        visible_logging_mode=logging_mode,
+        start_with_computer=startup,
+        permissions=MappingProxyType(permissions),
+    )
 
 
 def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
@@ -135,7 +251,22 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
                 "reason": "inconsistent_bounds",
             },
         )
-    return DefaultsSnapshot(schema_version, product_version, diagnostics)
+    profile_defaults = _parse_profile_defaults(document[PROFILE_DEFAULTS_CATEGORY])
+    # Reuse the profile domain's authoritative value validation without making defaults depend on
+    # persistence or services. The local import avoids a module-import cycle.
+    from jarvis.profiles.configuration import ProfileConfigurationValues
+    from jarvis.profiles.errors import ProfileConfigurationError
+
+    try:
+        ProfileConfigurationValues.from_defaults(profile_defaults)
+    except ProfileConfigurationError as error:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details=error.safe_details,
+            internal_message=error.internal_message,
+        ) from error
+    return DefaultsSnapshot(schema_version, product_version, diagnostics, profile_defaults)
 
 
 class DefaultsRegistry:
@@ -168,7 +299,7 @@ class DefaultsRegistry:
 def transition_persisted_defaults(
     values: Mapping[str, object], *, from_version: int, to_version: int
 ) -> Mapping[str, object]:
-    """Apply explicit adjacent defaults transitions; version 1 currently has no transition."""
+    """Return unchanged current values; no version-1 profile configuration ever existed."""
 
     if from_version == to_version == CURRENT_PRODUCT_DEFAULTS_VERSION:
         return MappingProxyType(dict(values))

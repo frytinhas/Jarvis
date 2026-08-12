@@ -32,10 +32,11 @@ def _database(tmp_path: Path) -> SQLiteDatabase:
 
 
 def test_initial_migration_creates_only_ledger_and_is_idempotent(tmp_path: Path) -> None:
+    migration_0001 = load_packaged_migrations()[0]
     database = _database(tmp_path)
     with database:
-        first = MigrationRunner(database, _clock()).apply()
-        second = MigrationRunner(database, _clock()).apply()
+        first = MigrationRunner(database, _clock(), (migration_0001,)).apply()
+        second = MigrationRunner(database, _clock(), (migration_0001,)).apply()
         tables = (
             database.connection()
             .execute(
@@ -135,7 +136,7 @@ def test_unknown_higher_database_version_fails_closed(tmp_path: Path) -> None:
         MigrationRunner(database, _clock()).apply()
         connection = database.connection()
         connection.execute(
-            "INSERT INTO schema_migrations VALUES (2, 'future', ?, ?)",
+            "INSERT INTO schema_migrations VALUES (3, 'future', ?, ?)",
             ("0" * 64, "2026-08-10T12:00:00.000000Z"),
         )
         with pytest.raises(StorageError) as caught:
@@ -148,7 +149,7 @@ def test_noncontiguous_database_ledger_fails_closed(tmp_path: Path) -> None:
     with database:
         MigrationRunner(database, _clock()).apply()
         connection = database.connection()
-        connection.execute("UPDATE schema_migrations SET version = 2 WHERE version = 1")
+        connection.execute("DELETE FROM schema_migrations WHERE version = 1")
         with pytest.raises(StorageError) as caught:
             MigrationRunner(database, _clock()).apply()
     assert caught.value.code == "database.incompatible_schema"
@@ -191,9 +192,9 @@ def test_concurrent_initializers_serialize_and_apply_once(tmp_path: Path) -> Non
     for thread in threads:
         thread.join(timeout=10)
     assert not failures
-    assert sorted(results) == [(), (1,)]
+    assert sorted(results) == [(), (1, 2)]
     with SQLiteDatabase(path) as database:
-        assert current_schema_version(database) == 1
+        assert current_schema_version(database) == 2
 
 
 def test_cross_process_connection_initialization_is_serialized(tmp_path: Path) -> None:
@@ -213,9 +214,25 @@ def test_cross_process_connection_initialization_is_serialized(tmp_path: Path) -
         process.join(timeout=10)
     assert [process.exitcode for process in processes] == [0, 0, 0, 0]
     with SQLiteDatabase(path) as database:
-        assert current_schema_version(database) == 1
+        assert current_schema_version(database) == 2
 
 
 def test_migration_sql_rejects_transaction_control() -> None:
     with pytest.raises(ValueError, match="control transactions"):
         Migration.create(1, "unsafe", "BEGIN; CREATE TABLE unsafe (value TEXT); COMMIT;")
+
+
+def test_migration_sql_allows_trigger_body_without_surrendering_transaction_ownership() -> None:
+    migration = Migration.create(
+        1,
+        "trigger",
+        """
+        CREATE TABLE guarded (value INTEGER);
+        CREATE TRIGGER guarded_insert
+        BEFORE INSERT ON guarded
+        BEGIN
+            SELECT RAISE(ABORT, 'blocked');
+        END;
+        """,
+    )
+    assert "CREATE TRIGGER" in migration.sql

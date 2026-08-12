@@ -14,9 +14,22 @@ from jarvis.foundation.errors import StorageError
 from jarvis.storage.database import SQLiteDatabase
 
 _MIGRATION_NAME = re.compile(r"^(?P<version>[0-9]{4})_(?P<name>[a-z0-9_]+)\.sql$")
-_TRANSACTION_CONTROL = re.compile(
-    r"\b(?:BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|END\s+TRANSACTION)\b", re.IGNORECASE
+_TRANSACTION_CONTROL_AT_STATEMENT_START = re.compile(
+    r"^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE|TRANSACTION))?"
+    r"|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|END\s+TRANSACTION)\b",
+    re.IGNORECASE,
 )
+
+
+def _contains_transaction_control(sql: str) -> bool:
+    buffer = ""
+    for line in sql.splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            if _TRANSACTION_CONTROL_AT_STATEMENT_START.search(buffer):
+                return True
+            buffer = ""
+    return bool(buffer.strip() and _TRANSACTION_CONTROL_AT_STATEMENT_START.search(buffer))
 
 
 def _execute_migration_sql(connection: sqlite3.Connection, sql: str) -> None:
@@ -45,7 +58,7 @@ class Migration:
     def create(cls, version: int, name: str, sql: str) -> Migration:
         if version <= 0 or not name or not re.fullmatch(r"[a-z0-9_]+", name):
             raise ValueError("invalid migration identity")
-        if _TRANSACTION_CONTROL.search(sql):
+        if _contains_transaction_control(sql):
             raise ValueError("migration SQL must not control transactions")
         checksum = hashlib.sha256(sql.encode("utf-8")).hexdigest()
         return cls(version, name, sql, checksum)

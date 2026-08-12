@@ -1,13 +1,14 @@
 # Jarvis-CLI
 
-Jarvis-CLI is a privacy-first, telemetry-free local AI assistant for Linux. The project is in its
-security-foundation milestone: no assistant, profile, model runtime, host tool, network feature, or
-public Jarvis command exists yet.
+Jarvis-CLI is a privacy-first, telemetry-free local AI assistant for Linux. The implemented domain
+currently includes the security foundation and persistent profile identity/configuration. No Core,
+IPC, model runtime, chat, host tool, network feature, presentation client, or public Jarvis command
+exists yet.
 
-The current foundation is designed to provide user-local XDG storage, versioned defaults, SQLite
-migrations, bounded redacted infrastructure diagnostics, quota reservations, typed errors, and
-active-installation identity checks. Local model inference and all user-facing clients are later
-milestones.
+The current implementation provides user-local XDG storage, versioned defaults, SQLite migrations,
+bounded redacted infrastructure diagnostics, quota reservations, typed errors, active-installation
+identity checks, and service-level profile lifecycle/configuration APIs. Local model inference and
+all user-facing clients are later milestones.
 
 ## Requirements
 
@@ -16,8 +17,8 @@ milestones.
 - Development dependencies installed explicitly by a maintainer. Application startup and tests do
   not install or download dependencies.
 
-Jarvis-CLI has no runtime Python dependencies in Milestone 000 and performs no intentional network
-access or telemetry.
+Jarvis-CLI has no runtime Python dependencies through Milestone 001 and performs no intentional
+network access or telemetry.
 
 ## Foundation commands
 
@@ -35,4 +36,3 @@ disposable location when evaluating foundation behavior. See
 ## License
 
 Jarvis-CLI is licensed under GPL-3.0-only. See [`LICENSE`](LICENSE).
-

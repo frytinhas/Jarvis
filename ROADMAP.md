@@ -4,10 +4,10 @@
 
 This roadmap decomposes the product specified by `AGENTS.md` into sequential, independently verifiable milestones. `AGENTS.md` remains authoritative. If this roadmap and `AGENTS.md` differ, implementation stops until the roadmap is corrected; a milestone may not reinterpret an invariant.
 
-This document plans work only. Milestone 000 is **DONE**. Its required CPython 3.12 and 3.14
-verification passed; CPython 3.13 was unavailable and remains conditional. Milestone 001 has not
-started and is not authorized. Before any milestone starts, its self-contained ExecPlan must be
-created and maintained as required by `PLANS.md`.
+This document plans work only. Milestones 000 and 001 are **DONE**. Their required CPython 3.12 and
+3.14 verification passed; CPython 3.13 was unavailable and remains conditional. Milestone 002 has
+not started and is not authorized. Before any milestone starts, its self-contained ExecPlan must
+be created and maintained as required by `PLANS.md`.
 
 The roadmap excludes Jarvis Voice and the Jarvis Desktop App. Their compatibility requirement is preserved by keeping Jarvis Core behind a versioned local IPC protocol and keeping all client presentation outside Core.
 

@@ -17,6 +17,8 @@ from jarvis.diagnostics.sink import InfrastructureDiagnosticSink
 from jarvis.foundation.clock import Clock, SystemClock, format_utc
 from jarvis.foundation.errors import StorageError
 from jarvis.foundation.identifiers import IdGenerator, RandomIdGenerator
+from jarvis.profiles.models import ProfileIdGenerator
+from jarvis.profiles.service import ProfileService
 from jarvis.security.installation import discover_active_installation
 from jarvis.storage.database import SQLiteDatabase
 from jarvis.storage.migrations import MigrationRunner
@@ -129,6 +131,7 @@ def initialize_foundation(
     *,
     clock: Clock | None = None,
     identifiers: IdGenerator | None = None,
+    profile_identifiers: ProfileIdGenerator | None = None,
     atomic_writer: AtomicWriter = _atomic_private_write,
 ) -> dict[str, object]:
     """Initialize every foundation component and publish the completion marker last."""
@@ -142,6 +145,12 @@ def initialize_foundation(
         database_path = paths.data / DATABASE_FILENAME
         with SQLiteDatabase(database_path) as database:
             migration = MigrationRunner(database, active_clock).apply()
+        ProfileService(
+            database_path,
+            defaults=DefaultsRegistry(defaults),
+            clock=active_clock,
+            profile_ids=profile_identifiers,
+        ).ensure_jarvis()
 
         sink = InfrastructureDiagnosticSink(
             paths.state, defaults.foundation_diagnostics, active_clock

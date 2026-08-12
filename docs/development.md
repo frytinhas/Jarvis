@@ -1,11 +1,14 @@
-# Foundation development
+# Foundation and profile-domain development
 
 ## Scope
 
-Milestone 000 contains repository and security infrastructure only. It deliberately has no profile,
-Core IPC, model, chat, policy, broker, host-tool, updater, installer, TUI, or network subsystem.
+Milestones 000–001 contain repository/security infrastructure and the service-level profile
+identity/configuration domain. They deliberately have no Core IPC, model, chat, policy, broker,
+host-tool, updater, installer, TUI, network subsystem, presentation client, or executable profile
+alias.
 `AGENTS.md` is the product authority, `ROADMAP.md` defines milestone boundaries, `PLANS.md` defines
-execution discipline, and `docs/plans/000-foundation.md` is the active plan and evidence record.
+execution discipline, and `docs/plans/000-foundation.md` plus
+`docs/plans/001-profile-system.md` are the completed-milestone evidence records.
 
 ## Supported development interpreters
 
@@ -31,7 +34,7 @@ pytest
 ruff check .
 ruff format --check .
 mypy src tests
-python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m000-wheel .
+python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m001-wheel .
 git diff --check
 ```
 
@@ -76,14 +79,14 @@ Foundation diagnostics are local infrastructure evidence, not model memory. Prod
 payloads; centralized redaction is defense in depth and is not permission to collect arbitrary
 secrets. Report a suspected security defect without attaching real credentials or private user data.
 
-## Foundation storage and recovery contracts
+## Foundation and profile storage/recovery contracts
 
-The only database table is `schema_migrations`. Migrations are consecutive, forward-only packaged
-SQL resources with SHA-256 checksums and no transaction-control statements. One `BEGIN IMMEDIATE`
-transaction owns the complete pending set. Failure rolls the set back and preserves the database for
-inspection; the application never downgrades, restores, or deletes a nonempty database automatically.
-Future migrations that change a nonempty application schema must use a consistent SQLite backup,
-but Milestone 000 changes only the empty ledger and therefore creates no backup or backup quota.
+Migrations are consecutive, forward-only packaged SQL resources with SHA-256 checksums and no
+migration-owned transaction-control statements. One `BEGIN IMMEDIATE` transaction owns the complete
+pending set. Failure rolls the set back and preserves the database for inspection; the application
+never downgrades, restores, or deletes a nonempty database automatically. Migration 0002 adds only
+the seven profile-domain tables documented in the M001 ExecPlan. Jarvis bootstrap follows migration
+and completes before initialization is published.
 
 Foundation infrastructure diagnostics are stored only in XDG state. Defaults are 256 MiB total,
 8 MiB per file, 64 KiB per event, 16 KiB per text value, depth 8, 100 entries per container, at most
