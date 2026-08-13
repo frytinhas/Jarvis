@@ -12,7 +12,11 @@ import pytest
 from jarvis.foundation.clock import FakeClock
 from jarvis.profiles.configuration import UpdateProfileConfiguration
 from jarvis.profiles.destructive import ResetScope
-from jarvis.profiles.errors import InvalidProfileNameError, ProfileNameConflictError
+from jarvis.profiles.errors import (
+    InvalidProfileNameError,
+    ProfileInvariantError,
+    ProfileNameConflictError,
+)
 from jarvis.profiles.models import CreateProfile, DeterministicProfileIdGenerator, ProfileId
 from jarvis.profiles.names import normalize_profile_name
 from jarvis.profiles.service import ProfileConfigService, ProfileService
@@ -148,6 +152,43 @@ def test_direct_sql_cannot_delete_or_reassign_jarvis_identity_and_alias(tmp_path
             connection.execute(
                 "DELETE FROM profiles WHERE profile_id = ?", (str(jarvis.profile.profile_id),)
             )
+
+
+def test_direct_sql_type_and_alias_corruption_fails_closed_on_read(tmp_path: Path) -> None:
+    path, profiles, _configs = _setup(tmp_path)
+    profile = profiles.create_profile(CreateProfile("Work"))
+    profile_id = str(profile.profile.profile_id)
+    with SQLiteDatabase(path) as database:
+        connection = database.connection()
+        connection.execute(
+            "UPDATE profiles SET display_name = 'Other' WHERE profile_id = ?", (profile_id,)
+        )
+    with pytest.raises(ProfileInvariantError):
+        profiles.get_profile(profile.profile.profile_id)
+
+    with SQLiteDatabase(path) as database:
+        connection = database.connection()
+        connection.execute(
+            "UPDATE profiles SET display_name = 'Work' WHERE profile_id = ?", (profile_id,)
+        )
+        connection.execute(
+            "UPDATE profile_configurations SET persona_text = ? WHERE profile_id = ?",
+            (sqlite3.Binary(b"blob-persona"), profile_id),
+        )
+    with pytest.raises(ProfileInvariantError):
+        profiles.get_profile(profile.profile.profile_id)
+
+
+def test_missing_standard_alias_cannot_make_profile_silently_disappear(tmp_path: Path) -> None:
+    path, profiles, _configs = _setup(tmp_path)
+    profile = profiles.create_profile(CreateProfile("Work"))
+    with SQLiteDatabase(path) as database:
+        database.connection().execute(
+            "DELETE FROM profile_aliases WHERE profile_id = ?",
+            (str(profile.profile.profile_id),),
+        )
+    with pytest.raises(ProfileInvariantError):
+        profiles.list_profiles()
 
 
 def test_schema_and_source_surface_contain_no_later_milestone_capabilities(tmp_path: Path) -> None:

@@ -132,7 +132,11 @@ def _string(value: object, name: str) -> str:
 
 
 def _string_tuple(value: object, name: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+    if (
+        not isinstance(value, list)
+        or len(value) > 16
+        or any(not isinstance(item, str) for item in value)
+    ):
         raise ConfigurationError(
             code="defaults.invalid",
             message_key="error.defaults.invalid",

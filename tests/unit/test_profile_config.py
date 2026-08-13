@@ -8,9 +8,15 @@ from jarvis.config.defaults import DefaultsRegistry
 from jarvis.profiles.configuration import (
     AppearanceConfiguration,
     ProfileConfigurationValues,
+    SectionRevision,
 )
 from jarvis.profiles.errors import ProfileConfigurationError
-from jarvis.profiles.models import Capability, PermissionDecision, VisibleLoggingMode
+from jarvis.profiles.models import (
+    Capability,
+    ConfigurationSection,
+    PermissionDecision,
+    VisibleLoggingMode,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -40,8 +46,10 @@ def test_packaged_profile_values_are_exact_and_immutable() -> None:
     "mutation",
     [
         {"persona_text": "x" * (32 * 1024 + 1)},
+        {"persona_text": "\ud800"},
         {"profile_context_text": "\x00"},
         {"waiting_messages": ("line\nbreak",)},
+        {"waiting_messages": ("\ud800",)},
         {"goodbye_messages": tuple("x" for _ in range(17))},
         {"visible_logging_mode": "verbose"},
         {"start_with_computer": 1},
@@ -62,3 +70,15 @@ def test_colors_require_lowercase_hex(color: str) -> None:
 def test_messages_are_nfc_normalized_and_ordered() -> None:
     values = replace(_defaults(), waiting_messages=("Cafe\u0301", "Second"))
     assert values.waiting_messages == ("Café", "Second")
+
+
+def test_extreme_persona_is_rejected_before_utf8_materialization() -> None:
+    with pytest.raises(ProfileConfigurationError) as caught:
+        replace(_defaults(), persona_text="é" * 1_000_000)
+    assert caught.value.safe_details == {"field": "persona_text", "reason": "too_many_bytes"}
+
+
+@pytest.mark.parametrize("version", [1, 3])
+def test_profile_sections_reject_nonexistent_or_future_defaults_versions(version: int) -> None:
+    with pytest.raises(ValueError, match="unsupported section defaults version"):
+        SectionRevision(ConfigurationSection.PERSONA, version, 1)

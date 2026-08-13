@@ -52,6 +52,7 @@ def test_display_and_alias_normalization(source: str, display: str, alias: str) 
         "\u0301Work",
         "1\u0301",
         "A \u0301",
+        "A\ud800",
         "A" * 129,
     ],
 )
@@ -71,6 +72,12 @@ def test_alias_length_bound_is_enforced_after_normalization() -> None:
     with pytest.raises(InvalidProfileNameError) as caught:
         normalize_command_alias("A" * 64)
     assert caught.value.safe_details["reason"] == "alias_too_long"
+
+
+def test_extreme_unnormalized_input_is_rejected_before_unicode_normalization() -> None:
+    with pytest.raises(InvalidProfileNameError) as caught:
+        validate_display_name("A" + "\u0301" * 1_000_000)
+    assert caught.value.safe_details["reason"] == "too_many_codepoints"
 
 
 def test_reserved_alias_set_is_exact_and_canonical() -> None:

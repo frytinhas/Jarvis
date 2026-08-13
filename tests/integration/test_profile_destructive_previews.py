@@ -16,7 +16,7 @@ from jarvis.profiles.destructive import (
     ProfileOperationIntentRepository,
     ResetScope,
 )
-from jarvis.profiles.errors import ProtectedProfileError
+from jarvis.profiles.errors import ProfileInvariantError, ProtectedProfileError
 from jarvis.profiles.models import CreateProfile, DeterministicProfileIdGenerator
 from jarvis.profiles.service import ProfileConfigService, ProfileService
 from jarvis.storage.database import SQLiteDatabase
@@ -101,6 +101,19 @@ def test_default_section_preview_is_truthful_no_change(tmp_path: Path) -> None:
     assert len(preview.items) == 3
     assert not preview.has_changes
     assert not any(item.will_change for item in preview.items)
+
+
+def test_unsupported_message_defaults_origin_fails_closed_before_preview(tmp_path: Path) -> None:
+    path, _clock, profiles, _configs, destructive = _setup(tmp_path)
+    jarvis = profiles.ensure_jarvis()
+    with SQLiteDatabase(path) as database:
+        database.connection().execute(
+            "UPDATE profile_configuration_sections SET defaults_version = 3 "
+            "WHERE profile_id = ? AND section_name = 'waiting-messages'",
+            (str(jarvis.profile.profile_id),),
+        )
+    with pytest.raises(ProfileInvariantError):
+        destructive.preview_reset(jarvis.profile.profile_id, ResetScope.WAITING_MESSAGES)
 
 
 def test_replacement_preview_invalidates_only_same_profile_kind_scope_tuple(

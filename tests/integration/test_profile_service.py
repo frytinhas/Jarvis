@@ -10,6 +10,7 @@ from jarvis.foundation.clock import FakeClock
 from jarvis.profiles.errors import (
     ConcurrentProfileModificationError,
     InvalidProfileNameError,
+    ProfileInvariantError,
     ProfileNameConflictError,
     ProtectedProfileError,
 )
@@ -121,3 +122,17 @@ def test_exact_noop_rename_does_not_increment_revision(tmp_path: Path) -> None:
     result = service.rename_profile(RenameProfile(created.profile.profile_id, "Work", 1))
     assert result.profile.identity_revision == 1
     assert service.get_profile(created.profile.profile_id).profile.identity_revision == 1
+
+
+def test_profile_id_collision_is_not_misreported_as_alias_conflict(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service.ensure_jarvis()
+    created = service.create_profile(CreateProfile("First"))
+    colliding = ProfileService(
+        (tmp_path / "data" / "jarvis-cli" / "jarvis.sqlite3").absolute(),
+        clock=FakeClock(datetime(2026, 8, 11, 12, tzinfo=UTC)),
+        profile_ids=DeterministicProfileIdGenerator([created.profile.profile_id.value]),
+    )
+    with pytest.raises(ProfileInvariantError) as caught:
+        colliding.create_profile(CreateProfile("Different Alias"))
+    assert caught.value.safe_details["reason"] == "profile_id_collision"

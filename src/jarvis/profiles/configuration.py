@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
-from jarvis.config.defaults import ProfileDefaults
+from jarvis.config.defaults import CURRENT_PRODUCT_DEFAULTS_VERSION, ProfileDefaults
 from jarvis.profiles.errors import ProfileConfigurationError
 from jarvis.profiles.models import (
     ALL_CAPABILITIES,
@@ -40,7 +40,13 @@ def _bounded_text(value: object, *, field: str, max_bytes: int) -> str:
         raise _invalid(field, "expected_string")
     if "\x00" in value:
         raise _invalid(field, "nul_not_allowed")
-    if len(value.encode("utf-8")) > max_bytes:
+    if len(value) > max_bytes:
+        raise _invalid(field, "too_many_bytes")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise _invalid(field, "invalid_utf8") from error
+    if len(encoded) > max_bytes:
         raise _invalid(field, "too_many_bytes")
     return value
 
@@ -57,7 +63,9 @@ def validate_messages(value: object, *, field: str) -> tuple[str, ...]:
     if len(value) > MAX_MESSAGES:
         raise _invalid(field, "too_many_messages")
     messages: list[str] = []
-    for item in value:
+    for index, item in enumerate(value):
+        if index >= MAX_MESSAGES:
+            raise _invalid(field, "too_many_messages")
         if not isinstance(item, str):
             raise _invalid(field, "message_not_string")
         normalized = unicodedata.normalize("NFC", item)
@@ -67,7 +75,11 @@ def validate_messages(value: object, *, field: str) -> tuple[str, ...]:
             raise _invalid(field, "message_not_single_line")
         if len(normalized) > MAX_MESSAGE_CODEPOINTS:
             raise _invalid(field, "message_too_many_codepoints")
-        if len(normalized.encode("utf-8")) > MAX_MESSAGE_BYTES:
+        try:
+            encoded = normalized.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise _invalid(field, "message_invalid_utf8") from error
+        if len(encoded) > MAX_MESSAGE_BYTES:
             raise _invalid(field, "message_too_many_bytes")
         messages.append(normalized)
     return tuple(messages)
@@ -78,9 +90,13 @@ def validate_permissions(
 ) -> Mapping[Capability, PermissionDecision]:
     if not isinstance(value, Mapping):
         raise _invalid("permissions", "expected_mapping")
+    if len(value) != len(ALL_CAPABILITIES):
+        raise _invalid("permissions", "capabilities_mismatch")
     parsed: dict[Capability, PermissionDecision] = {}
     try:
-        for raw_capability, raw_decision in value.items():
+        for index, (raw_capability, raw_decision) in enumerate(value.items()):
+            if index >= len(ALL_CAPABILITIES):
+                raise _invalid("permissions", "capabilities_mismatch")
             capability = (
                 raw_capability
                 if isinstance(raw_capability, Capability)
@@ -194,8 +210,10 @@ class SectionRevision:
     revision: int
 
     def __post_init__(self) -> None:
-        if self.defaults_version <= 0 or self.revision <= 0:
-            raise ValueError("section defaults version and revision must be positive")
+        if self.defaults_version != CURRENT_PRODUCT_DEFAULTS_VERSION:
+            raise ValueError("unsupported section defaults version")
+        if self.revision <= 0:
+            raise ValueError("section revision must be positive")
 
 
 def validate_section_revisions(

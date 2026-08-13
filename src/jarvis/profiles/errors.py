@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from jarvis.foundation.errors import JarvisError
 
 
@@ -70,3 +72,14 @@ class ConfirmationStaleError(ProfileError):
 class DatabaseBusyError(ProfileError):
     default_code = "database.busy"
     default_message_key = "error.database.busy"
+
+
+def translate_profile_database_error(error: sqlite3.Error, *, reason: str) -> ProfileError:
+    """Translate SQLite failures without exposing SQL or private values in safe details."""
+
+    if isinstance(error, sqlite3.OperationalError) and getattr(error, "sqlite_errorcode", None) in {
+        sqlite3.SQLITE_BUSY,
+        sqlite3.SQLITE_LOCKED,
+    }:
+        return DatabaseBusyError(safe_details={"reason": "busy"}, internal_message=str(error))
+    return ProfileInvariantError(safe_details={"reason": reason}, internal_message=str(error))

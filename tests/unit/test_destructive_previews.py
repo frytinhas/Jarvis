@@ -69,3 +69,13 @@ def test_raw_confirmation_tokens_are_excluded_from_representations() -> None:
     assert raw not in repr(preview)
     assert raw not in repr(confirmation)
     assert preview.confirmation_token == raw
+
+
+@pytest.mark.parametrize("token", ["\ud800", "x" * 257, ""])
+def test_malformed_or_oversized_confirmation_tokens_fail_with_typed_error(token: str) -> None:
+    operation_id = OperationId(UUID("20000000-0000-4000-8000-000000000001"))
+    profile_id = ProfileId(UUID("10000000-0000-4000-8000-000000000001"))
+    target = DestructiveTarget(DestructiveOperationKind.RESET_CONFIGURATION, ResetScope.PERSONA)
+    with pytest.raises(ConfirmationInvalidError) as caught:
+        ConfirmDestructiveOperation(operation_id, target, profile_id, token)
+    assert caught.value.safe_details["reason"] == "invalid_token"

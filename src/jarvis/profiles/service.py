@@ -26,11 +26,11 @@ from jarvis.profiles.destructive import (
 )
 from jarvis.profiles.errors import (
     ConcurrentProfileModificationError,
-    DatabaseBusyError,
     ProfileError,
     ProfileInvariantError,
     ProfileNameConflictError,
     ProtectedProfileError,
+    translate_profile_database_error,
 )
 from jarvis.profiles.models import (
     AliasChange,
@@ -113,7 +113,9 @@ class ProfileService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="bootstrap_database_failure") from error
+            raise translate_profile_database_error(
+                error, reason="bootstrap_database_failure"
+            ) from error
         return ProfileAggregate(jarvis, configuration)
 
     def list_profiles(self) -> tuple[ProfileAggregate, ...]:
@@ -133,7 +135,7 @@ class ProfileService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="list_database_failure") from error
+            raise translate_profile_database_error(error, reason="list_database_failure") from error
 
     def get_profile(self, profile_id: ProfileId) -> ProfileAggregate:
         try:
@@ -152,7 +154,7 @@ class ProfileService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="get_database_failure") from error
+            raise translate_profile_database_error(error, reason="get_database_failure") from error
 
     def create_profile(self, command: CreateProfile) -> ProfileAggregate:
         normalized = normalize_profile_name(command.display_name)
@@ -175,8 +177,11 @@ class ProfileService:
                 if identities.alias_owner(normalized.command_alias) is not None:
                     raise ProfileNameConflictError(safe_details={"reason": "alias_conflict"})
                 now = self._clock.now()
+                profile_id = self._profile_ids.new_profile_id()
+                if identities.exists(profile_id):
+                    raise ProfileInvariantError(safe_details={"reason": "profile_id_collision"})
                 profile = identities.insert(
-                    profile_id=self._profile_ids.new_profile_id(),
+                    profile_id=profile_id,
                     kind=ProfileKind.STANDARD,
                     display_name=normalized.display_name,
                     command_alias=normalized.command_alias,
@@ -199,7 +204,9 @@ class ProfileService:
                 safe_details={"reason": "alias_conflict"}, internal_message=str(error)
             ) from error
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="create_database_failure") from error
+            raise translate_profile_database_error(
+                error, reason="create_database_failure"
+            ) from error
 
     def rename_profile(self, command: RenameProfile) -> RenameResult:
         normalized = normalize_profile_name(command.display_name)
@@ -257,7 +264,9 @@ class ProfileService:
                 safe_details={"reason": "alias_conflict"}, internal_message=str(error)
             ) from error
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="rename_database_failure") from error
+            raise translate_profile_database_error(
+                error, reason="rename_database_failure"
+            ) from error
 
     def preview_delete(self, profile_id: ProfileId) -> DestructivePreview:
         try:
@@ -270,7 +279,7 @@ class ProfileService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(
+            raise translate_profile_database_error(
                 error, reason="delete_preview_database_failure"
             ) from error
 
@@ -285,16 +294,9 @@ class ProfileService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="delete_database_failure") from error
-
-
-def _translate_database_error(error: sqlite3.Error, *, reason: str) -> ProfileError:
-    if isinstance(error, sqlite3.OperationalError) and getattr(error, "sqlite_errorcode", None) in {
-        sqlite3.SQLITE_BUSY,
-        sqlite3.SQLITE_LOCKED,
-    }:
-        return DatabaseBusyError(safe_details={"reason": "busy"}, internal_message=str(error))
-    return ProfileInvariantError(safe_details={"reason": reason}, internal_message=str(error))
+            raise translate_profile_database_error(
+                error, reason="delete_database_failure"
+            ) from error
 
 
 class ProfileConfigService:
@@ -326,7 +328,9 @@ class ProfileConfigService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="get_configuration_failure") from error
+            raise translate_profile_database_error(
+                error, reason="get_configuration_failure"
+            ) from error
 
     def get_section(
         self, profile_id: ProfileId, section: ConfigurationSection
@@ -381,7 +385,9 @@ class ProfileConfigService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="update_configuration_failure") from error
+            raise translate_profile_database_error(
+                error, reason="update_configuration_failure"
+            ) from error
 
     def preview_reset(self, profile_id: ProfileId, scope: ResetScope) -> DestructivePreview:
         try:
@@ -394,7 +400,7 @@ class ProfileConfigService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(
+            raise translate_profile_database_error(
                 error, reason="reset_preview_database_failure"
             ) from error
 
@@ -409,4 +415,6 @@ class ProfileConfigService:
         except ProfileError:
             raise
         except sqlite3.Error as error:
-            raise _translate_database_error(error, reason="reset_database_failure") from error
+            raise translate_profile_database_error(
+                error, reason="reset_database_failure"
+            ) from error

@@ -12,7 +12,12 @@ import pytest
 
 from jarvis.foundation.clock import FakeClock
 from jarvis.profiles.configuration import UpdateProfileConfiguration
-from jarvis.profiles.destructive import ConfirmDestructiveOperation, ResetScope
+from jarvis.profiles.destructive import (
+    ConfirmDestructiveOperation,
+    ProfileDestructiveCoordinator,
+    ProfileDestructiveIntentService,
+    ResetScope,
+)
 from jarvis.profiles.errors import DatabaseBusyError, ProfileError
 from jarvis.profiles.models import CreateProfile, DeterministicProfileIdGenerator, RenameProfile
 from jarvis.profiles.service import ProfileConfigService, ProfileService
@@ -311,11 +316,26 @@ def test_jarvis_update_during_clone_is_never_a_mixed_snapshot(tmp_path: Path) ->
 def test_busy_timeout_exhaustion_is_typed_without_automatic_retry(tmp_path: Path) -> None:
     path, profiles, _configs = _setup(tmp_path)
     profile = profiles.create_profile(CreateProfile("Busy Preview"))
+    intent_service = ProfileDestructiveIntentService(
+        path, clock=FakeClock(TEST_NOW), busy_timeout_ms=25
+    )
+    preview = intent_service.preview_reset(profile.profile.profile_id, ResetScope.PERSONA)
+    confirmation = ConfirmDestructiveOperation(
+        preview.operation_id, preview.target, preview.profile_id, preview.confirmation_token
+    )
     with SQLiteDatabase(path) as blocker, blocker.transaction(immediate=True):
         service = ProfileService(path, busy_timeout_ms=25)
         with pytest.raises(DatabaseBusyError) as caught:
             service.create_profile(CreateProfile("Blocked"))
         with pytest.raises(DatabaseBusyError) as destructive_caught:
             service.preview_delete(profile.profile.profile_id)
+        with pytest.raises(DatabaseBusyError) as direct_internal_caught:
+            intent_service.preview_reset(profile.profile.profile_id, ResetScope.PERSONA)
+        with pytest.raises(DatabaseBusyError) as direct_coordinator_caught:
+            ProfileDestructiveCoordinator(
+                path, clock=FakeClock(TEST_NOW), busy_timeout_ms=25
+            ).confirm_reset(confirmation)
     assert caught.value.code == "database.busy"
     assert destructive_caught.value.code == "database.busy"
+    assert direct_internal_caught.value.code == "database.busy"
+    assert direct_coordinator_caught.value.code == "database.busy"

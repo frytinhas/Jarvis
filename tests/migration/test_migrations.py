@@ -217,9 +217,22 @@ def test_cross_process_connection_initialization_is_serialized(tmp_path: Path) -
         assert current_schema_version(database) == 2
 
 
-def test_migration_sql_rejects_transaction_control() -> None:
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "BEGIN; CREATE TABLE unsafe (value TEXT); COMMIT;",
+        "-- leading comment\nCOMMIT;",
+        "/* leading block comment */ ROLLBACK;",
+        "CREATE TABLE unsafe (value TEXT); SAVEPOINT hidden;",
+        "SELECT 'BEGIN is data'; RELEASE SAVEPOINT hidden;",
+        "\n\t-- comments; contain punctuation\n END TRANSACTION;",
+        "/* comment */ BEGIN\nIMMEDIATE TRANSACTION;",
+        "/* comment */ \ufeff COMMIT;",
+    ],
+)
+def test_migration_sql_rejects_transaction_control(sql: str) -> None:
     with pytest.raises(ValueError, match="control transactions"):
-        Migration.create(1, "unsafe", "BEGIN; CREATE TABLE unsafe (value TEXT); COMMIT;")
+        Migration.create(1, "unsafe", sql)
 
 
 def test_migration_sql_allows_trigger_body_without_surrendering_transaction_ownership() -> None:
@@ -231,8 +244,34 @@ def test_migration_sql_allows_trigger_body_without_surrendering_transaction_owne
         CREATE TRIGGER guarded_insert
         BEFORE INSERT ON guarded
         BEGIN
+            SELECT 'BEGIN; COMMIT; ROLLBACK; SAVEPOINT; RELEASE; END TRANSACTION';
+            -- Transaction words in trigger comments remain trigger data.
             SELECT RAISE(ABORT, 'blocked');
         END;
         """,
     )
     assert "CREATE TRIGGER" in migration.sql
+
+
+def test_multiple_same_line_migration_statements_execute_inside_owned_transaction(
+    tmp_path: Path,
+) -> None:
+    migrations = (
+        load_packaged_migrations()[0],
+        Migration.create(
+            2,
+            "same_line",
+            "CREATE TABLE first_table (value TEXT); CREATE TABLE second_table (value TEXT);",
+        ),
+    )
+    database = _database(tmp_path)
+    with database:
+        result = MigrationRunner(database, _clock(), migrations).apply()
+        tables = {
+            row[0]
+            for row in database.connection()
+            .execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .fetchall()
+        }
+    assert result.applied_versions == (1, 2)
+    assert {"first_table", "second_table"} <= tables

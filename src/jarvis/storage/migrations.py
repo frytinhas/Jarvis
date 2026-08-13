@@ -15,35 +15,66 @@ from jarvis.storage.database import SQLiteDatabase
 
 _MIGRATION_NAME = re.compile(r"^(?P<version>[0-9]{4})_(?P<name>[a-z0-9_]+)\.sql$")
 _TRANSACTION_CONTROL_AT_STATEMENT_START = re.compile(
-    r"^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE|TRANSACTION))?"
-    r"|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|END\s+TRANSACTION)\b",
+    r"^(?:BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b",
     re.IGNORECASE,
 )
 
 
+def _split_complete_statements(sql: str) -> tuple[tuple[str, ...], str]:
+    """Split at SQLite-complete semicolons, including multiple statements on one line."""
+
+    statements: list[str] = []
+    start = 0
+    for offset, character in enumerate(sql):
+        if character != ";":
+            continue
+        candidate = sql[start : offset + 1]
+        if sqlite3.complete_statement(candidate):
+            statements.append(candidate)
+            start = offset + 1
+    return tuple(statements), sql[start:]
+
+
+def _without_leading_comments(statement: str) -> str:
+    """Remove only leading SQLite whitespace/comments before keyword inspection."""
+
+    offset = 0
+    while True:
+        while offset < len(statement) and (
+            statement[offset].isspace() or statement[offset] == "\ufeff"
+        ):
+            offset += 1
+        if statement.startswith("--", offset):
+            newline = statement.find("\n", offset + 2)
+            if newline < 0:
+                return ""
+            offset = newline + 1
+            continue
+        if statement.startswith("/*", offset):
+            end = statement.find("*/", offset + 2)
+            if end < 0:
+                return statement[offset:]
+            offset = end + 2
+            continue
+        return statement[offset:]
+
+
 def _contains_transaction_control(sql: str) -> bool:
-    buffer = ""
-    for line in sql.splitlines(keepends=True):
-        buffer += line
-        if sqlite3.complete_statement(buffer):
-            if _TRANSACTION_CONTROL_AT_STATEMENT_START.search(buffer):
-                return True
-            buffer = ""
-    return bool(buffer.strip() and _TRANSACTION_CONTROL_AT_STATEMENT_START.search(buffer))
+    statements, remainder = _split_complete_statements(sql)
+    return any(
+        _TRANSACTION_CONTROL_AT_STATEMENT_START.search(_without_leading_comments(statement))
+        for statement in (*statements, remainder)
+    )
 
 
 def _execute_migration_sql(connection: sqlite3.Connection, sql: str) -> None:
     """Execute complete statements without sqlite3.executescript's implicit commit."""
 
-    buffer = ""
-    for line in sql.splitlines(keepends=True):
-        buffer += line
-        if sqlite3.complete_statement(buffer):
-            statement = buffer.strip()
-            if statement:
-                connection.execute(statement)
-            buffer = ""
-    if buffer.strip():
+    statements, remainder = _split_complete_statements(sql)
+    for statement in statements:
+        if _without_leading_comments(statement):
+            connection.execute(statement)
+    if _without_leading_comments(remainder):
         raise sqlite3.OperationalError("incomplete migration SQL statement")
 
 

@@ -8,7 +8,8 @@ import json
 import secrets
 import sqlite3
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -29,8 +30,10 @@ from jarvis.profiles.errors import (
     ConfirmationExpiredError,
     ConfirmationInvalidError,
     ConfirmationStaleError,
+    ProfileError,
     ProfileInvariantError,
     ProtectedProfileError,
+    translate_profile_database_error,
 )
 from jarvis.profiles.models import (
     AliasChange,
@@ -45,6 +48,29 @@ from jarvis.storage.database import SQLiteDatabase
 
 CONFIRMATION_TTL = timedelta(minutes=5)
 INTENT_PRUNE_BATCH = 100
+MAX_CONFIRMATION_TOKEN_BYTES = 256
+
+
+def _confirmation_token_digest(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > MAX_CONFIRMATION_TOKEN_BYTES:
+        raise ConfirmationInvalidError(safe_details={"reason": "invalid_token"})
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ConfirmationInvalidError(safe_details={"reason": "invalid_token"}) from error
+    if len(encoded) > MAX_CONFIRMATION_TOKEN_BYTES:
+        raise ConfirmationInvalidError(safe_details={"reason": "invalid_token"})
+    return hashlib.sha256(encoded).hexdigest()
+
+
+@contextmanager
+def _translate_sqlite_errors(*, reason: str) -> Iterator[None]:
+    try:
+        yield
+    except ProfileError:
+        raise
+    except sqlite3.Error as error:
+        raise translate_profile_database_error(error, reason=reason) from error
 
 
 class DestructiveOperationKind(StrEnum):
@@ -181,6 +207,7 @@ class DestructivePreview:
     def __post_init__(self) -> None:
         object.__setattr__(self, "created_at_utc", normalize_utc(self.created_at_utc))
         object.__setattr__(self, "expires_at_utc", normalize_utc(self.expires_at_utc))
+        _confirmation_token_digest(self.confirmation_token)
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +216,9 @@ class ConfirmDestructiveOperation:
     target: DestructiveTarget
     profile_id: ProfileId
     confirmation_token: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        _confirmation_token_digest(self.confirmation_token)
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,7 +442,7 @@ def _reset_items(
                     "replace-default",
                     len(current_messages),
                     len(target_messages),
-                    current_messages != target_messages,
+                    origin_changed or current_messages != target_messages,
                 )
             )
         else:
@@ -452,6 +482,7 @@ class ProfileDestructiveIntentService:
             DestructiveOperationKind.DELETE_PROFILE, DeletionScope.WHOLE_PROFILE
         )
         with (
+            _translate_sqlite_errors(reason="delete_preview_database_failure"),
             SQLiteDatabase(self._database_path, busy_timeout_ms=self._busy_timeout_ms) as database,
             database.transaction(immediate=True),
         ):
@@ -488,6 +519,7 @@ class ProfileDestructiveIntentService:
         defaults_snapshot = self._defaults.current()
         defaults = ProfileConfigurationValues.from_defaults(defaults_snapshot.profile_defaults)
         with (
+            _translate_sqlite_errors(reason="reset_preview_database_failure"),
             SQLiteDatabase(self._database_path, busy_timeout_ms=self._busy_timeout_ms) as database,
             database.transaction(immediate=True),
         ):
@@ -523,8 +555,7 @@ class ProfileDestructiveIntentService:
         expires = now + CONFIRMATION_TTL
         operation_id = self._operation_ids.new_operation_id()
         raw_token = self._token_factory()
-        if not isinstance(raw_token, str) or not raw_token:
-            raise RuntimeError("confirmation token factory returned an invalid token")
+        token_digest = _confirmation_token_digest(raw_token)
         intent = StoredOperationIntent(
             operation_id=operation_id,
             target=target,
@@ -532,7 +563,7 @@ class ProfileDestructiveIntentService:
             expected_identity_revision=aggregate.profile.identity_revision,
             expected_configuration_revision=aggregate.configuration.configuration_revision,
             state_digest_sha256=_state_digest(aggregate, target),
-            token_digest_sha256=hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
+            token_digest_sha256=token_digest,
             created_at_utc=now,
             expires_at_utc=expires,
         )
@@ -622,6 +653,7 @@ class ProfileDestructiveCoordinator:
         defaults_snapshot = self._defaults.current()
         defaults = ProfileConfigurationValues.from_defaults(defaults_snapshot.profile_defaults)
         with (
+            _translate_sqlite_errors(reason="reset_database_failure"),
             SQLiteDatabase(self._database_path, busy_timeout_ms=self._busy_timeout_ms) as database,
             database.transaction(immediate=True),
         ):
@@ -671,6 +703,7 @@ class ProfileDestructiveCoordinator:
         ):
             raise ConfirmationInvalidError(safe_details={"reason": "operation_mismatch"})
         with (
+            _translate_sqlite_errors(reason="delete_database_failure"),
             SQLiteDatabase(self._database_path, busy_timeout_ms=self._busy_timeout_ms) as database,
             database.transaction(immediate=True),
         ):
@@ -719,7 +752,7 @@ class ProfileDestructiveCoordinator:
         intent = repository.get(command.operation_id)
         if intent is None:
             raise ConfirmationInvalidError(safe_details={"reason": "intent_missing"})
-        supplied_digest = hashlib.sha256(command.confirmation_token.encode("utf-8")).hexdigest()
+        supplied_digest = _confirmation_token_digest(command.confirmation_token)
         if not hmac.compare_digest(supplied_digest, intent.token_digest_sha256):
             raise ConfirmationInvalidError(safe_details={"reason": "token_mismatch"})
         if self._clock.now() >= intent.expires_at_utc:

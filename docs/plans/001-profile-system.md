@@ -1,7 +1,7 @@
 # Milestone 001 — Profile Identity and Configuration Domain ExecPlan
 
 Status: **DONE**
-Last updated: 2026-08-11 America/Recife
+Last updated: 2026-08-13 America/Sao_Paulo
 
 ## Purpose and user outcome
 
@@ -216,6 +216,26 @@ Progress log:
   ledger plus seven M001 tables, migrations 1/2, one Jarvis row, and clean foreign keys. CPython
   3.13 is unavailable and remains conditional. Migration 0001 retains its recorded checksum;
   final scope, authoritative-document, whitespace, diff, and worktree-status reviews pass.
+- 2026-08-13 America/Sao_Paulo — An independent post-completion implementation review reproduced
+  two boundary violations before changing code. SQLite `INSERT OR REPLACE` could replace the
+  permanent Jarvis profile because REPLACE conflict deletion does not run delete triggers when
+  recursive triggers are disabled. The M000 migration parser also missed transaction-control
+  statements preceded by comments/BOMs or placed after another statement on the same line. Narrow
+  trigger and complete-SQL-statement parser fixes now close both paths, with adversarial direct-SQL
+  and parser regressions.
+- 2026-08-13 America/Sao_Paulo — The same review found and corrected typed-boundary and fail-closed
+  defects: malformed Unicode confirmation tokens and exhausted busy timeouts in direct destructive
+  services could leak raw exceptions; corrupt SQLite scalar/display-alias/default-origin state
+  could be coerced or hidden; generated profile-ID collision reporting was misleading; and several
+  hostile iterables or oversized Unicode values were materialized before their bounds were
+  enforced. Reset preview comparison now also includes defaults-origin metadata.
+- 2026-08-13 America/Sao_Paulo — Post-review verification passes on CPython 3.14.4 and 3.12.13:
+  unit 139, integration 60, migration 36, security 40, full 275. The original M000 test-file set
+  passes 138 tests on each interpreter. The eight-race profile module passed 20 consecutive runs
+  (160 cases), and concurrent migration/bootstrap tests passed 20 consecutive combined runs (40
+  cases). Ruff lint/format and strict mypy pass 56 files. A fresh installed wheel contains both
+  migrations, defaults v2, and all profile modules, has no runtime dependency, and initializes
+  outside the checkout. The temporary-XDG walkthrough and exact schema/foreign-key audit pass.
 
 ## Repository state and prerequisites
 
@@ -679,14 +699,17 @@ service validation remains authoritative.
 ```text
 profile_id TEXT NOT NULL REFERENCES profiles(profile_id) ON DELETE CASCADE
 section_name TEXT NOT NULL
-defaults_version INTEGER NOT NULL CHECK > 0
+defaults_version INTEGER NOT NULL CHECK >= 2
 section_revision INTEGER NOT NULL CHECK > 0
 PRIMARY KEY(profile_id, section_name)
 ```
 
 Closed sections are `persona`, `profile-context`, `appearance`, `waiting-messages`,
 `goodbye-messages`, `visible-logging`, `startup`, and `permissions`. All eight rows are required.
-Bootstrap/reset write defaults version 2; cloning copies source origins.
+Profile defaults begin at product version 2, so SQL rejects invented version-1 origins. The
+application accepts exactly its current packaged defaults version and fails closed on future
+origins it cannot interpret. Bootstrap/reset write defaults version 2; cloning copies source
+origins.
 
 ### `profile_messages`
 
@@ -776,8 +799,8 @@ SQLite failures including ENOSPC must roll back without partial profile state.
 | Model authority | No model, Agent Engine, IPC, or client mutation entry exists |
 
 Permissions are stored preferences only; they authorize nothing until the Policy Engine exists.
-Persisted application timestamps remain UTC using the M000 fixed RFC 3339 format. America/Recife
-is used only for plan/progress timestamps.
+Persisted application timestamps remain UTC using the M000 fixed RFC 3339 format. Regional time
+zones are used only for plan/progress timestamps.
 
 ## Tests
 
@@ -880,6 +903,19 @@ No public CLI is added for manual convenience, and no real user state is touched
   therefore rejects valid SQLite trigger bodies. M001 needs narrow triggers for permanent Jarvis
   invariants, so statement-start detection is necessary; migration transaction ownership remains
   unchanged.
+- The initial statement-start correction remained line-oriented. It allowed migration-owned
+  transaction control after leading comments/BOMs or a prior same-line statement. Executing each
+  complete SQLite statement separately and inspecting its comment/BOM-stripped leading token
+  preserves valid trigger bodies while rejecting `BEGIN`, `COMMIT`, `END TRANSACTION`, `ROLLBACK`,
+  `SAVEPOINT`, and `RELEASE` in all adversarial placements tested.
+- SQLite `INSERT OR REPLACE` performs conflict deletion without invoking delete triggers under the
+  connection's default non-recursive-trigger mode. Permanent Jarvis therefore also needs narrow
+  pre-insert/pre-update guards; delete/update guards and uniqueness alone are insufficient.
+- Persisted profile configuration origins cannot use product version 1 because profile defaults
+  begin at version 2. Future versions must fail closed until the running product understands them.
+- Public/internal profile service boundaries require the same safe SQLite translation, including
+  destructive-intent helpers used directly by tests or future callers. Validation must reject
+  non-UTF-8 confirmation/display/configuration values without leaking codec exceptions.
 
 ## Architectural decisions
 
@@ -914,8 +950,8 @@ No roadmap-scope deviation exists. Pre-implementation review changed the initial
 - closing/bounding destructive operation/scope persistence and expiry pruning; and
 - using America/Recife for plan timestamps.
 
-These are plan corrections only. The one necessary implementation deviation is recorded below with
-its authority, behavior, security impact, files, tests, and documentation consequence.
+These are plan corrections only. Necessary implementation deviations are recorded below with their
+authority, behavior, security impact, files, tests, and documentation consequence.
 
 - 2026-08-11, implementation-authorized M000 defect correction required by M001: replace the broad
   migration transaction-control keyword search with complete-statement-start detection so SQLite
@@ -923,6 +959,20 @@ its authority, behavior, security impact, files, tests, and documentation conseq
   and `END TRANSACTION` statements remain prohibited. This changes only
   `src/jarvis/storage/migrations.py` and migration regression tests; it preserves caller-owned
   `BEGIN IMMEDIATE`, immutable migration resources, and every M000 transaction contract.
+- 2026-08-13, independent-review correction to that M000 defect fix: replace the remaining
+  line-oriented detection/execution with complete SQLite statement splitting plus leading
+  comment/BOM inspection. This closes comment, same-line, and BOM transaction escapes without
+  interpreting strings or trigger-body `BEGIN ... END` as transaction ownership. Migration 0001
+  remains byte-identical and keeps its recorded checksum.
+- 2026-08-13, M001 defense-in-depth correction: extend migration 0002's narrow permanent-Jarvis
+  triggers to cover SQLite replacement inserts, primary-identity updates, alias reassignment, and
+  kind replacement paths. This changes no general business logic and adds no later-milestone
+  schema or behavior.
+- 2026-08-13, M001 correctness/security hardening: centralize safe SQLite error translation for
+  every transactional profile path; validate confirmation-token encoding and size; reject corrupt
+  persisted scalar, alias/display, and unsupported defaults-origin state; enforce input bounds
+  before materialization; and report generated UUID collision as an invariant failure. These are
+  narrow contract fixes with regression coverage, not scope expansion.
 
 ## Unresolved issues
 
@@ -935,10 +985,10 @@ required CPython 3.12 and 3.14 verification passed without modifying system Pyth
 
 | Criterion | Status | Evidence required |
 |---|---|---|
-| Schema-1 M000 database upgrades safely | **DONE** | 27 migration tests and temporary-XDG walkthrough |
+| Schema-1 M000 database upgrades safely | **DONE** | 36 migration tests and temporary-XDG walkthrough |
 | Defaults and section origins use 2/2 and origin 2 | **DONE** | Unit/defaults, bootstrap, clone, and reset tests |
 | Jarvis bootstrap is idempotent with stable ID | **DONE** | Restart and two-process bootstrap integration tests |
-| Jarvis cannot be renamed/deleted/lose `jarvis` | **DONE** | Service and direct-SQL security tests |
+| Jarvis cannot be renamed/deleted/lose `jarvis` | **DONE** | Service and direct-SQL DELETE/UPDATE/REPLACE/UPSERT security tests |
 | Display/alias rules including hyphen rejection are exact | **DONE** | Unit/security Unicode and injection corpus |
 | Reserved/colliding aliases fail deterministically | **DONE** | Unit, integration, and subprocess race tests |
 | Rename preserves identity/data | **DONE** | Integration/restart/configuration tests |
@@ -948,11 +998,11 @@ required CPython 3.12 and 3.14 verification passed without modifying system Pyth
 | Section/profile reset uses packaged defaults | **DONE** | Customized-Jarvis section/whole reset tests |
 | Intent scopes are closed/bounded and replay-safe | **DONE** | Unit/repository/SQL/token/replay tests |
 | Reset/delete are centrally coordinated/transactional | **DONE** | Injected-failure rollback and cascade tests |
-| Cross-process outcomes are deterministic | **DONE** | 8 required races; 10 repeated module runs/80 cases |
+| Cross-process outcomes are deterministic | **DONE** | 8 required races; 20 repeated module runs/160 cases plus 20 migration/bootstrap runs/40 cases |
 | No M002+ capability is introduced | **DONE** | Package/schema/import/source/resource review |
-| M000 regressions and all new tests pass | **DONE** | 130 original-file and 252 full tests on 3.12/3.14 |
+| M000 regressions and all new tests pass | **DONE** | 138 original-file and 275 full tests on 3.12/3.14 |
 | Manual verification touches only temporary XDG state | **DONE** | Auto-cleaned `/tmp` five-XDG walkthrough |
-| Ruff/format/mypy/wheel/diff/status pass | **DONE** | 56-file tooling, installed wheel, final Git checks |
+| Ruff/format/mypy/wheel/diff/status pass | **DONE** | 56-file tooling, installed wheel, and final Git checks |
 
 M001 is complete only when every criterion is **DONE**, every implementation step is reconciled,
 and no unresolved issue blocks the objective.

@@ -11,6 +11,7 @@ from jarvis.profiles.errors import InvalidProfileNameError
 
 MAX_DISPLAY_NAME_CODEPOINTS: Final = 128
 MAX_DISPLAY_NAME_BYTES: Final = 512
+MAX_UNNORMALIZED_DISPLAY_NAME_CODEPOINTS: Final = MAX_DISPLAY_NAME_CODEPOINTS * 4
 MAX_ALIAS_LENGTH: Final = 63
 RESERVED_ALIASES: Final = frozenset(
     {
@@ -41,12 +42,18 @@ def validate_display_name(value: str) -> str:
 
     if not isinstance(value, str):
         raise _invalid("expected_string")
+    if len(value) > MAX_UNNORMALIZED_DISPLAY_NAME_CODEPOINTS:
+        raise _invalid("too_many_codepoints")
     normalized = unicodedata.normalize("NFC", value).strip(" ")
     if not normalized:
         raise _invalid("empty")
     if len(normalized) > MAX_DISPLAY_NAME_CODEPOINTS:
         raise _invalid("too_many_codepoints")
-    if len(normalized.encode("utf-8")) > MAX_DISPLAY_NAME_BYTES:
+    try:
+        encoded = normalized.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise _invalid("invalid_utf8") from error
+    if len(encoded) > MAX_DISPLAY_NAME_BYTES:
         raise _invalid("too_many_bytes")
 
     has_alphanumeric = False

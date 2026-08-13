@@ -94,6 +94,11 @@ def test_profile_foreign_keys_indexes_and_cascade(tmp_path: Path) -> None:
         connection.execute(
             "INSERT INTO profile_permissions VALUES (?, 'read', 'allow')", (STANDARD_ID,)
         )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO profile_configuration_sections VALUES (?, 'persona', 1, 1)",
+                (STANDARD_ID,),
+            )
         connection.execute("DELETE FROM profiles WHERE profile_id = ?", (STANDARD_ID,))
         owned_counts = [
             connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
@@ -133,6 +138,60 @@ def test_narrow_jarvis_triggers_protect_kind_alias_and_delete(tmp_path: Path) ->
             connection.execute("DELETE FROM profile_aliases WHERE profile_id = ?", (JARVIS_ID,))
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("DELETE FROM profiles WHERE profile_id = ?", (JARVIS_ID,))
+
+
+def test_jarvis_triggers_block_replace_upsert_and_primary_key_bypasses(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    with database:
+        MigrationRunner(database, _clock()).apply()
+        connection = database.connection()
+        _insert_profile(connection, JARVIS_ID, "jarvis", "jarvis")
+        _insert_profile(connection, STANDARD_ID, "standard", "work")
+        replacement_id = "10000000-0000-4000-8000-000000000099"
+
+        statements = (
+            (
+                "INSERT OR REPLACE INTO profiles VALUES (?, 'standard', 'Replacement', 1, ?, ?)",
+                (JARVIS_ID, NOW, NOW),
+            ),
+            (
+                "INSERT OR REPLACE INTO profiles VALUES (?, 'jarvis', 'Replacement', 1, ?, ?)",
+                (replacement_id, NOW, NOW),
+            ),
+            (
+                "INSERT INTO profiles VALUES (?, 'standard', 'Replacement', 1, ?, ?) "
+                "ON CONFLICT(profile_id) DO UPDATE SET profile_kind = excluded.profile_kind",
+                (JARVIS_ID, NOW, NOW),
+            ),
+            (
+                "UPDATE OR REPLACE profiles SET profile_id = ? WHERE profile_id = ?",
+                (JARVIS_ID, STANDARD_ID),
+            ),
+            (
+                "UPDATE profiles SET profile_id = ? WHERE profile_id = ?",
+                (replacement_id, JARVIS_ID),
+            ),
+            (
+                "INSERT OR REPLACE INTO profile_aliases VALUES (?, 'jarvis', ?, ?)",
+                (JARVIS_ID, NOW, NOW),
+            ),
+            (
+                "UPDATE OR REPLACE profile_aliases "
+                "SET profile_id = ?, command_alias = 'jarvis' WHERE profile_id = ?",
+                (JARVIS_ID, STANDARD_ID),
+            ),
+        )
+        for sql, parameters in statements:
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(sql, parameters)
+
+        assert connection.execute(
+            "SELECT profile_id, profile_kind, display_name "
+            "FROM profiles WHERE profile_kind = 'jarvis'"
+        ).fetchall() == [(JARVIS_ID, "jarvis", "Jarvis")]
+        assert connection.execute(
+            "SELECT profile_id, command_alias FROM profile_aliases WHERE command_alias = 'jarvis'"
+        ).fetchall() == [(JARVIS_ID, "jarvis")]
 
 
 @pytest.mark.parametrize(

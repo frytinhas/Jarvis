@@ -14,7 +14,7 @@ from jarvis.profiles.configuration import (
     ProfileConfigurationValues,
     SectionRevision,
 )
-from jarvis.profiles.errors import ProfileInvariantError, ProfileNotFoundError
+from jarvis.profiles.errors import ProfileError, ProfileInvariantError, ProfileNotFoundError
 from jarvis.profiles.models import (
     ALL_CAPABILITIES,
     ALL_CONFIGURATION_SECTIONS,
@@ -26,6 +26,13 @@ from jarvis.profiles.models import (
     ProfileKind,
     VisibleLoggingMode,
 )
+from jarvis.profiles.names import normalize_profile_name
+
+
+def _text(value: object) -> str:
+    if type(value) is not str:
+        raise ProfileInvariantError(safe_details={"reason": "invalid_text"})
+    return value
 
 
 def _parse_utc(value: object) -> datetime:
@@ -46,16 +53,23 @@ def _integer(value: object) -> int:
 
 def _profile_from_row(row: tuple[object, ...]) -> Profile:
     try:
+        display_name = _text(row[2])
+        command_alias = _text(row[3])
+        normalized = normalize_profile_name(display_name)
+        if normalized.display_name != display_name or normalized.command_alias != command_alias:
+            raise ProfileInvariantError(safe_details={"reason": "identity_alias_mismatch"})
         return Profile(
-            profile_id=ProfileId.parse(str(row[0])),
-            kind=ProfileKind(str(row[1])),
-            display_name=str(row[2]),
-            command_alias=str(row[3]),
+            profile_id=ProfileId.parse(_text(row[0])),
+            kind=ProfileKind(_text(row[1])),
+            display_name=display_name,
+            command_alias=command_alias,
             identity_revision=_integer(row[4]),
             created_at_utc=_parse_utc(row[5]),
             updated_at_utc=_parse_utc(row[6]),
         )
-    except (TypeError, ValueError) as error:
+    except ProfileInvariantError:
+        raise
+    except (ProfileError, TypeError, ValueError) as error:
         raise ProfileInvariantError(safe_details={"reason": "invalid_identity_row"}) from error
 
 
@@ -99,7 +113,7 @@ class ProfileRepository:
             SELECT p.profile_id, p.profile_kind, p.display_name, a.command_alias,
                    p.identity_revision, p.created_at_utc, p.updated_at_utc
             FROM profiles AS p
-            JOIN profile_aliases AS a ON a.profile_id = p.profile_id
+            LEFT JOIN profile_aliases AS a ON a.profile_id = p.profile_id
             WHERE p.profile_id = ?
             """,
             (str(profile_id),),
@@ -114,7 +128,7 @@ class ProfileRepository:
             SELECT p.profile_id, p.profile_kind, p.display_name, a.command_alias,
                    p.identity_revision, p.created_at_utc, p.updated_at_utc
             FROM profiles AS p
-            JOIN profile_aliases AS a ON a.profile_id = p.profile_id
+            LEFT JOIN profile_aliases AS a ON a.profile_id = p.profile_id
             ORDER BY CASE p.profile_kind WHEN 'jarvis' THEN 0 ELSE 1 END,
                      a.command_alias, p.profile_id
             """
@@ -129,9 +143,15 @@ class ProfileRepository:
         if row is None:
             return None
         try:
-            return ProfileId.parse(str(row[0]))
+            return ProfileId.parse(_text(row[0]))
         except ValueError as error:
             raise ProfileInvariantError(safe_details={"reason": "invalid_alias_owner"}) from error
+
+    def exists(self, profile_id: ProfileId) -> bool:
+        row = self._connection.execute(
+            "SELECT 1 FROM profiles WHERE profile_id = ?", (str(profile_id),)
+        ).fetchone()
+        return row is not None
 
     def insert(
         self,
@@ -289,19 +309,19 @@ class ProfileConfigurationRepository:
         sections = self._read_sections(profile_id)
         try:
             values = ProfileConfigurationValues(
-                persona_text=str(row[2]),
-                profile_context_text=str(row[3]),
-                appearance=AppearanceConfiguration(str(row[4]), str(row[5]), str(row[6])),
+                persona_text=_text(row[2]),
+                profile_context_text=_text(row[3]),
+                appearance=AppearanceConfiguration(_text(row[4]), _text(row[5]), _text(row[6])),
                 waiting_messages=messages["waiting"],
                 goodbye_messages=messages["goodbye"],
-                visible_logging_mode=VisibleLoggingMode(str(row[7])),
+                visible_logging_mode=VisibleLoggingMode(_text(row[7])),
                 start_with_computer=bool(row[8]) if row[8] in (0, 1) else row[8],
                 permissions=permissions,
             )
             return ProfileConfiguration(
                 profile_id=profile_id,
-                config_schema_version=int(row[0]),
-                configuration_revision=int(row[1]),
+                config_schema_version=_integer(row[0]),
+                configuration_revision=_integer(row[1]),
                 values=values,
                 section_revisions=sections,
             )
@@ -412,11 +432,11 @@ class ProfileConfigurationRepository:
         grouped: dict[str, list[str]] = {"waiting": [], "goodbye": []}
         expected: dict[str, int] = {"waiting": 0, "goodbye": 0}
         for raw_kind, raw_ordinal, raw_text in rows:
-            kind = str(raw_kind)
-            ordinal = int(raw_ordinal)
+            kind = _text(raw_kind)
+            ordinal = _integer(raw_ordinal)
             if kind not in grouped or ordinal != expected[kind]:
                 raise ProfileInvariantError(safe_details={"reason": "invalid_message_ordinals"})
-            grouped[kind].append(str(raw_text))
+            grouped[kind].append(_text(raw_text))
             expected[kind] += 1
         return {kind: tuple(values) for kind, values in grouped.items()}
 
@@ -427,7 +447,7 @@ class ProfileConfigurationRepository:
         ).fetchall()
         try:
             permissions = {
-                Capability(str(capability)): PermissionDecision(str(decision))
+                Capability(_text(capability)): PermissionDecision(_text(decision))
                 for capability, decision in rows
             }
         except ValueError as error:
@@ -449,8 +469,10 @@ class ProfileConfigurationRepository:
         ).fetchall()
         try:
             sections = {
-                ConfigurationSection(str(name)): SectionRevision(
-                    ConfigurationSection(str(name)), int(defaults_version), int(revision)
+                ConfigurationSection(_text(name)): SectionRevision(
+                    ConfigurationSection(_text(name)),
+                    _integer(defaults_version),
+                    _integer(revision),
                 )
                 for name, defaults_version, revision in rows
             }

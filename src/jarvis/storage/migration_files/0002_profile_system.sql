@@ -24,6 +24,18 @@ CREATE UNIQUE INDEX one_jarvis_profile
     ON profiles(profile_kind)
     WHERE profile_kind = 'jarvis';
 
+CREATE TRIGGER protect_jarvis_profile_insert_replacement
+BEFORE INSERT ON profiles
+WHEN EXISTS (
+    SELECT 1
+    FROM profiles AS existing
+    WHERE existing.profile_kind = 'jarvis'
+        AND (NEW.profile_kind = 'jarvis' OR existing.profile_id = NEW.profile_id)
+)
+BEGIN
+    SELECT RAISE(ABORT, 'protected jarvis profile replacement');
+END;
+
 CREATE TRIGGER protect_jarvis_profile_delete
 BEFORE DELETE ON profiles
 WHEN OLD.profile_kind = 'jarvis'
@@ -36,6 +48,18 @@ BEFORE UPDATE OF profile_kind ON profiles
 WHEN OLD.profile_kind = 'jarvis' OR NEW.profile_kind = 'jarvis'
 BEGIN
     SELECT RAISE(ABORT, 'protected jarvis profile kind');
+END;
+
+CREATE TRIGGER protect_jarvis_profile_identity
+BEFORE UPDATE OF profile_id ON profiles
+WHEN OLD.profile_kind = 'jarvis'
+    OR EXISTS (
+        SELECT 1
+        FROM profiles AS existing
+        WHERE existing.profile_kind = 'jarvis' AND existing.profile_id = NEW.profile_id
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'protected jarvis profile identity');
 END;
 
 CREATE TABLE profile_aliases (
@@ -56,7 +80,12 @@ CREATE TRIGGER enforce_jarvis_alias_insert
 BEFORE INSERT ON profile_aliases
 WHEN
     (SELECT profile_kind FROM profiles WHERE profile_id = NEW.profile_id) = 'jarvis'
-        AND NEW.command_alias <> 'jarvis'
+        AND (
+            NEW.command_alias <> 'jarvis'
+            OR EXISTS (
+                SELECT 1 FROM profile_aliases WHERE profile_id = NEW.profile_id
+            )
+        )
     OR (SELECT profile_kind FROM profiles WHERE profile_id = NEW.profile_id) = 'standard'
         AND NEW.command_alias = 'jarvis'
 BEGIN
@@ -68,7 +97,6 @@ BEFORE UPDATE OF profile_id, command_alias ON profile_aliases
 WHEN
     (SELECT profile_kind FROM profiles WHERE profile_id = OLD.profile_id) = 'jarvis'
     OR (SELECT profile_kind FROM profiles WHERE profile_id = NEW.profile_id) = 'jarvis'
-        AND NEW.command_alias <> 'jarvis'
     OR (SELECT profile_kind FROM profiles WHERE profile_id = NEW.profile_id) = 'standard'
         AND NEW.command_alias = 'jarvis'
 BEGIN
@@ -124,7 +152,7 @@ CREATE TABLE profile_configuration_sections (
                 'permissions'
             )
         ),
-    defaults_version INTEGER NOT NULL CHECK (defaults_version > 0),
+    defaults_version INTEGER NOT NULL CHECK (defaults_version >= 2),
     section_revision INTEGER NOT NULL CHECK (section_revision > 0),
     PRIMARY KEY (profile_id, section_name)
 );
