@@ -34,7 +34,7 @@ _BANNED_INTEGRATION_WORDS = {
 def test_project_has_zero_runtime_dependencies() -> None:
     document = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert document["project"]["dependencies"] == []
-    assert "scripts" not in document["project"]
+    assert document["project"]["scripts"] == {"jarvisd": "jarvis.core.__main__:main"}
 
 
 def test_source_has_no_network_telemetry_or_remote_configuration_integration() -> None:

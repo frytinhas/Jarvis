@@ -211,8 +211,6 @@ def test_schema_and_source_surface_contain_no_later_milestone_capabilities(tmp_p
         "profile_operation_intents",
     }
     forbidden = {
-        "core",
-        "ipc",
         "llm",
         "models",
         "runtime",

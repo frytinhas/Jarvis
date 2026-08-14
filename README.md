@@ -1,14 +1,15 @@
 # Jarvis-CLI
 
 Jarvis-CLI is a privacy-first, telemetry-free local AI assistant for Linux. The implemented domain
-currently includes the security foundation and persistent profile identity/configuration. No Core,
-IPC, model runtime, chat, host tool, network feature, presentation client, or public Jarvis command
-exists yet.
+currently includes the security foundation, persistent profile identity/configuration, and one
+foreground Jarvis Core behind versioned local IPC. No model runtime, chat, host tool, network
+feature, presentation client, or public Jarvis command exists yet.
 
 The current implementation provides user-local XDG storage, versioned defaults, SQLite migrations,
 bounded redacted infrastructure diagnostics, quota reservations, typed errors, active-installation
 identity checks, and service-level profile lifecycle/configuration APIs. Local model inference and
-all user-facing clients are later milestones.
+all user-facing clients are later milestones. The internal IPC transport and `jarvisd` entry point
+are development/architecture surfaces, not an end-user assistant.
 
 ## Requirements
 
@@ -17,17 +18,20 @@ all user-facing clients are later milestones.
 - Development dependencies installed explicitly by a maintainer. Application startup and tests do
   not install or download dependencies.
 
-Jarvis-CLI has no runtime Python dependencies through Milestone 001 and performs no intentional
+Jarvis-CLI has no runtime Python dependencies through Milestone 002 and performs no intentional
 network access or telemetry.
 
-## Foundation commands
-
-The only executable development surface in this milestone is module based:
+## Development commands
 
 ```bash
 PYTHONPATH=src python -m jarvis.foundation initialize --json
 PYTHONPATH=src python -m jarvis.foundation inspect --json
+PYTHONPATH=src python -m jarvis.core --foreground
 ```
+
+An installed development wheel also exposes `jarvisd`, which runs that same foreground Core. It
+does not daemonize, install systemd units, register PATH entries, or start a model. The protocol is
+documented in [`docs/ipc-protocol.md`](docs/ipc-protocol.md).
 
 Always point all five XDG roots, including a pre-created mode-`0700` `XDG_RUNTIME_DIR`, at a
 disposable location when evaluating foundation behavior. See
