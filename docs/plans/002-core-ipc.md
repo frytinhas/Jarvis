@@ -1451,6 +1451,26 @@ No public client command is added for this walkthrough.
 - A runtime-artifact adversarial walkthrough must not use stale socket existence as restart
   readiness; newly published READY metadata is the corroborating readiness signal after the lock
   winner replaces validated stale artifacts.
+- Independent adversarial review on 2026-08-14 found that opening a malicious FIFO at
+  `core.lock` could block before descriptor-type validation. Core now opens lock candidates with
+  `O_NONBLOCK` and rejects the non-regular descriptor; a FIFO regression test proves fail-closed
+  behavior without a startup hang.
+- The same review found that the connection cap was applied after each accepted socket had already
+  created a writer task. A connection flood could therefore create unbounded short-lived tasks.
+  Peer validation and atomic transport admission now precede writer-task creation; rejected
+  pre-admission peers receive a direct bounded connection-level error.
+- The review also found that a displaced physical transport could have bytes buffered when a
+  concurrent resume replaced it. The server now discards those bytes before routing, so only the
+  currently attached transport can issue logical-session operations. A deterministic buffered-byte
+  regression test covers this boundary.
+- CPython 3.12 exposed `ECONNRESET` while closing an already rejected Unix transport. The internal
+  client and test transport now treat this expected close race as transport closure rather than a
+  raw exception; the complete CPython 3.12 matrix passes after the correction.
+- Review verification after all fixes: CPython 3.12.13 and 3.14.4 each pass 173 unit, 77
+  integration, 36 migration, 58 security, and 344 total tests. The committed predecessor M000/M001
+  file set passes 275 tests. A 20-iteration Core concurrency/cross-process/security stress loop,
+  Ruff, strict mypy, fresh-wheel installation, `pip check`, package audit, schema audit, and the
+  disposable-XDG walkthrough all pass. CPython 3.13 remains unavailable in this environment.
 
 ## Architectural decisions
 

@@ -31,6 +31,16 @@ def test_lock_is_lifetime_authority_and_loser_cleans_nothing() -> None:
         first.close()
 
 
+def test_fifo_at_lock_path_fails_closed_without_blocking() -> None:
+    runtime = _runtime()
+    lock = runtime / "core.lock"
+    os.mkfifo(lock, 0o600)
+    with pytest.raises(IpcError) as caught:
+        RuntimeOwnership.acquire(runtime)
+    assert caught.value.code == "ipc.core_unavailable"
+    assert lock.is_fifo()
+
+
 @pytest.mark.parametrize("kind", ["symlink", "regular", "directory", "fifo"])
 def test_unsafe_stale_socket_fails_closed(kind: str, tmp_path: Path) -> None:
     runtime = _runtime()

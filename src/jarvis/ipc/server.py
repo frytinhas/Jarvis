@@ -214,16 +214,20 @@ class IpcServer:
         self._sessions.clear()
 
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        transport = ClientTransport(writer)
+        # Do not create a writer task until the physical transport has been
+        # admitted.  Otherwise a connection flood can create unbounded short-lived
+        # writer tasks before the connection cap has any effect.
+        transport: ClientTransport | None = None
         session: LogicalSession | None = None
         admitted = False
         try:
+            peer_pid, peer_uid, _peer_gid = self._validate_peer(writer)
             async with self._connection_lock:
                 if self._connected_transports >= MAX_CONNECTIONS:
                     raise ipc_error("ipc.connection_limit")
                 self._connected_transports += 1
                 admitted = True
-            peer_pid, peer_uid, _peer_gid = self._validate_peer(writer)
+            transport = ClientTransport(writer)
             self._diagnose("ipc.connection_accepted", {"peer_pid": peer_pid, "peer_uid": peer_uid})
             hello = parse_hello(await read_frame(reader))
             version, capabilities = negotiate(hello)
@@ -259,18 +263,25 @@ class IpcServer:
                     "state": self.lifecycle.state.value,
                 }
             )
-            await self._read_loop(reader, session)
+            await self._read_loop(reader, session, transport)
         except IpcError as error:
             self._diagnose("ipc.internal_failure", {"reason_code": error.code})
             with suppress(IpcError):
-                await transport.send(
+                response = (
                     {"type": "hello.error", "error": error.to_safe_dict()}
                     if session is None
                     else {"type": "error", "error": error.to_safe_dict()}
                 )
+                if transport is None:
+                    await self._send_direct(writer, response)
+                else:
+                    await transport.send(response)
         except BaseException:
-            with suppress(IpcError):
-                await transport.send({"type": "error", "error": safe_error_payload(RuntimeError())})
+            if transport is not None:
+                with suppress(IpcError):
+                    await transport.send(
+                        {"type": "error", "error": safe_error_payload(RuntimeError())}
+                    )
         finally:
             if session is not None and session.transport is transport:
                 session.transport = None
@@ -278,8 +289,21 @@ class IpcServer:
             if admitted:
                 async with self._connection_lock:
                     self._connected_transports -= 1
-            await transport.close()
+            if transport is not None:
+                await transport.close()
+            else:
+                writer.close()
+                with suppress(ConnectionError, OSError):
+                    await writer.wait_closed()
             self._diagnose("ipc.connection_closed", {})
+
+    @staticmethod
+    async def _send_direct(writer: asyncio.StreamWriter, value: Mapping[str, object]) -> None:
+        """Send a bounded pre-admission error without allocating a writer task."""
+
+        writer.write(encode_frame(value))
+        with suppress(ConnectionError, TimeoutError):
+            await asyncio.wait_for(writer.drain(), DRAIN_TIMEOUT_SECONDS)
 
     async def _resume_session(self, proof: object, transport: ClientTransport) -> LogicalSession:
         from jarvis.ipc.models import ResumeProof
@@ -316,12 +340,22 @@ class IpcServer:
             raise ipc_error("ipc.core_unavailable", reason="peer_uid_mismatch")
         return pid, uid, gid
 
-    async def _read_loop(self, reader: asyncio.StreamReader, session: LogicalSession) -> None:
+    async def _read_loop(
+        self,
+        reader: asyncio.StreamReader,
+        session: LogicalSession,
+        transport: ClientTransport,
+    ) -> None:
         while True:
             try:
                 message = await read_frame(reader, timeout=IDLE_TIMEOUT_SECONDS)
             except IpcError:
                 raise
+            # A successful resume atomically replaces the only attached physical
+            # transport.  Discard bytes buffered on the displaced transport so it
+            # cannot issue operations under the resumed logical session.
+            if session.transport is not transport:
+                return
             message_type = message.get("type")
             if message_type == "request":
                 await self._receive_request(session, message)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+from contextlib import suppress
 from pathlib import Path
 
 from jarvis.ipc.codec import read_frame, write_frame
@@ -69,4 +70,7 @@ class RawTestClient:
 
     async def close(self) -> None:
         self.writer.close()
-        await self.writer.wait_closed()
+        # A peer is allowed to reject a pre-admission connection immediately.
+        # CPython 3.12 reports that normal close as ECONNRESET for Unix sockets.
+        with suppress(ConnectionError, OSError):
+            await self.writer.wait_closed()

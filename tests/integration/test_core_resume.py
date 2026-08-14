@@ -8,7 +8,9 @@ import pytest
 
 from jarvis.core.requests import RequestContext
 from jarvis.core.runtime import JarvisCore
-from jarvis.ipc.models import CORE_CONTROL, EVENT_REPLAY, SESSION_RESUME
+from jarvis.ipc.codec import encode_frame
+from jarvis.ipc.models import CORE_CONTROL, EVENT_REPLAY, SESSION_RESUME, ConnectionId
+from jarvis.ipc.server import IpcServer, LogicalSession
 from jarvis.storage.xdg import resolve_xdg_paths
 from tests.support.ipc_client import RawTestClient
 
@@ -161,5 +163,26 @@ def test_resume_never_survives_core_restart() -> None:
         await attempted.close()
         await second_core.request_shutdown()
         await asyncio.wait_for(second_task, 5)
+
+    asyncio.run(run())
+
+
+def test_replaced_transport_cannot_consume_buffered_operations() -> None:
+    """A resumed session must discard bytes already buffered on its old transport."""
+
+    async def run() -> None:
+        reader = asyncio.StreamReader()
+        reader.feed_data(encode_frame({"type": "request"}))
+        reader.feed_eof()
+        server = object.__new__(IpcServer)
+        attached = object()
+        displaced = object()
+        session = LogicalSession(
+            connection_id=ConnectionId(uuid4()),
+            capabilities=frozenset(),
+            resume_token="test-token",
+            transport=attached,  # type: ignore[arg-type]
+        )
+        await server._read_loop(reader, session, displaced)  # type: ignore[arg-type]
 
     asyncio.run(run())

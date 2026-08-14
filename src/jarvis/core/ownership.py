@@ -112,7 +112,9 @@ class RuntimeOwnership:
                 expected_directory.st_ino,
             ):
                 raise ipc_error("ipc.core_unavailable", reason="runtime_directory_changed")
-            lock_flags = os.O_RDWR | os.O_CREAT
+            # Validate the descriptor before treating it as a lock file.  A hostile
+            # FIFO or device at this name must fail closed, not block Core startup.
+            lock_flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK
             if hasattr(os, "O_CLOEXEC"):
                 lock_flags |= os.O_CLOEXEC
             if hasattr(os, "O_NOFOLLOW"):

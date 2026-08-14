@@ -88,7 +88,8 @@ class JarvisIpcClient:
         response = await read_frame(reader)
         if response.get("type") != "hello.ok":
             writer.close()
-            await writer.wait_closed()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
             error = response.get("error")
             code = error.get("code") if isinstance(error, dict) else "ipc.core_unavailable"
             raise ipc_error(str(code))
@@ -130,7 +131,8 @@ class JarvisIpcClient:
             )
         except (KeyError, TypeError, ValueError) as error:
             writer.close()
-            await writer.wait_closed()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
             raise ipc_error("ipc.invalid_message", reason="invalid_hello_response") from error
         return cls(path, reader, writer, handshake, options)
 
