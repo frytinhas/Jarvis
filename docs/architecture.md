@@ -78,9 +78,56 @@ Initially, a deterministic FIFO coordinator serializes generations for one profi
 
 The Agent Engine coordinates a turn: resolve profile/model/session, transactionally activate first-run learning when applicable, reserve bounded diagnostic capacity, ask the centralized Context Builder for a bounded prompt, enter the profile FIFO coordinator, invoke the provider, persist conversation and diagnostics, interpret structured tool proposals, and stream one ordered terminal outcome over IPC.
 
-The Context Builder is the only authority for assembling model input. It orders and budgets core instructions, profile persona/context, relevant policy descriptions, model-private notes, selectively retrieved semantic/episodic memory, workspace/tool context, recent conversation, and the current request. Other modules contribute typed, bounded candidates; they do not append arbitrary prompt text.
+The Context Builder is the only authority for assembling model input. It orders and budgets documented product protocol/tool instructions, profile persona/context, explicit user-configured behavioral instructions, relevant capability/permission descriptions, model-private notes, selectively retrieved semantic/episodic memory, workspace/tool context, recent conversation, and the current request. Other modules contribute typed, bounded candidates with identifiable provenance; they do not append arbitrary prompt text.
+
+Every persistent or system-level Jarvis-owned prompt component must identify its source and purpose. Product-required components are limited to documented protocol/tool instructions and required technical formatting/tool-use instructions; behavioral components come from the selected profile/model configuration. There is no undocumented provider-policy prompt layer.
 
 Slash commands are routed by the client/Core command system and are never blindly sent to the model. Persona and persistent profile context are profile-owned. Provider/model switches do not import another profile’s identity.
+
+## Model-content neutrality and execution authority
+
+For local inference, Jarvis does not impose a hidden behavioral policy derived from OpenAI,
+Anthropic, Google, Meta, Microsoft or another model provider. It does not silently instruct local
+models to refuse harmful, cybersecurity or controversial topics, follow a hosted provider's rules,
+or otherwise adopt third-party acceptable-use policy. It also does not censor, rewrite, suppress,
+replace with a refusal or prevent a local-model response solely because a third-party/provider
+content policy disfavors the response's subject matter, purpose, opinion or text. Cybersecurity,
+security research, reverse engineering, exploit analysis and malware analysis are not separately
+forbidden topics at the Jarvis architecture layer.
+
+The generated-content behavior of a local model comes from its training and native behavior plus
+the selected profile persona/context and explicit user-configured model/prompt settings. Users may
+deliberately configure behavioral restrictions, and Jarvis neither removes model-native alignment
+nor guarantees prompt compliance. The requirement is that Jarvis does not secretly add another
+provider-specific behavioral layer. Subject to the selected model and explicit configuration, the
+model may generate arbitrary text without first obtaining host-capability authorization.
+
+```text
+model output freedom != host execution authority
+
+User -> profile persona/context -> local model -> generated text/tool request
+                                                   |
+                                                   v
+                                      Tool Broker / Policy Engine
+                                                   |
+                                      capability authorization
+                                                   |
+                                                   v
+                                        host/external capability
+```
+
+Generated text does not itself require capability authorization. A proposed real side effect does:
+it crosses the Broker/Policy boundary and is decided from the validated operation, profile
+capability state and explicit architectural integrity constraints. Installation and updater
+protection, IPC/runtime integrity, profile isolation, permission and confirmation enforcement,
+filesystem/process/tool authority, secrets, privacy, network controls, resource bounds, executable
+identity and diagnostic/audit isolation remain absolute where documented. They constrain technical
+authority rather than model subject matter, and a profile `allow` cannot override them.
+
+The provider abstraction is behaviorally neutral and must not assume identical policies across
+providers. A future optional external provider may independently enforce server-side behavior that
+Jarvis cannot remove; that behavior must be distinguished from policy imposed by Jarvis itself.
+This clarification adds no external-provider design.
 
 ## Learning, memory, and private notes
 
@@ -100,9 +147,9 @@ Memory and notes are local, inspectable, erasable, selectively retrieved, and sc
 
 ## Policy Engine
 
-The Policy Engine is the single authority for capability decisions. Profile policies use `allow`, `ask`, and `deny`; tool-specific rules may refine but not bypass category rules. The defaults and semantics in `AGENTS.md` are product contracts, including CREATE not implying overwrite, COPY plus MODIFY for an overwrite, ASK for DELETE/MODIFY/MOVE, and denial of sudo. Process inspection uses READ. Process termination requires EXECUTE plus DELETE and binds to fresh PID/start-time/executable identity.
+The Policy Engine is the single authority for capability decisions; it is not a content-moderation engine or an LLM-content classifier. Profile policies use `allow`, `ask`, and `deny`; tool-specific rules may refine but not bypass category rules. Decisions derive from the validated capability/operation, configured permission state and separately documented architectural integrity constraints—not semantic judgment about the model's topic, purpose, opinion or generated text. The defaults and semantics in `AGENTS.md` are product contracts, including CREATE not implying overwrite, COPY plus MODIFY for an overwrite, ASK for DELETE/MODIFY/MOVE, and denial of sudo. Process inspection uses READ. Process termination requires EXECUTE plus DELETE and binds to fresh PID/start-time/executable identity.
 
-The model cannot change effective permissions. When a decision is `ask`, Core sends the human client the validated action, canonical target, concise consequence, and relevant arguments. Allow-once is bound to that request; persistent matching permission changes require explicit human intent and are audited.
+The model cannot change effective permissions. A capability configured as `allow` is not silently converted to `ask` or `deny` because a provider-specific content policy disfavors the subject matter. When a decision is `ask`, Core sends the human client the validated action, canonical target, concise consequence, and relevant arguments. Allow-once is bound to that request; persistent matching permission changes require explicit human intent and are audited. Structurally forbidden operations remain forbidden under documented integrity constraints even when a category is `allow`; that is host protection, not semantic moderation.
 
 ## Tool Broker
 
@@ -153,9 +200,9 @@ Only two product/technical decisions remain open in the current planning documen
 | GGUF identity/discovery | Model registry | Model file mutation or downloads |
 | Model processes and per-profile FIFO | Runtime Manager/provider + generation coordinator | Profile history, host tools, competing Core ownership |
 | Turn planning | Agent Engine | Direct host, permission, client rendering, or update authority |
-| Prompt composition | Context Builder | Raw diagnostic/audit logs, unbounded contributions |
+| Prompt composition | Context Builder | Raw diagnostic/audit logs, unbounded or provenance-free contributions, hidden provider-policy instructions |
 | Durable recall | Memory/notes services | Cross-scope data or diagnostic logs |
-| Authorization | Policy Engine | Execution or model-controlled policy changes |
+| Capability authorization | Policy Engine | Execution, model-controlled policy changes, or semantic content moderation |
 | Capability execution | Tool Broker/adapters | Self-authorization or unrestricted model access |
 | Operational evidence | Logging/audit services | Conversational memory |
 | Installation checks/management | Management service | Profile INTERNET policy or update application |

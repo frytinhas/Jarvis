@@ -59,6 +59,91 @@ The model must never directly gain unrestricted host access.
 
 ---
 
+# 2A. Model-Content Neutrality and Host Authority
+
+Jarvis must remain neutral about the generated-content behavior of user-selected local models.
+
+For locally hosted models, Jarvis **MUST NOT** automatically inject behavioral rules derived from
+OpenAI, Anthropic, Google, Meta, Microsoft or any other model provider merely because Jarvis or its
+development tooling was created using those systems. Jarvis must not silently add instructions to
+refuse harmful, cybersecurity or controversial requests, follow a hosted provider's policy, or
+otherwise adopt a third party's acceptable-use rules. Such behavior is permitted only when the
+user explicitly selects or configures it as profile persona, profile context or model/prompt
+configuration.
+
+Jarvis must not add a hidden semantic censorship or content-moderation layer for local inference.
+Solely to enforce a third-party/provider content policy, it must not censor, rewrite, replace with a
+refusal, suppress or prevent generation based on subject matter, purpose, opinion or generated
+text. This includes cybersecurity, security research, reverse engineering, exploit analysis and
+malware analysis. The selected local model remains responsible for its generated-content behavior
+according to its training and native behavior together with the explicitly configured profile
+persona, profile context and user-selected model/prompt settings. Subject to that behavior, the
+model may generate arbitrary text without first obtaining host-capability authorization.
+
+The governing distinction is:
+
+```text
+model output freedom != host execution authority
+```
+
+Conceptually:
+
+```text
+User
+  |
+  v
+Profile persona/context and explicit user configuration
+  |
+  v
+Local model
+  |
+  | generated text / structured tool request
+  v
+Tool Broker / Policy Engine
+  |
+  | capability decision
+  v
+Host / external capability
+```
+
+The Policy Engine is a **capability authorization engine**, not a content-moderation engine. It
+decides whether a validated operation may use a host or external capability based on the requested
+operation, the profile's configured `allow`/`ask`/`deny` state and explicit architectural integrity
+constraints. It must not classify the model's topic, purpose, opinion or text as acceptable or
+forbidden. For example, `DELETE = ask` requires approval because deletion is configured as `ask`,
+not only when Jarvis semantically considers the reason dangerous. Likewise, a capability set to
+`allow` must not silently become `ask` or `deny` because a provider-specific content policy would
+disfavor the subject matter.
+
+Content neutrality does not weaken any explicit Jarvis integrity boundary. Active-installation
+protection, IPC/runtime integrity, profile and profile/model isolation, permission and confirmation
+enforcement, filesystem/process/tool authority, secret handling, privacy, network controls,
+resource bounds, update authenticity and authority, executable identity, and diagnostic/audit
+isolation remain mandatory. These controls govern what Jarvis is technically authorized to do,
+not what subjects a model may discuss. A structurally forbidden operation remains forbidden even
+when the relevant profile capability is `allow`; every such exception must be documented as an
+architectural integrity constraint and must not masquerade as semantic content moderation.
+
+Users may intentionally configure behavioral restrictions in a profile's persona, context or
+model/prompt settings. Jarvis does not need to remove alignment or refusal behavior intrinsic to a
+selected model, and it does not promise that a model will comply with every prompt. The prohibition
+is against Jarvis secretly imposing an additional provider-specific policy.
+
+The provider architecture must remain behaviorally neutral. Local providers use Jarvis-owned
+prompt/context construction and must follow this rule. A future optional external provider may
+independently enforce server-side policies outside Jarvis's control; Jarvis cannot guarantee their
+removal, and such provider-enforced behavior must not be represented as a Jarvis policy. Providers
+must not be assumed to share identical behavioral policies.
+
+Prompt construction must be auditable by source. Every persistent or system-level Jarvis-owned
+prompt component must have identifiable provenance, limited to documented product protocol/tool
+instructions, profile persona, profile context, explicit user-configured behavioral instructions,
+and required technical formatting or tool-use instructions. Jarvis must not contain an
+undocumented hidden provider-policy prompt layer. Prompt-inspection user experience may be added in
+a future authorized milestone; this rule does not require it now.
+
+---
+
 # 3. Fundamental Product Requirements
 
 Jarvis-CLI must be:
@@ -2544,10 +2629,11 @@ Prompt/context construction must be centralized.
 Potential order:
 
 ```text
-core system instructions
+documented product protocol/tool instructions
 profile persona
 profile context
-relevant policy description
+explicit user-configured behavioral instructions
+relevant capability and permission description
 relevant model-private notes
 relevant semantic memories
 relevant episodic memories
@@ -2557,6 +2643,11 @@ current request
 ```
 
 Do not let unrelated modules append unlimited prompt text independently.
+
+Every persistent or system-level prompt contribution must retain identifiable provenance. The
+Context Builder must not inject an undocumented provider content policy or use a hidden semantic
+moderation instruction. Capability/permission descriptions exist to explain available tools and
+host authority; they are not topic-level content rules.
 
 ---
 
@@ -3483,6 +3574,14 @@ PROCESS TERMINATION REQUIRES EXECUTE AND DELETE
 
 PERMISSIONS ARE ENFORCED BY THE POLICY ENGINE
 
+THE POLICY ENGINE AUTHORIZES CAPABILITIES, NOT MODEL CONTENT
+
+MODEL OUTPUT FREEDOM DOES NOT GRANT HOST EXECUTION AUTHORITY
+
+JARVIS DOES NOT SECRETLY IMPOSE PROVIDER-SPECIFIC CONTENT POLICY ON LOCAL MODELS
+
+JARVIS-OWNED SYSTEM AND PERSISTENT PROMPT COMPONENTS HAVE IDENTIFIABLE PROVENANCE
+
 MODEL FILES ARE USER OWNED
 
 NO TELEMETRY
@@ -3525,6 +3624,11 @@ When modifying Jarvis-CLI:
 23. Avoid unnecessary dependencies.
 24. Keep developer code and documentation in English.
 25. Explain intentional deviations from this document before implementing them.
+26. Do not add hidden provider-specific content rules or semantic moderation to local-model prompt
+    or response paths.
+27. Keep capability authorization and architectural integrity constraints separate from judgments
+    about model-generated subject matter.
+28. Preserve identifiable provenance for Jarvis-owned system and persistent prompt components.
 
 ---
 
