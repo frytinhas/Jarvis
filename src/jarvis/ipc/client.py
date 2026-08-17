@@ -42,12 +42,14 @@ class JarvisIpcClient:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
         handshake: HandshakeResult,
+        required_capabilities: tuple[str, ...],
         optional_capabilities: tuple[str, ...],
     ) -> None:
         self.path = path
         self._reader = reader
         self._writer = writer
         self.handshake = handshake
+        self._required_capabilities = required_capabilities
         self._optional_capabilities = optional_capabilities
         self._requests: dict[RequestId, asyncio.Queue[dict[str, object]]] = {}
         self._control: asyncio.Queue[dict[str, object]] = asyncio.Queue(1)
@@ -61,10 +63,12 @@ class JarvisIpcClient:
         cls,
         path: Path,
         *,
+        required_capabilities: Iterable[str] = (REQUEST_STREAM,),
         optional_capabilities: Iterable[str] = (),
         client_name: str = "jarvis-internal-client",
         resume: ResumeProof | None = None,
     ) -> JarvisIpcClient:
+        requirements = tuple(required_capabilities)
         options = tuple(optional_capabilities)
         reader, writer = await asyncio.open_unix_connection(path)
         resume_wire: dict[str, object] | None = None
@@ -79,7 +83,7 @@ class JarvisIpcClient:
             {
                 "type": "hello",
                 "supported_versions": [IPC_PROTOCOL_VERSION],
-                "required_capabilities": [REQUEST_STREAM],
+                "required_capabilities": list(requirements),
                 "optional_capabilities": list(options),
                 "client_name": client_name,
                 "resume": resume_wire,
@@ -134,11 +138,12 @@ class JarvisIpcClient:
             with suppress(ConnectionError, OSError):
                 await writer.wait_closed()
             raise ipc_error("ipc.invalid_message", reason="invalid_hello_response") from error
-        return cls(path, reader, writer, handshake, options)
+        return cls(path, reader, writer, handshake, requirements, options)
 
     async def resume(self) -> JarvisIpcClient:
         return await self.connect(
             self.path,
+            required_capabilities=self._required_capabilities,
             optional_capabilities=self._optional_capabilities,
             resume=self.handshake.resume_proof(),
         )

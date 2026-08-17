@@ -36,15 +36,15 @@ A profile is the primary user-facing identity and isolation boundary. Stable int
 
 The permanent `jarvis` profile always exists, cannot be renamed at the command level or deleted, and is the configuration template for new profiles. Cloning copies an explicit allowlist of Jarvis's current configuration. Model selection/settings join that allowlist only after the Model Registry exists; existing profiles are not backfilled. Conversations, private model notes, memories, learning history/state, chat logs, and diagnostic session history always start empty. A missing inherited model is unavailable and never silently replaced.
 
-Creation and reset have different sources: creation clones Jarvis's current configurable state, while reset restores centrally defined, versioned product defaults. Reset and deletion run through one destructive-operation coordinator that previews exact categories, quiesces or explicitly cancels profile sessions/generations/runtimes, invokes every registered profile-owned store, reconciles aliases, and never reports partial external cleanup as success. Profile reset removes owned chat diagnostics while retaining a sanitized audit record of the reset.
+Creation and reset have different sources: creation clones Jarvis's current configurable state, while reset restores centrally defined, versioned product defaults. Reset and deletion run through one destructive-operation coordinator that previews exact categories, quiesces or explicitly cancels profile sessions/generations/runtimes, invokes every registered profile-owned store, and never reports partial cleanup as success. M003 changes only the persistent logical alias with the profile transaction; M019A coordinates any physical command cleanup. Profile reset removes owned chat diagnostics while retaining a sanitized audit record of the reset.
 
 Settings that logically affect a profile remain profile-owned. Settings that describe the installation—model search directories, llama.cpp path, installed commands, Core management, update source/checking, health, and repair—belong to installation management. A minimum management contract for model directories and the runtime path exists before model runtime configuration; the full `jarvis-manage` client comes later. Defaults are centralized, versioned, and resettable at setting, section, and profile levels.
 
 ## Profile command aliases
 
-Every non-default profile has a deterministic lowercase ASCII/hyphen command alias derived from its display name. A safe user-level registrar creates a launcher, symlink, or equivalent dispatch entry that resolves to the one installed client plus a stable profile identity. It never creates a copy of Jarvis.
+Every non-default profile has a deterministic lowercase ASCII/hyphen logical alias derived from its display name. M001 persists it, and M003 resolves it through Core to a stable `profile_id`; aliases never become ownership keys.
 
-Alias creation, rename, collision detection, and removal are reconciled with the profile service. Reserved command names are rejected. Historical data never uses the alias as its sole key. Help through `jarvis` or a profile alias is client-side and does not start a model.
+M003 creates no profile command executable, launcher, symlink, wrapper, filesystem registry, or PATH entry, and performs no external PATH collision check. M006B supplies the runnable/testable development/package mechanism: `python -m jarvis.cli` for the default profile and `python -m jarvis.cli --profile-alias <alias> [request]` after Core resolution. It is not final user PATH exposure. M019A owns final user-local executable exposure, external collision handling, physical command reconciliation/repair, rename/delete cleanup, and uninstall behavior. Reserved command names and logical alias collisions are rejected by the profile service. Help through a physically exposed `jarvis` or profile alias is client-side and does not start a model.
 
 ## Persistence and local storage
 
@@ -173,7 +173,7 @@ Desktop support is Wayland-oriented and adapter-based. It prefers desktop entrie
 
 ## Installation management and protected installation
 
-`jarvis-config` is profile-first and owns ordinary profile configuration. Installation management owns model directories, llama.cpp path, registered aliases, Core/systemd-user state, update settings/checks, health, repair, version and diagnostics. A minimum management surface for model directories/runtime path exists before runtime work; full `jarvis-manage` arrives later without changing ownership.
+`jarvis-config` is profile-first and owns ordinary profile configuration. Installation management owns model directories, llama.cpp path, Core/systemd-user state, update settings/checks, health, repair, version and diagnostics. M019A additionally owns final physical profile-command exposure and its lifecycle. A minimum management surface for model directories/runtime path exists before runtime work; full `jarvis-manage` arrives later without changing ownership.
 
 Autostart uses exactly one user-level `jarvisd` owner. Per-profile `Start with computer` is profile-owned desired state reconciled by that Core, or by a thin activation request to it—not a separate Core/runtime manager per profile. The last valid selected model is used; a missing model is reported without substitution. Duplicate login activation is idempotent and does not consume first-run learning state.
 

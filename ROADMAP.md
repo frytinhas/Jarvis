@@ -6,8 +6,11 @@ This roadmap decomposes the product specified by `AGENTS.md` into sequential, in
 
 This document plans work only. Milestones 000, 001, and 002 are **DONE**. Their required CPython
 3.12 and 3.14 verification passed; CPython 3.13 was unavailable and remains conditional. Milestone
-003 has not started and is not authorized. Before any milestone starts, its self-contained
-ExecPlan must be created and maintained as required by `PLANS.md`.
+003 is **DONE**. Its Core-IPC profile-management client, logical aliases, concurrent snapshot
+correction, clean-wheel audit, and disposable-XDG walkthrough are recorded in
+`docs/plans/003-profile-config-client.md`. Before any milestone starts, its ExecPlan must be
+created and maintained as required by `PLANS.md`. Milestone 004 and every later implementation
+milestone are **NOT STARTED**.
 
 The roadmap excludes Jarvis Voice and the Jarvis Desktop App. Their compatibility requirement is preserved by keeping Jarvis Core behind a versioned local IPC protocol and keeping all client presentation outside Core.
 
@@ -28,7 +31,7 @@ Cross-cutting requirements apply from their first relevant milestone onward: no 
 ## Established product decisions
 
 - **Profile cloning:** A new profile clones Jarvis’s current configurable state. Before model associations exist, this includes only profile configuration available at that milestone. Once the Model Registry exists, creation also atomically clones Jarvis’s selected model and that model’s applicable per-profile configuration such as reasoning level and context window. Existing profiles are not retroactively assigned a model. Conversations, private model notes, memories, learning history/state, chat logs, and diagnostic session history always start empty. An inherited model that is missing is reported as unavailable and is never silently replaced.
-- **Interactive client dispatch:** Before the rich TUI is stable, bare `jarvis` and bare profile aliases open the simple interactive CLI. Once Milestone 016 establishes the TUI as stable, those bare commands open the TUI by default. One-shot commands remain non-TUI. The simple interactive CLI remains an independent fallback client; an explicit option such as `--simple` may expose it after the default changes.
+- **Interactive client dispatch:** M006B defines the simple assistant semantics for the default profile and logical aliases, and tests them before installation through `python -m jarvis.cli` and Core-resolved `--profile-alias`. M019A later physically exposes `jarvis` and profile commands. Once Milestone 016 establishes the TUI as stable, physically exposed bare commands open the TUI by default. One-shot commands remain non-TUI. The simple interactive CLI remains an independent fallback client; an explicit option such as `--simple` may expose it after the default changes.
 - **Desktop input boundary:** SCREEN authorizes screen/context access only. The roadmap contains no unrestricted keyboard or mouse control. Any future input automation is a separate capability requiring its own explicit security and permission design.
 
 ## Remaining product/technical decision gates
@@ -90,21 +93,21 @@ Until those gates are resolved, expose no concrete web-search backend and do not
 - **Manual verification:** Start Core in a temporary runtime directory, query it from two clients, observe ordered event/correlation IDs, test incompatible protocol and cancellation, stop Core, and verify socket cleanup.
 - **Definition of done:** All client access crosses the documented local protocol, Core owns services, and transport robustness/security tests pass.
 
-### Milestone 003 — Profile-first configuration client and command aliases
+### Milestone 003 — Profile-first configuration client and logical aliases
 
-- **Objective:** Provide the initial client-side configuration workflow and safe user-level profile command registration exclusively through Core IPC.
+- **Objective:** Provide the initial profile-first configuration workflow and logical alias management exclusively through Core IPC.
 - **Rationale for position:** Core already owns repositories and application services, so the first real client never needs direct database access.
-- **User-visible result:** `jarvis-config` always begins with profile selection or “Create new profile”; secondary normalized commands dispatch to the same client identity; help paths do not start a model.
-- **Exact scope:** Minimal localization-ready CLI/config presentation over client-neutral Core operations; create/rename/delete/reset confirmations; common versus Advanced grouping; reset routes for every exposed section; safe generated launcher/symlink/equivalent registry; atomic alias replacement and cleanup; `jarvis`, `jarvis-config`, `jarvis-help`, `-h`, `--h`, and `--help` behavior in development execution.
-- **Architectural components introduced:** Thin CLI client shell, configuration presenter, alias registrar, command identity resolver.
+- **User-visible result:** `jarvis-config` always begins with profile selection or “Create new profile”; logical normalized aliases resolve to stable profile identity through Core; local configuration help does not start a model.
+- **Exact scope:** Minimal localization-ready `jarvis-config` presentation over client-neutral Core operations; create/rename/delete/reset confirmations; common versus Advanced grouping; reset routes for every exposed section; persistent logical alias-to-ProfileId resolution; `profile-management-v1`; `jarvis-config`, `jarvis-help`, `-h`, `--h`, and `--help` behavior. No public `jarvis` or profile-alias command behavior is introduced.
+- **Architectural components introduced:** Thin CLI client shell, configuration presenter, logical alias resolver, and profile-management IPC operations.
 - **Important interfaces/contracts introduced:** IPC profile/configuration operations; alias-to-stable-profile resolution; confirmation UX contract; help-without-Core/model-start contract. Clients never import repositories or database services.
-- **Persistence/database implications:** Alias registration status is reconciled with `profile_aliases`; no profile history is introduced. Filesystem registrations are user-local and recoverable.
-- **Security implications:** Generated commands contain no shell interpolation; collisions include protected executables; registration destinations are constrained; destructive profile actions show exact categories, quiesce through Core coordination when applicable, and require explicit confirmation.
-- **Tests required:** Profile-first navigation over fake/real test Core; no direct repository imports; all help spellings; no model startup on help; safe alias generation/reconciliation; collision/race/rollback tests; localization boundary tests; destructive confirmation tests.
+- **Persistence/database implications:** Existing M001 `profile_aliases` remains authoritative; no profile history or filesystem alias state is introduced.
+- **Security implications:** Alias strings remain strict data and never ownership keys; reserved and profile-alias collisions are rejected; external PATH collision handling, executable exposure, and filesystem reconciliation are deferred; destructive profile actions show exact categories and require explicit confirmation.
+- **Tests required:** Profile-first navigation over fake/real test Core; no direct repository imports; configuration help; no model startup on help; logical alias resolution/rename/delete; no physical command or PATH behavior; collision/race/rollback tests; localization boundary tests; destructive confirmation tests.
 - **Dependencies:** Milestones 000–002.
-- **Explicit out of scope:** Model selection, chat, rich TUI, production installer, and complete settings screens whose backing feature does not yet exist.
-- **Manual verification:** Through a temporary Core, create a profile in `jarvis-config`, invoke its alias and help, rename it and confirm old alias removal/new alias creation, then verify attempted Jarvis deletion is rejected.
-- **Definition of done:** Profiles are fully manageable through the required profile-first IPC flow, aliases are safe and share one client, and no invocation starts inference.
+- **Explicit out of scope:** Physical profile commands, executable aliases, launchers, symlinks, wrappers, filesystem alias registries, PATH integration/modification, external PATH collisions, chat, rich TUI, production installer, and complete settings screens whose backing feature does not yet exist.
+- **Manual verification:** Through a temporary Core, create a profile in `jarvis-config`, resolve its logical alias through IPC, rename it and verify old/new logical resolution, then verify attempted Jarvis deletion is rejected without creating a command file or changing PATH.
+- **Definition of done:** Profiles are fully manageable through the required profile-first IPC flow, logical aliases resolve to stable IDs, and no invocation starts inference or creates a physical command.
 
 ### Milestone 004 — Minimum installation management, model registry, and GGUF discovery
 
@@ -158,13 +161,13 @@ Until those gates are resolved, expose no concrete web-search backend and do not
 
 - **Objective:** Expose the Core chat pipeline through the required simple interactive and one-shot CLI behavior without duplicating Core logic.
 - **Rationale for position:** The client consumes already tested Core contracts and becomes the first complete user-facing chat slice.
-- **User-visible result:** Bare `jarvis` and profile aliases open the simple interactive CLI; natural-language arguments run non-TUI one-shots; responses stream, match language by default, retain isolated sessions, and visibly show learning state.
-- **Exact scope:** Invocation-mode dispatch; streaming renderer; `/help`, `/quit`, `/exit`, `/clear`, `/model`, `/reasoning`, `/context`, `/status`, `/server`, `/config`, `/license`, and human-only `/logs`; `/learning status|start|finish`; slash-command interception; first-learning banner; five visible logging modes; client cancellation and authoritative disconnect/reconnect status. Each presenter calls client-neutral Core operations.
+- **User-visible result:** Before final installation, package-level `python -m jarvis.cli` provides the default-profile assistant semantics and `python -m jarvis.cli --profile-alias <alias> [request]` provides logical-profile interactive/one-shot semantics; natural-language arguments run non-TUI one-shots; responses stream, match language by default, retain isolated sessions, and visibly show learning state. M019A later exposes the corresponding `jarvis` and physical profile commands to users.
+- **Exact scope:** Invocation-mode dispatch through `python -m jarvis.cli` and Core-resolved `--profile-alias <alias> [request]` for development/package testing; streaming renderer; `/help`, `/quit`, `/exit`, `/clear`, `/model`, `/reasoning`, `/context`, `/status`, `/server`, `/config`, `/license`, and human-only `/logs`; `/learning status|start|finish`; slash-command interception; first-learning banner; five visible logging modes; client cancellation and authoritative disconnect/reconnect status. Each presenter calls client-neutral Core operations. It does not own final user PATH installation or dynamic physical profile-command management.
 - **Architectural components introduced:** Simple CLI presenter, command router and visible-event renderer only.
 - **Important interfaces/contracts introduced:** Bare-versus-argument invocation dispatch; slash commands never sent blindly to the LLM; diagnostic-versus-visible event rendering; `none` still renders approvals/errors/critical failures.
 - **Persistence/database implications:** No client-owned persistence or database access. Core-owned chat/logging limits introduced by 006A remain enforced.
 - **Security implications:** CLI cannot retrieve raw logs into chat requests, access repositories, manage runtimes directly, or execute host capabilities.
-- **Tests required:** Bare/default/profile-alias dispatch and one-shot dispatch; no direct repository imports; streaming/order/reconnect/cancellation rendering; first-run banner and learning commands; language/persona behavior; slash interception; every visible mode; diagnostic persistence even under `none`; terminal escape sanitization.
+- **Tests required:** Documented development/package-level default/profile-alias dispatch and one-shot dispatch; no direct repository imports; streaming/order/reconnect/cancellation rendering; first-run banner and learning commands; language/persona behavior; slash interception; every visible mode; diagnostic persistence even under `none`; terminal escape sanitization.
 - **Dependencies:** Milestone 006A.
 - **Explicit out of scope:** Private-note generation/retrieval, history/memory search, tools, web, rich TUI, desktop.
 - **Manual verification:** Chat through two profile aliases sharing a model, inspect learning transitions, restart sessions, switch visible modes, cancel generation, disconnect/reconnect, and verify diagnostics exist but never appear in captured prompts.
@@ -364,18 +367,18 @@ Until those gates are resolved, expose no concrete web-search backend and do not
 
 ### Milestone 018A — Installation management, health, diagnostics, and update checks
 
-- **Objective:** Complete `jarvis-manage` for installation health/repair, runtime diagnostics, model/runtime settings, registered aliases, daemon status/version, and update checking without update application.
+- **Objective:** Complete `jarvis-manage` for installation health/repair, runtime diagnostics, model/runtime settings, daemon status/version, and update checking without update application.
 - **Rationale for position:** The minimum management contract from Milestone 004 can now expand over mature Core, storage, aliases and diagnostics.
-- **User-visible result:** Users can inspect and non-destructively repair their user-local installation, reconcile aliases, manage runtime/model directories, export redacted diagnostics, and enable/disable transparent update checks.
-- **Exact scope:** Full management menu except autostart; installation health findings and repair plans; registered-profile reconciliation; Core status/version; redacted diagnostics export; installation-scoped update source/settings/checks enabled by default. Core exposes no update-application operation.
+- **User-visible result:** Users can inspect and non-destructively repair their user-local installation, manage runtime/model directories, export redacted diagnostics, and enable/disable transparent update checks.
+- **Exact scope:** Full management menu except autostart; installation health findings and repair plans excluding physical profile-command exposure; Core status/version; redacted diagnostics export; installation-scoped update source/settings/checks enabled by default. Core exposes no update-application operation.
 - **Architectural components introduced:** Installation manager, health/repair service, diagnostic exporter and narrowly scoped update-check service.
 - **Important interfaces/contracts introduced:** Health finding/repair plan; installation/profile ownership boundary; update-check metadata/privacy contract; checking-versus-application authority separation.
 - **Persistence/database implications:** Installation settings and health/check timestamps remain separate from profiles; sanitized diagnostics use their correct XDG roots and quotas.
 - **Security implications:** User-only/no root; repairs cannot mutate history unexpectedly; update checks transmit only minimal version/repository data, are not profile INTERNET tools and cannot acquire updater authority; active installation remains protected from conversational tools.
-- **Tests required:** Management ownership boundaries; model/runtime setting migration from minimum client; health/alias repair; checks disabled/enabled/privacy/failure; proof Core has no update-apply operation; diagnostics redaction/quota and human-only routing; no-root/user-local paths.
+- **Tests required:** Management ownership boundaries; model/runtime setting migration from minimum client; health/repair excluding physical alias exposure; checks disabled/enabled/privacy/failure; proof Core has no update-apply operation; diagnostics redaction/quota and human-only routing; no-root/user-local paths.
 - **Dependencies:** Milestones 002, 003, 004, 005, and 006A. Cleanup, TUI and desktop are not required.
 - **Explicit out of scope:** Autostart, applying updates, installer/uninstaller, purge, release packaging and machine-wide services.
-- **Manual verification:** Inspect status in temporary state, reconcile an alias, change installation runtime paths, run a controlled update check, attempt and fail to find any Core update-application operation, and review redacted diagnostics.
+- **Manual verification:** Inspect status in temporary state, inspect a logical alias mapping, change installation runtime paths, run a controlled update check, attempt and fail to find any Core update-application operation, and review redacted diagnostics.
 - **Definition of done:** Installation management is safe and repairable; update checking is transparent, minimal and incapable of applying an update.
 
 ### Milestone 018B — Per-profile autostart under one Core owner
@@ -396,15 +399,15 @@ Until those gates are resolved, expose no concrete web-search backend and do not
 
 ### Milestone 019A — Packaging, installer, and uninstaller
 
-- **Objective:** Deliver reproducible GPL-compatible user-local packaging, installation and uninstall/purge separation without implementing update application.
+- **Objective:** Deliver reproducible GPL-compatible user-local packaging, final physical command exposure, and uninstall/purge separation without implementing update application.
 - **Rationale for position:** Distribution assets can now preserve all established commands, data, services and XDG contracts.
 - **User-visible result:** Ordinary users can install every required command/TUI/service asset without root and uninstall binaries while preserving data unless purge is separately confirmed.
-- **Exact scope:** Release packaging; dependency/license inventory; user-local installer; command entry points, desktop entry and systemd-user assets; `jarvis-clear` inclusion; uninstall versus purge; Debian/Ubuntu validation; fresh-install migrations and protected-install identity establishment.
+- **Exact scope:** Release packaging; dependency/license inventory; user-local installer; command entry points, desktop entry and systemd-user assets; final user-local PATH integration; physical profile-command launcher/symlink/wrapper strategy; external executable collision handling; physical command reconciliation/repair and rename/delete cleanup; `jarvis-clear` inclusion; uninstall versus purge; Debian/Ubuntu validation; fresh-install migrations and protected-install identity establishment.
 - **Architectural components introduced:** Installer, package/release manifest and uninstaller.
 - **Important interfaces/contracts introduced:** Installed-file manifest/identity; preserved-data contract; uninstall/purge confirmation; compatibility metadata consumed later by the updater.
 - **Persistence/database implications:** Preserve XDG profiles, conversations, memories, notes and settings on normal uninstall; purge is separate and explicit.
 - **Security implications:** Never `curl | bash`; no root by default; installed files/update infrastructure become protected identities; dependencies are maintained, non-telemetric and GPL-compatible.
-- **Tests required:** Fresh install; all commands/help/default-client dispatch; protected-file and hardlink identity; uninstall preserve/purge; interrupted install recovery; Ubuntu/Debian matrix; license inventory; no source-tree or real-home mutation in ordinary tests.
+- **Tests required:** Fresh install; all commands/help/default-client dispatch; physical profile-command materialization, collision, reconciliation, rename/delete cleanup and uninstall behavior; protected-file and hardlink identity; uninstall preserve/purge; interrupted install recovery; Ubuntu/Debian matrix; license inventory; no source-tree or real-home mutation in ordinary tests.
 - **Dependencies:** All milestones through 018B; Voice and Desktop App remain excluded.
 - **Explicit out of scope:** Applying updates and choosing signing technology/trust lifecycle.
 - **Manual verification:** Install in disposable supported environments, run command/Core/chat smoke tests, uninstall preserving data, reinstall and verify recovery, then separately verify explicit purge.
