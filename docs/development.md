@@ -1,16 +1,15 @@
-# Foundation, profile-domain, Core IPC, and configuration-client development
+# Foundation, profile-domain, and Core IPC development
 
 ## Scope
 
-Milestones 000–003 contain repository/security infrastructure, the service-level profile domain,
-one foreground Core with versioned Unix-domain IPC, and a thin profile-first configuration client.
-They deliberately have no model, chat, policy, broker, host tool, updater, installer, TUI, network
-subsystem, assistant client, or executable profile alias.
+Milestones 000–002 contain repository/security infrastructure, the service-level profile domain,
+and one foreground Core with versioned Unix-domain IPC. They deliberately have no model, chat,
+policy, broker, host tool, updater, installer, TUI, network subsystem, presentation client, or
+executable profile alias.
 `AGENTS.md` is the product authority, `ROADMAP.md` defines milestone boundaries, `PLANS.md` defines
 execution discipline, and `docs/plans/000-foundation.md` plus
 `docs/plans/001-profile-system.md` are predecessor evidence records;
-`docs/plans/002-core-ipc.md` is predecessor evidence and
-`docs/plans/003-profile-config-client.md` is the M003 execution record.
+`docs/plans/002-core-ipc.md` is the active M002 execution record.
 
 ## Supported development interpreters
 
@@ -36,15 +35,14 @@ pytest
 ruff check .
 ruff format --check .
 mypy src tests
-python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m003-wheel .
+python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m002-wheel .
 git diff --check
 ```
 
 The wheel must contain only the `jarvis` package and its packaged TOML/SQL resources. Its
 metadata must report GPL-3.0-only, Python >=3.12, and no `Requires-Dist` entry except optional `dev`
-requirements guarded by the `extra == "dev"` marker. It must declare `jarvisd`, `jarvis-config`,
-and `jarvis-help` with their documented targets, omit a public `jarvis` or profile command, and
-retain zero runtime dependencies.
+requirements guarded by the `extra == "dev"` marker. It must declare `jarvisd` as
+`jarvis.core.__main__:main` and retain zero runtime dependencies.
 
 ## Disposable XDG verification
 
@@ -72,9 +70,9 @@ python -m jarvis.foundation initialize --json
 
 With the same disposable environment, `PYTHONPATH=src python -m jarvis.core --foreground` starts
 the Core. It creates only `core.lock`, `core.sock`, and `core-runtime.json` under the application
-runtime directory. `jarvis-config` then performs profile selection and mutation only through IPC;
-logical aliases never create files. Use the internal client library or test support for protocol
-checks. Clean shutdown removes the socket and metadata while the safe reusable lock file may remain.
+runtime directory. Use the internal client library or test support for protocol checks; M002 adds
+no public probe command. Clean shutdown removes the socket and metadata while the safe reusable
+lock file may remain.
 
 Production runtime resolution never falls back to `/tmp`. A safe absolute `XDG_RUNTIME_DIR` or safe
 existing `/run/user/<uid>` is required. `/tmp` is used above only as a disposable test container

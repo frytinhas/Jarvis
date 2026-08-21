@@ -156,31 +156,6 @@ class ProfileService:
         except sqlite3.Error as error:
             raise translate_profile_database_error(error, reason="get_database_failure") from error
 
-    def resolve_alias(self, command_alias: str) -> ProfileAggregate:
-        """Resolve an already-canonical logical alias to its stable profile aggregate."""
-
-        try:
-            with (
-                SQLiteDatabase(
-                    self._database_path, busy_timeout_ms=self._busy_timeout_ms
-                ) as database,
-                database.transaction(immediate=False),
-            ):
-                identities = ProfileRepository(database.connection())
-                owner = identities.alias_owner(command_alias)
-                if owner is None:
-                    from jarvis.profiles.errors import ProfileNotFoundError
-
-                    raise ProfileNotFoundError(safe_details={"reason": "alias_not_found"})
-                configuration = ProfileConfigurationRepository(database.connection()).get(owner)
-                return ProfileAggregate(identities.get(owner), configuration)
-        except ProfileError:
-            raise
-        except sqlite3.Error as error:
-            raise translate_profile_database_error(
-                error, reason="resolve_alias_database_failure"
-            ) from error
-
     def create_profile(self, command: CreateProfile) -> ProfileAggregate:
         normalized = normalize_profile_name(command.display_name)
         if is_reserved_alias(normalized.command_alias):

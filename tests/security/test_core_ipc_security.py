@@ -196,7 +196,7 @@ def test_raw_handler_exception_and_resume_tokens_never_reach_diagnostics() -> No
         assert client.hello is not None
         resume_token = str(client.hello["resume_token"])
         events = await client.request(request_id=str(uuid4()), operation="test.fail")
-        assert events[-1]["error"]["code"] == "ipc.internal_error"
+        assert events[-1]["error"]["code"] == "ipc.internal_error"  # type: ignore[index]
         assert private_text not in str(events)
         await client.close()
         await core.request_shutdown()

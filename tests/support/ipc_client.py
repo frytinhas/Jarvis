@@ -4,7 +4,6 @@ import asyncio
 from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
 
 from jarvis.ipc.codec import read_frame, write_frame
 from jarvis.ipc.models import REQUEST_STREAM
@@ -51,19 +50,18 @@ class RawTestClient:
         request_id: str,
         operation: str,
         profile_id: str | None = None,
-        payload: dict[str, object] | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, object]]:
         request: dict[str, object] = {
             "type": "request",
             "protocol_version": 1,
             "request_id": request_id,
             "operation": operation,
-            "payload": {} if payload is None else payload,
+            "payload": {},
         }
         if profile_id is not None:
             request["profile_id"] = profile_id
         await self.send(request)
-        events: list[dict[str, Any]] = []
+        events: list[dict[str, object]] = []
         while True:
             event = await self.receive()
             events.append(event)

@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import hmac
 import os
-import re
 import secrets
 import socket
 import struct
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from jarvis.config.defaults import DefaultsSnapshot
@@ -29,7 +28,6 @@ from jarvis.ipc.models import (
     EVENT_REPLAY,
     IPC_PROTOCOL_VERSION,
     PROFILE_CATALOG,
-    PROFILE_MANAGEMENT,
     REQUEST_CANCEL,
     SERVER_CAPABILITIES,
     SESSION_RESUME,
@@ -45,31 +43,8 @@ from jarvis.ipc.models import (
     parse_request,
     safe_error_payload,
 )
-from jarvis.profiles.configuration import (
-    AppearanceConfiguration,
-    ProfileConfigurationValues,
-    UpdateProfileConfiguration,
-    section_value,
-)
-from jarvis.profiles.destructive import (
-    ConfirmDestructiveOperation,
-    DeletionScope,
-    DestructiveOperationKind,
-    DestructiveTarget,
-    OperationId,
-    ResetScope,
-)
-from jarvis.profiles.models import (
-    Capability,
-    ConfigurationSection,
-    CreateProfile,
-    PermissionDecision,
-    Profile,
-    RenameProfile,
-    VisibleLoggingMode,
-)
-from jarvis.profiles.names import MAX_ALIAS_LENGTH, MAX_DISPLAY_NAME_BYTES
-from jarvis.profiles.service import ProfileConfigService, ProfileService
+from jarvis.profiles.models import Profile
+from jarvis.profiles.service import ProfileService
 
 MAX_CONNECTIONS = 32
 MAX_LOGICAL_SESSIONS = 128
@@ -174,7 +149,6 @@ class IpcServer:
         core_instance_id: CoreInstanceId,
         lifecycle: CoreLifecycle,
         profiles: ProfileService,
-        profile_configuration: ProfileConfigService,
         defaults: DefaultsSnapshot,
         started_at_utc: str,
         shutdown_callback: ShutdownCallback,
@@ -188,7 +162,6 @@ class IpcServer:
         self.core_instance_id = core_instance_id
         self.lifecycle = lifecycle
         self.profiles = profiles
-        self.profile_configuration = profile_configuration
         self.defaults = defaults
         self.started_at_utc = started_at_utc
         self.shutdown_callback = shutdown_callback
@@ -425,39 +398,12 @@ class IpcServer:
     def _validate_operation(self, request: IpcRequest, session: LogicalSession) -> None:
         if request.operation in self.handlers:
             return
-        operations = {
-            "core.health",
-            "profiles.list",
-            "profiles.get",
-            "core.shutdown",
-            "profiles.resolve_alias",
-            "profiles.create",
-            "profiles.rename",
-            "profiles.configuration.section.get",
-            "profiles.configuration.section.update",
-            "profiles.reset.preview",
-            "profiles.reset.confirm",
-            "profiles.delete.preview",
-            "profiles.delete.confirm",
-        }
+        operations = {"core.health", "profiles.list", "profiles.get", "core.shutdown"}
         if request.operation not in operations:
             raise ipc_error("ipc.operation_not_supported", operation=request.operation)
-        if (
-            request.operation in {"core.health", "profiles.list", "profiles.get", "core.shutdown"}
-            and request.payload
-        ):
+        if request.payload:
             raise ipc_error("ipc.invalid_message", reason="payload_must_be_empty")
-        profile_operations = {
-            "profiles.get",
-            "profiles.rename",
-            "profiles.configuration.section.get",
-            "profiles.configuration.section.update",
-            "profiles.reset.preview",
-            "profiles.reset.confirm",
-            "profiles.delete.preview",
-            "profiles.delete.confirm",
-        }
-        if request.operation in profile_operations:
+        if request.operation == "profiles.get":
             if request.profile_id is None:
                 raise ipc_error("ipc.invalid_message", reason="profile_id_required")
         elif request.profile_id is not None:
@@ -467,21 +413,10 @@ class IpcServer:
         if request.operation == "core.health" and CORE_HEALTH not in session.capabilities:
             raise ipc_error("ipc.capability_mismatch", reason="core_health_not_negotiated")
         if (
-            request.operation in {"profiles.list", "profiles.get"}
+            request.operation.startswith("profiles.")
             and PROFILE_CATALOG not in session.capabilities
         ):
             raise ipc_error("ipc.capability_mismatch", reason="profile_catalog_not_negotiated")
-        if (
-            request.operation.startswith("profiles.")
-            and request.operation not in {"profiles.list", "profiles.get"}
-            and PROFILE_MANAGEMENT not in session.capabilities
-        ):
-            raise ipc_error("ipc.capability_mismatch", reason="profile_management_not_negotiated")
-        if request.operation.startswith("profiles.") and request.operation not in {
-            "profiles.list",
-            "profiles.get",
-        }:
-            _validate_management_payload(request)
 
     async def _run_request(self, session: LogicalSession, context: RequestContext) -> None:
         try:
@@ -536,137 +471,6 @@ class IpcServer:
             assert context.request.profile_id is not None
             profile = await asyncio.to_thread(self.profiles.get_profile, context.request.profile_id)
             return {"profile": _profile_wire(profile.profile)}
-        if operation == "profiles.resolve_alias":
-            _exact_payload(context.request.payload, {"command_alias"})
-            alias = _payload_text(
-                context.request.payload, "command_alias", max_bytes=MAX_ALIAS_LENGTH
-            )
-            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", alias):
-                raise ipc_error("ipc.invalid_message", reason="invalid_command_alias")
-            profile = await asyncio.to_thread(self.profiles.resolve_alias, alias)
-            return {"profile": _profile_wire(profile.profile)}
-        if operation == "profiles.create":
-            _exact_payload(context.request.payload, {"display_name"})
-            display_name = _payload_text(
-                context.request.payload, "display_name", max_bytes=MAX_DISPLAY_NAME_BYTES
-            )
-            aggregate = await asyncio.to_thread(
-                self.profiles.create_profile, CreateProfile(display_name)
-            )
-            return {"profile": _profile_wire(aggregate.profile)}
-        if operation == "profiles.rename":
-            assert context.request.profile_id is not None
-            _exact_payload(context.request.payload, {"display_name", "expected_identity_revision"})
-            display_name = _payload_text(
-                context.request.payload, "display_name", max_bytes=MAX_DISPLAY_NAME_BYTES
-            )
-            revision = _payload_positive_int(context.request.payload, "expected_identity_revision")
-            result = await asyncio.to_thread(
-                self.profiles.rename_profile,
-                RenameProfile(context.request.profile_id, display_name, revision),
-            )
-            return {"profile": _profile_wire(result.profile)}
-        if operation == "profiles.configuration.section.get":
-            assert context.request.profile_id is not None
-            _exact_payload(context.request.payload, {"section"})
-            section = _payload_section(context.request.payload)
-            if section is ConfigurationSection.STARTUP:
-                raise ipc_error("ipc.operation_not_supported", operation=operation)
-            aggregate = await asyncio.to_thread(
-                self.profiles.get_profile, context.request.profile_id
-            )
-            return _section_wire(
-                section_value(aggregate.configuration.values, section),
-                section,
-                aggregate.profile.identity_revision,
-                aggregate.configuration.configuration_revision,
-                aggregate.configuration.section_revisions[section].revision,
-            )
-        if operation == "profiles.configuration.section.update":
-            assert context.request.profile_id is not None
-            _exact_payload(
-                context.request.payload,
-                {
-                    "section",
-                    "value",
-                    "expected_identity_revision",
-                    "expected_configuration_revision",
-                },
-            )
-            section = _payload_section(context.request.payload)
-            if section is ConfigurationSection.STARTUP:
-                raise ipc_error("ipc.operation_not_supported", operation=operation)
-            identity_revision = _payload_positive_int(
-                context.request.payload, "expected_identity_revision"
-            )
-            configuration_revision = _payload_positive_int(
-                context.request.payload, "expected_configuration_revision"
-            )
-            current = await asyncio.to_thread(
-                self.profile_configuration.get_configuration, context.request.profile_id
-            )
-            values = _replace_section(current.values, section, context.request.payload.get("value"))
-            updated = await asyncio.to_thread(
-                self.profile_configuration.update_configuration,
-                UpdateProfileConfiguration(
-                    context.request.profile_id, identity_revision, configuration_revision, values
-                ),
-            )
-            return _section_wire(
-                section_value(updated.values, section),
-                section,
-                identity_revision,
-                updated.configuration_revision,
-                updated.section_revisions[section].revision,
-            )
-        if operation == "profiles.reset.preview":
-            assert context.request.profile_id is not None
-            _exact_payload(context.request.payload, {"scope"})
-            scope = _payload_reset_scope(context.request.payload)
-            preview = await asyncio.to_thread(
-                self.profile_configuration.preview_reset, context.request.profile_id, scope
-            )
-            return {"preview": _preview_wire(preview)}
-        if operation == "profiles.reset.confirm":
-            assert context.request.profile_id is not None
-            _exact_payload(context.request.payload, {"operation_id", "scope", "confirmation_token"})
-            scope = _payload_reset_scope(context.request.payload)
-            command = _confirm_command(
-                context.request.payload,
-                context.request.profile_id,
-                DestructiveOperationKind.RESET_CONFIGURATION,
-                scope,
-            )
-            reset_result = await asyncio.to_thread(
-                self.profile_configuration.confirm_reset, command
-            )
-            return {
-                "profile_id": str(reset_result.profile_id),
-                "scope": reset_result.scope.value,
-                "configuration_revision": reset_result.configuration.configuration_revision,
-                "changed_sections": [section.value for section in reset_result.changed_sections],
-            }
-        if operation == "profiles.delete.preview":
-            assert context.request.profile_id is not None
-            _exact_payload(context.request.payload, set())
-            preview = await asyncio.to_thread(
-                self.profiles.preview_delete, context.request.profile_id
-            )
-            return {"preview": _preview_wire(preview)}
-        if operation == "profiles.delete.confirm":
-            assert context.request.profile_id is not None
-            _exact_payload(context.request.payload, {"operation_id", "confirmation_token"})
-            command = _confirm_command(
-                context.request.payload,
-                context.request.profile_id,
-                DestructiveOperationKind.DELETE_PROFILE,
-                DeletionScope.WHOLE_PROFILE,
-            )
-            delete_result = await asyncio.to_thread(self.profiles.confirm_delete, command)
-            return {
-                "deleted_profile_id": str(delete_result.profile_id),
-                "old_alias": delete_result.alias_change.old_alias,
-            }
         if operation == "core.shutdown":
             return {"shutdown_scheduled": True}
         raise ipc_error("ipc.operation_not_supported", operation=operation)
@@ -811,229 +615,3 @@ def _profile_wire(profile: Profile) -> dict[str, object]:
         "command_alias": profile.command_alias,
         "identity_revision": profile.identity_revision,
     }
-
-
-def _validate_management_payload(request: IpcRequest) -> None:
-    payload = request.payload
-    operation = request.operation
-    if operation == "profiles.resolve_alias":
-        _exact_payload(payload, {"command_alias"})
-        alias = _payload_text(payload, "command_alias", max_bytes=MAX_ALIAS_LENGTH)
-        if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", alias) is None:
-            raise ipc_error("ipc.invalid_message", reason="invalid_command_alias")
-    elif operation == "profiles.create":
-        _exact_payload(payload, {"display_name"})
-        _payload_text(payload, "display_name", max_bytes=MAX_DISPLAY_NAME_BYTES)
-    elif operation == "profiles.rename":
-        _exact_payload(payload, {"display_name", "expected_identity_revision"})
-        _payload_text(payload, "display_name", max_bytes=MAX_DISPLAY_NAME_BYTES)
-        _payload_positive_int(payload, "expected_identity_revision")
-    elif operation == "profiles.configuration.section.get":
-        _exact_payload(payload, {"section"})
-        if _payload_section(payload) is ConfigurationSection.STARTUP:
-            raise ipc_error("ipc.operation_not_supported", operation=operation)
-    elif operation == "profiles.configuration.section.update":
-        _exact_payload(
-            payload,
-            {"section", "value", "expected_identity_revision", "expected_configuration_revision"},
-        )
-        if _payload_section(payload) is ConfigurationSection.STARTUP:
-            raise ipc_error("ipc.operation_not_supported", operation=operation)
-        _payload_positive_int(payload, "expected_identity_revision")
-        _payload_positive_int(payload, "expected_configuration_revision")
-    elif operation == "profiles.reset.preview":
-        _exact_payload(payload, {"scope"})
-        _payload_reset_scope(payload)
-    elif operation == "profiles.reset.confirm":
-        _exact_payload(payload, {"operation_id", "scope", "confirmation_token"})
-        _payload_reset_scope(payload)
-        _payload_confirmation(payload)
-    elif operation == "profiles.delete.preview":
-        _exact_payload(payload, set())
-    elif operation == "profiles.delete.confirm":
-        _exact_payload(payload, {"operation_id", "confirmation_token"})
-        _payload_confirmation(payload)
-
-
-def _payload_confirmation(payload: Mapping[str, object]) -> None:
-    try:
-        OperationId.parse(str(payload["operation_id"]))
-    except (TypeError, ValueError) as error:
-        raise ipc_error("ipc.invalid_message", reason="invalid_confirmation") from error
-    token = payload.get("confirmation_token")
-    if not isinstance(token, str) or not token or len(token.encode("utf-8")) > 256:
-        raise ipc_error("ipc.invalid_message", reason="invalid_confirmation")
-
-
-def _exact_payload(payload: Mapping[str, object], required: set[str]) -> None:
-    if set(payload) != required:
-        raise ipc_error("ipc.invalid_message", reason="invalid_payload_fields")
-
-
-def _payload_text(payload: Mapping[str, object], key: str, *, max_bytes: int) -> str:
-    value = payload[key]
-    if not isinstance(value, str) or len(value.encode("utf-8")) > max_bytes:
-        raise ipc_error("ipc.invalid_message", reason="invalid_payload")
-    return value
-
-
-def _payload_positive_int(payload: Mapping[str, object], key: str) -> int:
-    value = payload.get(key)
-    if type(value) is not int or value <= 0:
-        raise ipc_error("ipc.invalid_message", reason="invalid_revision")
-    return value
-
-
-def _payload_section(payload: Mapping[str, object]) -> ConfigurationSection:
-    value = payload.get("section")
-    if not isinstance(value, str):
-        raise ipc_error("ipc.invalid_message", reason="invalid_section")
-    try:
-        return ConfigurationSection(value)
-    except (TypeError, ValueError) as error:
-        raise ipc_error("ipc.invalid_message", reason="invalid_section") from error
-
-
-def _payload_reset_scope(payload: Mapping[str, object]) -> ResetScope:
-    value = payload.get("scope")
-    if not isinstance(value, str):
-        raise ipc_error("ipc.invalid_message", reason="invalid_scope")
-    try:
-        return ResetScope(value)
-    except ValueError as error:
-        raise ipc_error("ipc.invalid_message", reason="invalid_scope") from error
-
-
-def _replace_section(
-    values: ProfileConfigurationValues, section: ConfigurationSection, raw_value: object
-) -> ProfileConfigurationValues:
-    try:
-        match section:
-            case ConfigurationSection.PERSONA:
-                if not isinstance(raw_value, str):
-                    raise ValueError
-                return replace(values, persona_text=raw_value)
-            case ConfigurationSection.PROFILE_CONTEXT:
-                if not isinstance(raw_value, str):
-                    raise ValueError
-                return replace(values, profile_context_text=raw_value)
-            case ConfigurationSection.APPEARANCE:
-                if not isinstance(raw_value, dict) or set(raw_value) != {
-                    "accent_color",
-                    "foreground_color",
-                    "background_color",
-                }:
-                    raise ValueError
-                return replace(values, appearance=AppearanceConfiguration(**raw_value))
-            case ConfigurationSection.WAITING_MESSAGES:
-                if not isinstance(raw_value, list):
-                    raise ValueError
-                return replace(values, waiting_messages=tuple(raw_value))
-            case ConfigurationSection.GOODBYE_MESSAGES:
-                if not isinstance(raw_value, list):
-                    raise ValueError
-                return replace(values, goodbye_messages=tuple(raw_value))
-            case ConfigurationSection.VISIBLE_LOGGING:
-                if not isinstance(raw_value, str):
-                    raise ValueError
-                return replace(values, visible_logging_mode=VisibleLoggingMode(raw_value))
-            case ConfigurationSection.PERMISSIONS:
-                if not isinstance(raw_value, dict):
-                    raise ValueError
-                return replace(
-                    values,
-                    permissions={
-                        Capability(key): PermissionDecision(value)
-                        for key, value in raw_value.items()
-                    },
-                )
-            case ConfigurationSection.STARTUP:
-                # The stored section remains resettable but is deliberately not writable in M003.
-                raise ipc_error(
-                    "ipc.operation_not_supported", operation="profiles.configuration.section.update"
-                )
-    except (TypeError, ValueError) as error:
-        raise ipc_error("ipc.invalid_message", reason="invalid_section_value") from error
-
-
-def _section_wire(
-    value: object,
-    section: ConfigurationSection,
-    identity_revision: int,
-    configuration_revision: int,
-    section_revision: int,
-) -> dict[str, object]:
-    if isinstance(value, AppearanceConfiguration):
-        wire_value: object = {
-            "accent_color": value.accent_color,
-            "foreground_color": value.foreground_color,
-            "background_color": value.background_color,
-        }
-    elif isinstance(value, tuple):
-        wire_value = list(value)
-    elif isinstance(value, Mapping):
-        wire_value = {str(key): str(item) for key, item in value.items()}
-    elif isinstance(value, (VisibleLoggingMode,)):
-        wire_value = value.value
-    else:
-        wire_value = value
-    return {
-        "section": section.value,
-        "value": wire_value,
-        "identity_revision": identity_revision,
-        "configuration_revision": configuration_revision,
-        "section_revision": section_revision,
-    }
-
-
-def _preview_wire(preview: object) -> dict[str, object]:
-    from jarvis.profiles.destructive import DestructivePreview
-
-    assert isinstance(preview, DestructivePreview)
-    return {
-        "operation_id": str(preview.operation_id),
-        "operation_kind": preview.target.operation_kind.value,
-        "scope": preview.target.scope.value,
-        "profile_id": str(preview.profile_id),
-        "expected_identity_revision": preview.expected_identity_revision,
-        "expected_configuration_revision": preview.expected_configuration_revision,
-        "expires_at_utc": preview.expires_at_utc.isoformat(),
-        "target_defaults_version": preview.target_defaults_version,
-        "has_changes": preview.has_changes,
-        "confirmation_token": preview.confirmation_token,
-        "items": [
-            {
-                "key": item.key,
-                "action": item.action,
-                "current_count": item.current_count,
-                "target_count": item.target_count,
-                "will_change": item.will_change,
-            }
-            for item in preview.items
-        ],
-    }
-
-
-def _confirm_command(
-    payload: Mapping[str, object], profile_id: object, kind: DestructiveOperationKind, scope: object
-) -> ConfirmDestructiveOperation:
-    _exact_payload(
-        payload,
-        {"operation_id", "scope", "confirmation_token"}
-        if kind is DestructiveOperationKind.RESET_CONFIGURATION
-        else {"operation_id", "confirmation_token"},
-    )
-    try:
-        operation_id = OperationId.parse(str(payload["operation_id"]))
-        token = payload["confirmation_token"]
-        if not isinstance(token, str):
-            raise ValueError
-        from jarvis.profiles.models import ProfileId
-
-        assert isinstance(profile_id, ProfileId)
-        assert isinstance(scope, (ResetScope, DeletionScope))
-        return ConfirmDestructiveOperation(
-            operation_id, DestructiveTarget(kind, scope), profile_id, token
-        )
-    except (TypeError, ValueError) as error:
-        raise ipc_error("ipc.invalid_message", reason="invalid_confirmation") from error

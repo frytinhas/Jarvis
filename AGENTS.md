@@ -619,16 +619,6 @@ The display name `Jarvis` belongs to the permanent default profile and may not b
 
 Every additional profile must be directly callable using its normalized command.
 
-Logical alias persistence and resolution are separate from physical command exposure. Milestone 003
-owns the normalized alias to stable ProfileId mapping only. Milestone 006B owns a runnable and
-testable development/package-level invocation mechanism: `python -m jarvis.cli` selects the
-default profile and `python -m jarvis.cli --profile-alias <alias> [request]` resolves a logical
-alias through Core. This is not final user PATH exposure. Milestone 006B owns the
-assistant-facing CLI semantics.
-Milestone 019A owns final user-local executable exposure, including PATH integration and physical
-alias lifecycle. Earlier milestones must not temporarily assign configuration semantics to
-`jarvis` or a profile command.
-
 Example profile:
 
 ```text
@@ -664,21 +654,11 @@ Internally, profile-aware APIs may still use explicit profile IDs.
 
 # 20. Dynamic Profile Command Registration
 
-Physical profile commands must be implemented using safe generated launchers, symlinks or
-equivalent user-level dispatch when Milestone 019A exposes them through the user-local
-installation.
+Profile commands should be implemented using safe generated launchers, symlinks or equivalent user-level dispatch.
 
 They must resolve to the same installed Jarvis client.
 
 Do not create separate copies of Jarvis for each profile.
-
-M003 must not create executables, launchers, symlinks, wrappers, filesystem alias registries, or
-PATH entries. M006B may provide a development/package-level invocation mechanism so its CLI MVP is
-runnable and testable before installation: `python -m jarvis.cli` for Jarvis and
-`python -m jarvis.cli --profile-alias <alias> [request]` for a logical alias. It must not claim
-final PATH installation or dynamic physical profile-command management. M019A owns the final
-strategy, external executable collision handling, reconciliation and repair, rename/delete cleanup,
-and uninstall behavior.
 
 Conceptually:
 
@@ -701,8 +681,7 @@ Renaming includes:
 - changing display name;
 - recalculating normalized command name;
 - checking collisions;
-- updating the logical alias immediately;
-- replacing the physical command registration only when physical exposure exists;
+- replacing the old command registration;
 - preserving profile identity and data.
 
 The underlying profile should use a stable internal ID independent of its display name and command alias.
@@ -3283,7 +3262,7 @@ single user-level Core ownership
 versioned client-neutral IPC
 profile/configuration Core operations
 Jarvis-config profile selector over IPC
-logical profile aliases and alias-to-ProfileId resolution
+dynamic profile commands
 help without model startup
 ```
 
@@ -3517,7 +3496,7 @@ NEW PROFILES ARE CREATED THROUGH JARVIS-CONFIG
 
 NEW PROFILES CLONE CONFIGURATION FROM JARVIS, NOT ITS HISTORY
 
-WHEN PHYSICALLY EXPOSED, PROFILE COMMANDS ARE DIRECT EXECUTABLE NAMES
+PROFILE COMMANDS ARE DIRECT EXECUTABLE NAMES
 
 PROFILE COMMAND NAMES ARE NORMALIZED TO LOWERCASE ASCII WITH HYPHENS
 
