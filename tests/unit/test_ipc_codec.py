@@ -33,6 +33,7 @@ def test_frame_round_trip_preserves_structural_characters_inside_strings() -> No
         b'{"n":NaN}',
         b'{"n":9223372036854775808}',
         b'{"x":"\\uZZZZ"}',
+        b'{"x":"\\ud800"}',
     ],
 )
 def test_invalid_payloads_are_typed(raw: bytes) -> None:

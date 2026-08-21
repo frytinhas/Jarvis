@@ -30,6 +30,7 @@ request-stream-v1
 request-cancel-v1
 core-health-v1
 profile-catalog-v1
+profile-management-v1
 session-resume-v1
 event-replay-v1
 core-control-v1
@@ -64,6 +65,14 @@ Production M002 operations are only:
 - `profiles.get`, with payload `{}` and a stable M001 `ProfileId`;
 - `core.shutdown`, with payload `{}`, no `profile_id`, same-UID peer credentials, and negotiated
   `core-control-v1`.
+
+M003 adds the optional `profile-management-v1` capability without changing protocol version 1.
+When negotiated, it authorizes Core-owned `profiles.resolve_alias`, create/rename, configuration
+section reads and updates, and reset/delete preview/confirmation operations. Alias resolution
+accepts only an already canonical M001 alias and returns the normal five-field catalog entry; it
+never creates a launcher or examines PATH. Profile-management mutations retain M001 validation,
+optimistic revisions, and state-bound destructive confirmation intents. The startup configuration
+section remains stored and resettable but is not exposed by the M003 client API.
 
 Profile catalog entries contain exactly `profile_id`, `kind`, `display_name`, `command_alias`, and
 `identity_revision`. They contain no profile configuration, persona/context, permissions,

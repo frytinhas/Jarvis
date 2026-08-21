@@ -64,7 +64,13 @@ def decode_payload(payload: bytes) -> dict[str, object]:
         raise ipc_error("ipc.invalid_frame", reason="invalid_json") from error
     if not isinstance(value, dict):
         raise ipc_error("ipc.invalid_frame", reason="root_not_object")
-    _validate_tree(value)
+    try:
+        _validate_tree(value)
+    except UnicodeEncodeError as error:
+        # JSON escape sequences can decode to lone surrogates even though the
+        # framed bytes themselves were valid UTF-8.  Treat them as malformed
+        # protocol input instead of letting a raw UnicodeEncodeError escape.
+        raise ipc_error("ipc.invalid_frame", reason="invalid_json") from error
     return value
 
 
