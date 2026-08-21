@@ -20,6 +20,7 @@ REQUEST_CANCEL = "request-cancel-v1"
 CORE_HEALTH = "core-health-v1"
 PROFILE_CATALOG = "profile-catalog-v1"
 PROFILE_MANAGEMENT = "profile-management-v1"
+MODEL_REGISTRY = "model-registry-v1"
 SESSION_RESUME = "session-resume-v1"
 EVENT_REPLAY = "event-replay-v1"
 CORE_CONTROL = "core-control-v1"
@@ -30,6 +31,7 @@ SERVER_CAPABILITIES = frozenset(
         CORE_HEALTH,
         PROFILE_CATALOG,
         PROFILE_MANAGEMENT,
+        MODEL_REGISTRY,
         SESSION_RESUME,
         EVENT_REPLAY,
         CORE_CONTROL,

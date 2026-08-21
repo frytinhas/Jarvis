@@ -1,5 +1,5 @@
-defaults_schema_version = 2
-product_defaults_version = 2
+defaults_schema_version = 3
+product_defaults_version = 3
 
 [foundation_diagnostics]
 total_bytes = 268435456
@@ -32,3 +32,37 @@ execute = "allow"
 delete = "ask"
 modify = "ask"
 move = "ask"
+
+[model_defaults]
+reasoning = "medium"
+context_window = 8192
+
+[model_defaults.runtime_config]
+temperature = 0.8
+top_p = 0.95
+top_k = 40
+min_p = 0.0
+repeat_penalty = 1.1
+gpu_layers = 0
+threads = 1
+batch_size = 1
+flash_attention = false
+startup_timeout_seconds = 60
+generation_timeout_seconds = 600
+tool_timeout_seconds = 60
+network_timeout_seconds = 30
+shutdown_timeout_seconds = 30
+llama_server_arguments = []
+
+[model_defaults.scanner_limits]
+max_directories = 32
+max_path_bytes = 4096
+max_depth = 16
+max_directory_entries = 100000
+max_candidates = 100000
+metadata_budget_bytes = 16777216
+max_metadata_entries = 8192
+max_key_bytes = 256
+max_display_string_bytes = 16384
+max_array_payload_bytes = 65536
+max_metadata_payload_bytes = 16777216

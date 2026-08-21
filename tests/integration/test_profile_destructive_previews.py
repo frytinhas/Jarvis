@@ -72,13 +72,14 @@ def test_reset_preview_lists_exact_fields_and_persists_only_token_digest(tmp_pat
     )
     preview = destructive.preview_reset(jarvis.profile.profile_id, ResetScope.WHOLE_PROFILE)
     assert preview.expected_configuration_revision == customized.configuration_revision
-    assert len(preview.items) == 18
+    assert len(preview.items) == 19
     assert {item.key for item in preview.items} >= {
         "persona",
         "appearance.accent_color",
         "waiting-messages",
         "startup",
         "permissions.delete",
+        "profile-model-associations",
     }
     assert preview.has_changes
     with SQLiteDatabase(path) as database:
@@ -108,7 +109,7 @@ def test_unsupported_message_defaults_origin_fails_closed_before_preview(tmp_pat
     jarvis = profiles.ensure_jarvis()
     with SQLiteDatabase(path) as database:
         database.connection().execute(
-            "UPDATE profile_configuration_sections SET defaults_version = 3 "
+            "UPDATE profile_configuration_sections SET defaults_version = 4 "
             "WHERE profile_id = ? AND section_name = 'waiting-messages'",
             (str(jarvis.profile.profile_id),),
         )
@@ -161,6 +162,7 @@ def test_delete_preview_counts_current_rows_and_rejects_jarvis(tmp_path: Path) -
         "configuration": 1,
         "configuration-sections": 8,
         "permissions": 9,
+        "profile-model-associations": 0,
         "waiting-messages": 2,
         "goodbye-messages": 1,
     }

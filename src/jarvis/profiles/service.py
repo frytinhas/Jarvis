@@ -221,6 +221,13 @@ class ProfileService:
                     },
                     timestamp_utc=now,
                 )
+                # M004 model configuration is cloned in this same transaction.  Importing here
+                # keeps the profile domain independent until the registry migration exists.
+                from jarvis.models.repository import ModelRepository
+
+                ModelRepository(connection).clone_selected(
+                    jarvis.profile_id, profile.profile_id, now
+                )
                 return ProfileAggregate(profile, configuration)
         except ProfileError:
             raise

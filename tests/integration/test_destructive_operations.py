@@ -114,7 +114,7 @@ def test_whole_reset_uses_packaged_v2_defaults_never_current_jarvis(tmp_path: Pa
     clone = profiles.create_profile(CreateProfile("Clone"))
     assert clone.configuration.values == customized_jarvis.values
     preview = configs.preview_reset(clone.profile.profile_id, ResetScope.WHOLE_PROFILE)
-    assert preview.target_defaults_version == 2
+    assert preview.target_defaults_version == 3
     result = configs.confirm_reset(_confirm(preview))
     packaged = DefaultsRegistry.load_packaged().current()
     assert result.configuration.values.persona_text == packaged.profile_defaults.persona_text
@@ -122,7 +122,7 @@ def test_whole_reset_uses_packaged_v2_defaults_never_current_jarvis(tmp_path: Pa
     assert result.configuration.values != customized_jarvis.values
     assert {
         revision.defaults_version for revision in result.configuration.section_revisions.values()
-    } == {2}
+    } == {3}
     assert result.profile_id == clone.profile.profile_id
 
 

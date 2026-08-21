@@ -78,7 +78,7 @@ def test_extreme_persona_is_rejected_before_utf8_materialization() -> None:
     assert caught.value.safe_details == {"field": "persona_text", "reason": "too_many_bytes"}
 
 
-@pytest.mark.parametrize("version", [1, 3])
+@pytest.mark.parametrize("version", [1, 4])
 def test_profile_sections_reject_nonexistent_or_future_defaults_versions(version: int) -> None:
     with pytest.raises(ValueError, match="unsupported section defaults version"):
         SectionRevision(ConfigurationSection.PERSONA, version, 1)

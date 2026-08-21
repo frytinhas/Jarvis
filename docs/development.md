@@ -94,9 +94,10 @@ secrets. Report a suspected security defect without attaching real credentials o
 Migrations are consecutive, forward-only packaged SQL resources with SHA-256 checksums and no
 migration-owned transaction-control statements. One `BEGIN IMMEDIATE` transaction owns the complete
 pending set. Failure rolls the set back and preserves the database for inspection; the application
-never downgrades, restores, or deletes a nonempty database automatically. Migration 0002 adds only
-the seven profile-domain tables documented in the M001 ExecPlan. Jarvis bootstrap follows migration
-and completes before initialization is published.
+never downgrades, restores, or deletes a nonempty database automatically. Migration 0002 adds the
+seven profile-domain tables documented in the M001 ExecPlan. Migration 0003 adds installation
+runtime locations, durable read-only model records/path history, and profile-model associations.
+Jarvis bootstrap follows migration and completes before initialization is published.
 
 Foundation infrastructure diagnostics are stored only in XDG state. Defaults are 256 MiB total,
 8 MiB per file, 64 KiB per event, 16 KiB per text value, depth 8, 100 entries per container, at most
@@ -121,4 +122,6 @@ the supported recovery action.
 
 Redaction favors privacy and may produce false positives. It cannot prove discovery of every
 unlabeled secret, so callers must minimize diagnostic fields. Diagnostics and the inspector expose
-no model-context or memory interface, and this milestone contains no model or client subsystem.
+no model-context or memory interface. Registry diagnostics contain only bounded counters, reason
+classes, durations, and explicitly permitted identifiers; never paths, metadata, configuration,
+exception text, model bytes, or environment values.

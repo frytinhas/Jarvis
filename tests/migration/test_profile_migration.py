@@ -8,8 +8,14 @@ from pathlib import Path
 import pytest
 
 from jarvis.foundation.clock import FakeClock
+from jarvis.foundation.errors import StorageError
 from jarvis.storage.database import SQLiteDatabase
-from jarvis.storage.migrations import MigrationRunner, load_packaged_migrations
+from jarvis.storage.migrations import (
+    Migration,
+    MigrationRunner,
+    current_schema_version,
+    load_packaged_migrations,
+)
 
 pytestmark = pytest.mark.migration
 
@@ -54,7 +60,7 @@ def test_schema_one_upgrades_to_profile_schema_once(tmp_path: Path) -> None:
             .fetchall()
         }
     assert first.applied_versions == (1,)
-    assert upgrade.applied_versions == (2,)
+    assert upgrade.applied_versions == (2, 3)
     assert repeated.applied_versions == ()
     assert tables == {
         "schema_migrations",
@@ -65,6 +71,10 @@ def test_schema_one_upgrades_to_profile_schema_once(tmp_path: Path) -> None:
         "profile_messages",
         "profile_permissions",
         "profile_operation_intents",
+        "installation_runtime_config",
+        "models",
+        "model_paths",
+        "profile_models",
     }
 
 
@@ -75,6 +85,75 @@ def test_migration_0001_remains_byte_for_byte_immutable() -> None:
         "9ae711fc0da6cb744516130e94ef545754decbd78628d5f2a78ffcd495722a7e"
     )
     assert hashlib.sha256(migration.sql.encode()).hexdigest() == migration.checksum_sha256
+
+
+def test_schema_two_upgrades_atomically_to_model_registry_without_backfill(tmp_path: Path) -> None:
+    packaged = load_packaged_migrations()
+    database = _database(tmp_path)
+    with database:
+        MigrationRunner(database, _clock(), packaged[:2]).apply()
+        _insert_profile(database.connection(), JARVIS_ID, "jarvis", "jarvis")
+        upgraded = MigrationRunner(database, _clock()).apply()
+        assert upgraded.applied_versions == (3,)
+        assert database.connection().execute("SELECT count(*) FROM models").fetchone()[0] == 0
+        assert (
+            database.connection().execute("SELECT count(*) FROM profile_models").fetchone()[0] == 0
+        )
+
+
+def test_failed_model_registry_migration_leaves_schema_two_intact(tmp_path: Path) -> None:
+    packaged = load_packaged_migrations()
+    database = _database(tmp_path)
+    with database:
+        MigrationRunner(database, _clock(), packaged[:2]).apply()
+        broken = Migration.create(
+            3,
+            "model_registry",
+            "CREATE TABLE models_partial (value TEXT); INVALID SQL;",
+        )
+        with pytest.raises(StorageError):
+            MigrationRunner(database, _clock(), (*packaged[:2], broken)).apply()
+        assert current_schema_version(database) == 2
+        assert (
+            database.connection()
+            .execute("SELECT count(*) FROM sqlite_master WHERE name = 'models_partial'")
+            .fetchone()[0]
+            == 0
+        )
+
+
+def test_model_registry_constraints_allow_path_history_and_enforce_profile_selection(
+    tmp_path: Path,
+) -> None:
+    database = _database(tmp_path)
+    with database:
+        MigrationRunner(database, _clock()).apply()
+        connection = database.connection()
+        _insert_profile(connection, STANDARD_ID, "standard", "work")
+        for suffix in (1, 2):
+            model_id = f"30000000-0000-4000-8000-{suffix:012d}"
+            connection.execute(
+                "INSERT INTO models VALUES (?, ?, 1, ?, 64, 1, '{}', 'available', NULL, ?)",
+                (model_id, str(suffix) * 64, suffix, NOW),
+            )
+            connection.execute(
+                "INSERT INTO model_paths (model_id, canonical_path) "
+                "VALUES (?, '/models/shared.gguf')",
+                (model_id,),
+            )
+        first = "30000000-0000-4000-8000-000000000001"
+        second = "30000000-0000-4000-8000-000000000002"
+        connection.execute(
+            "INSERT INTO profile_models VALUES (?, ?, 1, 1, 1, '{}', ?, ?)",
+            (STANDARD_ID, first, NOW, NOW),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO profile_models VALUES (?, ?, 1, 1, 0, '{}', ?, ?)",
+                (STANDARD_ID, second, NOW, NOW),
+            )
+        connection.execute("DELETE FROM profiles WHERE profile_id = ?", (STANDARD_ID,))
+        assert connection.execute("SELECT count(*) FROM profile_models").fetchone()[0] == 0
 
 
 def test_profile_foreign_keys_indexes_and_cascade(tmp_path: Path) -> None:
@@ -260,8 +339,6 @@ def test_future_milestone_tables_are_absent(tmp_path: Path) -> None:
             .fetchall()
         }
     forbidden = {
-        "models",
-        "profile_models",
         "sessions",
         "messages",
         "memories",

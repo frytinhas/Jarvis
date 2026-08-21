@@ -337,7 +337,24 @@ class ProfileOperationIntentRepository:
         return operation_ids
 
 
-def _state_digest(aggregate: ProfileAggregate, target: DestructiveTarget) -> str:
+def _profile_model_state(
+    connection: sqlite3.Connection, profile_id: ProfileId
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        tuple(row)
+        for row in connection.execute(
+            """SELECT model_id, profile_model_revision, selected, last_valid, runtime_config_json
+               FROM profile_models WHERE profile_id = ? ORDER BY model_id""",
+            (str(profile_id),),
+        ).fetchall()
+    )
+
+
+def _state_digest(
+    aggregate: ProfileAggregate,
+    target: DestructiveTarget,
+    profile_models: tuple[tuple[object, ...], ...],
+) -> str:
     profile = aggregate.profile
     configuration = aggregate.configuration
     values = configuration.values
@@ -377,6 +394,7 @@ def _state_digest(aggregate: ProfileAggregate, target: DestructiveTarget) -> str
                 for section in ConfigurationSection
             },
         },
+        "profile_models": [list(row) for row in profile_models],
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -503,6 +521,27 @@ class ProfileDestructiveIntentService:
                     bool(aggregate.configuration.values.waiting_messages),
                 ),
                 DestructivePreviewItem(
+                    "profile-model-associations",
+                    "delete",
+                    int(
+                        database.connection()
+                        .execute(
+                            "SELECT COUNT(*) FROM profile_models WHERE profile_id = ?",
+                            (str(profile_id),),
+                        )
+                        .fetchone()[0]
+                    ),
+                    0,
+                    bool(
+                        database.connection()
+                        .execute(
+                            "SELECT 1 FROM profile_models WHERE profile_id = ? LIMIT 1",
+                            (str(profile_id),),
+                        )
+                        .fetchone()
+                    ),
+                ),
+                DestructivePreviewItem(
                     "goodbye-messages",
                     "delete",
                     len(aggregate.configuration.values.goodbye_messages),
@@ -527,6 +566,19 @@ class ProfileDestructiveIntentService:
             items = _reset_items(
                 aggregate.configuration, defaults, scope, defaults_snapshot.product_defaults_version
             )
+            if scope is ResetScope.WHOLE_PROFILE:
+                association_count = len(
+                    _profile_model_state(database.connection(), aggregate.profile.profile_id)
+                )
+                items += (
+                    DestructivePreviewItem(
+                        "profile-model-associations",
+                        "delete",
+                        association_count,
+                        0,
+                        association_count > 0,
+                    ),
+                )
             return self._store_preview(
                 database.connection(),
                 aggregate,
@@ -562,7 +614,9 @@ class ProfileDestructiveIntentService:
             profile_id=aggregate.profile.profile_id,
             expected_identity_revision=aggregate.profile.identity_revision,
             expected_configuration_revision=aggregate.configuration.configuration_revision,
-            state_digest_sha256=_state_digest(aggregate, target),
+            state_digest_sha256=_state_digest(
+                aggregate, target, _profile_model_state(connection, aggregate.profile.profile_id)
+            ),
             token_digest_sha256=token_digest,
             created_at_utc=now,
             expires_at_utc=expires,
@@ -690,6 +744,10 @@ class ProfileDestructiveCoordinator:
             if not ProfileOperationIntentRepository(connection).consume(command.operation_id):
                 raise ConfirmationInvalidError(safe_details={"reason": "intent_missing"})
             configuration = ProfileConfigurationRepository(connection).get(command.profile_id)
+            if scope is ResetScope.WHOLE_PROFILE:
+                connection.execute(
+                    "DELETE FROM profile_models WHERE profile_id = ?", (str(command.profile_id),)
+                )
             return ResetProfileResult(
                 command.profile_id,
                 scope,
@@ -711,6 +769,7 @@ class ProfileDestructiveCoordinator:
             _intent, aggregate = self._validate(connection, command)
             if aggregate.profile.kind is ProfileKind.JARVIS:
                 raise ProtectedProfileError(safe_details={"operation": "delete"})
+            association_count = len(_profile_model_state(connection, command.profile_id))
             items = (
                 DestructivePreviewItem("identity", "delete", 1, 0, True),
                 DestructivePreviewItem("alias", "delete", 1, 0, True),
@@ -723,6 +782,13 @@ class ProfileDestructiveCoordinator:
                     len(aggregate.configuration.values.waiting_messages),
                     0,
                     bool(aggregate.configuration.values.waiting_messages),
+                ),
+                DestructivePreviewItem(
+                    "profile-model-associations",
+                    "delete",
+                    association_count,
+                    0,
+                    association_count > 0,
                 ),
                 DestructivePreviewItem(
                     "goodbye-messages",
@@ -773,7 +839,9 @@ class ProfileDestructiveCoordinator:
             != intent.expected_configuration_revision
         ):
             raise ConfirmationStaleError(safe_details={"reason": "revision_mismatch"})
-        recomputed = _state_digest(aggregate, command.target)
+        recomputed = _state_digest(
+            aggregate, command.target, _profile_model_state(connection, command.profile_id)
+        )
         if not hmac.compare_digest(recomputed, intent.state_digest_sha256):
             raise ConfirmationStaleError(safe_details={"reason": "state_mismatch"})
         return intent, aggregate

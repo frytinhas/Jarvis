@@ -38,6 +38,7 @@ def test_project_has_zero_runtime_dependencies() -> None:
         "jarvisd": "jarvis.core.__main__:main",
         "jarvis-config": "jarvis.cli.__main__:main",
         "jarvis-help": "jarvis.cli.__main__:help_main",
+        "jarvis-manage": "jarvis.manage.__main__:main",
     }
 
 

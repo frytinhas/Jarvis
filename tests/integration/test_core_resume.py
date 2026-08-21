@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from pathlib import Path
 from uuid import uuid4
 
@@ -9,8 +10,9 @@ import pytest
 from jarvis.core.requests import RequestContext
 from jarvis.core.runtime import JarvisCore
 from jarvis.ipc.codec import encode_frame
+from jarvis.ipc.errors import ipc_error
 from jarvis.ipc.models import CORE_CONTROL, EVENT_REPLAY, SESSION_RESUME, ConnectionId
-from jarvis.ipc.server import IpcServer, LogicalSession
+from jarvis.ipc.server import ClientTransport, IpcServer, LogicalSession
 from jarvis.storage.xdg import resolve_xdg_paths
 from tests.support.ipc_client import RawTestClient
 
@@ -97,6 +99,76 @@ def test_disconnect_resume_status_replay_and_token_rotation() -> None:
         assert forged.hello["type"] == "hello.error"
         assert forged.hello["error"]["code"] == "ipc.resume_unavailable"  # type: ignore[index]
         await forged.close()
+        await resumed.close()
+        await core.request_shutdown()
+        await asyncio.wait_for(task, 5)
+
+    asyncio.run(run())
+
+
+def test_failed_accepted_delivery_still_records_a_terminal_for_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completed = asyncio.Event()
+
+    async def handler(_context: RequestContext) -> dict[str, object]:
+        completed.set()
+        return {"done": True}
+
+    async def run() -> None:
+        core, task, path = await _start(handler)
+        caps = (SESSION_RESUME, EVENT_REPLAY, CORE_CONTROL)
+        first = await RawTestClient.connect(path, optional_capabilities=caps)
+        assert first.hello is not None
+        proof = {
+            "expected_core_instance_id": first.hello["core_instance_id"],
+            "connection_id": first.hello["connection_id"],
+            "resume_token": first.hello["resume_token"],
+        }
+        original_send = ClientTransport.send
+
+        async def fail_only_accepted(self: ClientTransport, value: Mapping[str, object]) -> None:
+            if value.get("event_type") == "request.accepted":
+                raise ipc_error("ipc.core_unavailable", reason="review_injected_delivery_failure")
+            await original_send(self, value)
+
+        monkeypatch.setattr(ClientTransport, "send", fail_only_accepted)
+        request_id = str(uuid4())
+        await first.send(
+            {
+                "type": "request",
+                "protocol_version": 1,
+                "request_id": request_id,
+                "operation": "test.block",
+                "payload": {},
+            }
+        )
+        await asyncio.wait_for(completed.wait(), 1)
+        for _ in range(100):
+            if core.in_flight_count == 0:
+                break
+            await asyncio.sleep(0.005)
+        assert core.in_flight_count == 0
+        await first.close()
+
+        resumed = await RawTestClient.connect(path, optional_capabilities=caps, resume=proof)
+        await resumed.send(
+            {
+                "type": "replay",
+                "protocol_version": 1,
+                "request_id": request_id,
+                "after_sequence": 0,
+            }
+        )
+        replay = await resumed.receive()
+        events = replay["events"]
+        assert isinstance(events, list)
+        assert [event["event_type"] for event in events] == [
+            "request.accepted",
+            "request.started",
+            "request.completed",
+        ]
+        assert sum(event["terminal"] is True for event in events) == 1
         await resumed.close()
         await core.request_shutdown()
         await asyncio.wait_for(task, 5)

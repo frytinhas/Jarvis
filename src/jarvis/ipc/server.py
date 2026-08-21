@@ -28,6 +28,7 @@ from jarvis.ipc.models import (
     CORE_HEALTH,
     EVENT_REPLAY,
     IPC_PROTOCOL_VERSION,
+    MODEL_REGISTRY,
     PROFILE_CATALOG,
     PROFILE_MANAGEMENT,
     REQUEST_CANCEL,
@@ -45,6 +46,9 @@ from jarvis.ipc.models import (
     parse_request,
     safe_error_payload,
 )
+from jarvis.models.errors import InvalidRuntimeConfigurationError, ModelError
+from jarvis.models.models import ModelId, ModelRuntimeConfig
+from jarvis.models.service import ModelRegistryService
 from jarvis.profiles.configuration import (
     AppearanceConfiguration,
     ProfileConfigurationValues,
@@ -175,6 +179,7 @@ class IpcServer:
         lifecycle: CoreLifecycle,
         profiles: ProfileService,
         profile_configuration: ProfileConfigService,
+        model_registry: ModelRegistryService,
         defaults: DefaultsSnapshot,
         started_at_utc: str,
         shutdown_callback: ShutdownCallback,
@@ -189,6 +194,7 @@ class IpcServer:
         self.lifecycle = lifecycle
         self.profiles = profiles
         self.profile_configuration = profile_configuration
+        self.model_registry = model_registry
         self.defaults = defaults
         self.started_at_utc = started_at_utc
         self.shutdown_callback = shutdown_callback
@@ -411,16 +417,20 @@ class IpcServer:
         except IpcError as error:
             await self._send_unsequenced(session, request.request_id, error)
             return
-        await self._send_event(session, context.events[0])
-        self._diagnose(
-            "ipc.request_accepted",
-            {"request_id": str(context.request_id), "operation": context.request.operation},
-        )
+        # Register the worker before attempting delivery.  A peer can disappear
+        # between acceptance and the first write; disconnect is not cancellation,
+        # so accepted work must still progress to a recorded terminal event that
+        # a resumed session can inspect/replay.
         task = asyncio.create_task(self._run_request(session, context))
         session.tasks.add(task)
         self._all_tasks.add(task)
         task.add_done_callback(session.tasks.discard)
         task.add_done_callback(self._all_tasks.discard)
+        await self._send_event(session, context.events[0])
+        self._diagnose(
+            "ipc.request_accepted",
+            {"request_id": str(context.request_id), "operation": context.request.operation},
+        )
 
     def _validate_operation(self, request: IpcRequest, session: LogicalSession) -> None:
         if request.operation in self.handlers:
@@ -439,6 +449,15 @@ class IpcServer:
             "profiles.reset.confirm",
             "profiles.delete.preview",
             "profiles.delete.confirm",
+            "installation.runtime.get",
+            "installation.runtime.update",
+            "models.refresh",
+            "models.list",
+            "models.get",
+            "profiles.models.list",
+            "profiles.models.select",
+            "profiles.models.config.get",
+            "profiles.models.config.update",
         }
         if request.operation not in operations:
             raise ipc_error("ipc.operation_not_supported", operation=request.operation)
@@ -456,6 +475,10 @@ class IpcServer:
             "profiles.reset.confirm",
             "profiles.delete.preview",
             "profiles.delete.confirm",
+            "profiles.models.list",
+            "profiles.models.select",
+            "profiles.models.config.get",
+            "profiles.models.config.update",
         }
         if request.operation in profile_operations:
             if request.profile_id is None:
@@ -467,6 +490,11 @@ class IpcServer:
         if request.operation == "core.health" and CORE_HEALTH not in session.capabilities:
             raise ipc_error("ipc.capability_mismatch", reason="core_health_not_negotiated")
         if (
+            request.operation.startswith(("models.", "installation.", "profiles.models."))
+            and MODEL_REGISTRY not in session.capabilities
+        ):
+            raise ipc_error("ipc.capability_mismatch", reason="model_registry_not_negotiated")
+        if (
             request.operation in {"profiles.list", "profiles.get"}
             and PROFILE_CATALOG not in session.capabilities
         ):
@@ -474,9 +502,12 @@ class IpcServer:
         if (
             request.operation.startswith("profiles.")
             and request.operation not in {"profiles.list", "profiles.get"}
+            and not request.operation.startswith("profiles.models.")
             and PROFILE_MANAGEMENT not in session.capabilities
         ):
             raise ipc_error("ipc.capability_mismatch", reason="profile_management_not_negotiated")
+        if request.operation.startswith(("models.", "installation.", "profiles.models.")):
+            _validate_model_registry_payload(request)
         if request.operation.startswith("profiles.") and request.operation not in {
             "profiles.list",
             "profiles.get",
@@ -491,6 +522,20 @@ class IpcServer:
             await self._send_event_if_attached(session, started)
             self._diagnose("ipc.request_started", {"request_id": str(context.request_id)})
             result = await self._dispatch(context)
+            # Protocol-v1 deliberately rejects floating-point and otherwise unsupported JSON
+            # values. Validate the exact terminal envelope before terminal arbitration so an
+            # application handler cannot strand a healthy client with an undeliverable terminal
+            # result after the registry has already committed COMPLETED.
+            encode_frame(
+                IpcEvent(
+                    core_instance_id=self.core_instance_id,
+                    request_id=context.request_id,
+                    sequence=context.next_sequence,
+                    event_type="request.completed",
+                    terminal=True,
+                    payload=result,
+                ).to_wire()
+            )
             terminal = await self.registry.complete(context, result)
             if terminal is not None:
                 if context.request.operation == "core.shutdown":
@@ -516,6 +561,8 @@ class IpcServer:
                 await self._send_event_if_attached(session, terminal)
             raise
         except BaseException as error:
+            if isinstance(error, ModelError):
+                error = ipc_error(error.code, **error.safe_details)
             terminal = await self.registry.fail(context, error)
             if terminal is not None:
                 await self._send_event_if_attached(session, terminal)
@@ -529,6 +576,128 @@ class IpcServer:
             return await self.handlers[operation](context)
         if operation == "core.health":
             return self._health()
+        if operation == "installation.runtime.get":
+            if context.request.payload:
+                raise ipc_error("ipc.invalid_message", reason="payload_must_be_empty")
+            return _runtime_location_wire(
+                await asyncio.to_thread(self.model_registry.runtime_location)
+            )
+        if operation == "installation.runtime.update":
+            payload = context.request.payload
+            directories = payload.get("directories")
+            runtime_path = payload.get("runtime_path")
+            if (
+                set(payload) != {"directories", "runtime_path"}
+                or not isinstance(directories, list)
+                or not all(isinstance(item, str) for item in directories)
+                or (runtime_path is not None and not isinstance(runtime_path, str))
+            ):
+                raise ipc_error("ipc.invalid_message", reason="invalid_runtime_location")
+            return _runtime_location_wire(
+                await asyncio.to_thread(
+                    self.model_registry.update_runtime_location, tuple(directories), runtime_path
+                )
+            )
+        if operation in {"models.refresh", "models.list"}:
+            if context.request.payload:
+                raise ipc_error("ipc.invalid_message", reason="payload_must_be_empty")
+            if operation == "models.refresh":
+                refreshed = await asyncio.to_thread(self.model_registry.refresh)
+                return {
+                    "models": [_model_wire(item) for item in refreshed.records],
+                    "partial_reason": refreshed.partial_reason,
+                }
+            models = await asyncio.to_thread(self.model_registry.list)
+            return {"models": [_model_wire(item) for item in models]}
+        if operation == "models.get":
+            _exact_payload(context.request.payload, {"model_id"})
+            try:
+                model_id = ModelId.parse(
+                    _payload_text(context.request.payload, "model_id", max_bytes=36)
+                )
+            except ValueError as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_model_id") from error
+            return {
+                "model": _model_wire(await asyncio.to_thread(self.model_registry.get, model_id))
+            }
+        if operation == "profiles.models.list":
+            assert context.request.profile_id is not None
+            if context.request.payload:
+                raise ipc_error("ipc.invalid_message", reason="payload_must_be_empty")
+            return {
+                "associations": [
+                    _profile_model_wire(item)
+                    for item in await asyncio.to_thread(
+                        self.model_registry.associations, context.request.profile_id
+                    )
+                ]
+            }
+        if operation == "profiles.models.select":
+            assert context.request.profile_id is not None
+            payload = context.request.payload
+            if set(payload) != {"model_id", "expected_profile_model_revision"}:
+                raise ipc_error("ipc.invalid_message", reason="invalid_payload_fields")
+            try:
+                model_id = ModelId.parse(str(payload["model_id"]))
+                revision = int(str(payload["expected_profile_model_revision"]))
+                if revision < 0:
+                    raise ValueError
+            except (TypeError, ValueError) as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_model_selection") from error
+            await asyncio.to_thread(
+                self.model_registry.select, context.request.profile_id, model_id, revision
+            )
+            return {
+                "associations": [
+                    _profile_model_wire(item)
+                    for item in await asyncio.to_thread(
+                        self.model_registry.associations, context.request.profile_id
+                    )
+                ]
+            }
+        if operation == "profiles.models.config.get":
+            assert context.request.profile_id is not None
+            _exact_payload(context.request.payload, {"model_id"})
+            try:
+                model_id = ModelId.parse(
+                    _payload_text(context.request.payload, "model_id", max_bytes=36)
+                )
+            except ValueError as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_model_id") from error
+            return _profile_model_config_wire(
+                await asyncio.to_thread(
+                    self.model_registry.get_config, context.request.profile_id, model_id
+                )
+            )
+        if operation == "profiles.models.config.update":
+            assert context.request.profile_id is not None
+            _exact_payload(
+                context.request.payload, {"model_id", "config", "expected_profile_model_revision"}
+            )
+            try:
+                model_id = ModelId.parse(
+                    _payload_text(context.request.payload, "model_id", max_bytes=36)
+                )
+                config = ModelRuntimeConfig.from_mapping(
+                    _profile_model_config_from_wire(context.request.payload["config"])
+                )
+                revision = _payload_positive_int(
+                    context.request.payload, "expected_profile_model_revision"
+                )
+            except (ValueError, ModelError) as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_model_config") from error
+            await asyncio.to_thread(
+                self.model_registry.update_config,
+                context.request.profile_id,
+                model_id,
+                config,
+                revision,
+            )
+            return _profile_model_config_wire(
+                await asyncio.to_thread(
+                    self.model_registry.get_config, context.request.profile_id, model_id
+                )
+            )
         if operation == "profiles.list":
             profiles = await asyncio.to_thread(self.profiles.list_profiles)
             return {"profiles": [_profile_wire(item.profile) for item in profiles]}
@@ -681,7 +850,7 @@ class IpcServer:
             "capabilities": sorted(SERVER_CAPABILITIES),
             "active_connections": self.active_connections,
             "in_flight_requests": self.registry.in_flight_count,
-            "database_schema_version": 2,
+            "database_schema_version": 3,
             "defaults_schema_version": self.defaults.defaults_schema_version,
             "product_defaults_version": self.defaults.product_defaults_version,
         }
@@ -813,6 +982,85 @@ def _profile_wire(profile: Profile) -> dict[str, object]:
     }
 
 
+def _runtime_location_wire(value: object) -> dict[str, object]:
+    from jarvis.models.models import RuntimeLocationConfig
+
+    assert isinstance(value, RuntimeLocationConfig)
+    return {
+        "directories": [str(item) for item in value.model_directories],
+        "runtime_path": str(value.llama_server_path) if value.llama_server_path else None,
+        "revision": value.revision,
+    }
+
+
+def _model_wire(value: object) -> dict[str, object]:
+    from jarvis.models.models import ModelRecord
+
+    assert isinstance(value, ModelRecord)
+    return {
+        "model_id": str(value.model_id),
+        "path": str(value.canonical_path),
+        "size_bytes": value.size_bytes,
+        "metadata": {key: _protocol_scalar(item) for key, item in value.metadata.items()},
+        "availability": value.availability.value,
+        "reason": value.availability_reason,
+    }
+
+
+_MODEL_CONFIG_DECIMAL_FIELDS = frozenset({"temperature", "top_p", "min_p", "repeat_penalty"})
+_MODEL_CONFIG_DECIMAL = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,16})?$")
+
+
+def _protocol_scalar(value: object) -> object:
+    """Represent protocol-v1-incompatible finite decimal scalars without widening v1."""
+
+    return repr(value) if isinstance(value, float) else value
+
+
+def _model_config_wire(config: object) -> dict[str, object]:
+    if not isinstance(config, dict):
+        raise ipc_error("ipc.internal_error")
+    return {
+        key: _protocol_scalar(value) if key in _MODEL_CONFIG_DECIMAL_FIELDS else value
+        for key, value in config.items()
+    }
+
+
+def _profile_model_wire(value: dict[str, object]) -> dict[str, object]:
+    result = dict(value)
+    result["config"] = _model_config_wire(result.get("config"))
+    return result
+
+
+def _profile_model_config_wire(value: dict[str, object]) -> dict[str, object]:
+    result = dict(value)
+    result["config"] = _model_config_wire(result.get("config"))
+    return result
+
+
+def _profile_model_config_from_wire(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise InvalidRuntimeConfigurationError("wire_fields")
+    result = dict(value)
+    for key in _MODEL_CONFIG_DECIMAL_FIELDS:
+        raw = result.get(key)
+        if (
+            isinstance(raw, str)
+            and 0 < len(raw) <= 64
+            and _MODEL_CONFIG_DECIMAL.fullmatch(raw) is not None
+        ):
+            try:
+                converted = float(raw)
+            except ValueError as error:
+                raise InvalidRuntimeConfigurationError("sampling") from error
+            # A single domain representation avoids persisting/displaying a
+            # surprising negative-zero configuration value.
+            result[key] = 0.0 if converted == 0 else converted
+        else:
+            raise InvalidRuntimeConfigurationError("sampling")
+    return result
+
+
 def _validate_management_payload(request: IpcRequest) -> None:
     payload = request.payload
     operation = request.operation
@@ -855,6 +1103,50 @@ def _validate_management_payload(request: IpcRequest) -> None:
         _payload_confirmation(payload)
 
 
+def _validate_model_registry_payload(request: IpcRequest) -> None:
+    payload = request.payload
+    operation = request.operation
+    if operation in {
+        "installation.runtime.get",
+        "models.refresh",
+        "models.list",
+        "profiles.models.list",
+    }:
+        _exact_payload(payload, set())
+    elif operation == "installation.runtime.update":
+        _exact_payload(payload, {"directories", "runtime_path"})
+        directories = payload.get("directories")
+        runtime_path = payload.get("runtime_path")
+        if (
+            not isinstance(directories, list)
+            or not all(isinstance(item, str) for item in directories)
+            or (runtime_path is not None and not isinstance(runtime_path, str))
+        ):
+            raise ipc_error("ipc.invalid_message", reason="invalid_runtime_location")
+    elif operation in {"models.get", "profiles.models.config.get"}:
+        _exact_payload(payload, {"model_id"})
+        _payload_model_id(payload)
+    elif operation == "profiles.models.select":
+        _exact_payload(payload, {"model_id", "expected_profile_model_revision"})
+        _payload_model_id(payload)
+        _payload_nonnegative_int(payload, "expected_profile_model_revision")
+    elif operation == "profiles.models.config.update":
+        _exact_payload(payload, {"model_id", "config", "expected_profile_model_revision"})
+        _payload_model_id(payload)
+        _payload_positive_int(payload, "expected_profile_model_revision")
+        try:
+            ModelRuntimeConfig.from_mapping(_profile_model_config_from_wire(payload.get("config")))
+        except ModelError as error:
+            raise ipc_error("ipc.invalid_message", reason="invalid_model_config") from error
+
+
+def _payload_model_id(payload: Mapping[str, object]) -> ModelId:
+    try:
+        return ModelId.parse(_payload_text(payload, "model_id", max_bytes=36))
+    except ValueError as error:
+        raise ipc_error("ipc.invalid_message", reason="invalid_model_id") from error
+
+
 def _payload_confirmation(payload: Mapping[str, object]) -> None:
     try:
         OperationId.parse(str(payload["operation_id"]))
@@ -880,6 +1172,13 @@ def _payload_text(payload: Mapping[str, object], key: str, *, max_bytes: int) ->
 def _payload_positive_int(payload: Mapping[str, object], key: str) -> int:
     value = payload.get(key)
     if type(value) is not int or value <= 0:
+        raise ipc_error("ipc.invalid_message", reason="invalid_revision")
+    return value
+
+
+def _payload_nonnegative_int(payload: Mapping[str, object], key: str) -> int:
+    value = payload.get(key)
+    if type(value) is not int or value < 0:
         raise ipc_error("ipc.invalid_message", reason="invalid_revision")
     return value
 

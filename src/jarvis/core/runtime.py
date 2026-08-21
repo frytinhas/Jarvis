@@ -24,6 +24,7 @@ from jarvis.ipc.models import (
     RandomProtocolIdGenerator,
 )
 from jarvis.ipc.server import Handler, IpcServer
+from jarvis.models.service import ModelRegistryService
 from jarvis.profiles.service import ProfileConfigService, ProfileService
 from jarvis.storage.xdg import XdgPaths, initialize_xdg_directories, resolve_xdg_paths
 
@@ -40,6 +41,7 @@ class CoreResources:
     diagnostics: InfrastructureDiagnosticSink
     profiles: ProfileService
     profile_configuration: ProfileConfigService
+    model_registry: ModelRegistryService
     clock: Clock
     event_ids: IdGenerator
     _closed: bool = False
@@ -98,6 +100,13 @@ class CoreResources:
                 defaults=defaults_registry,
                 clock=active_clock,
             )
+            model_registry = ModelRegistryService(
+                paths.data / DATABASE_FILENAME,
+                active_clock,
+                diagnostics=diagnostics,
+                event_ids=active_event_ids,
+                defaults=defaults_registry,
+            )
             listener = ownership.bind_socket()
             lifecycle.transition(CoreLifecycleState.READY)
             ownership.publish_metadata(identity, lifecycle.state, sorted(SERVER_CAPABILITIES))
@@ -119,6 +128,7 @@ class CoreResources:
                 diagnostics=diagnostics,
                 profiles=profiles,
                 profile_configuration=profile_configuration,
+                model_registry=model_registry,
                 clock=active_clock,
                 event_ids=active_event_ids,
             )
@@ -228,6 +238,7 @@ class JarvisCore:
             lifecycle=resources.lifecycle,
             profiles=resources.profiles,
             profile_configuration=resources.profile_configuration,
+            model_registry=resources.model_registry,
             defaults=resources.defaults,
             started_at_utc=resources.identity.started_at_utc,
             shutdown_callback=self.request_shutdown,

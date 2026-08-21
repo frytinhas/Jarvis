@@ -183,3 +183,29 @@ def test_shutdown_terminal_is_observed_before_server_closure() -> None:
         assert not socket_path.exists()
 
     asyncio.run(run())
+
+
+def test_unencodable_handler_result_fails_before_terminal_arbitration() -> None:
+    async def invalid_result(_context: RequestContext) -> dict[str, object]:
+        # Protocol v1 intentionally excludes JSON floating-point scalars.
+        return {"unsupported": 0.5}
+
+    async def run() -> None:
+        core, task, socket_path = await _running_core(handlers={"test.invalid": invalid_result})
+        client = await RawTestClient.connect(socket_path)
+        try:
+            events = await asyncio.wait_for(
+                client.request(request_id=str(uuid4()), operation="test.invalid"), 1
+            )
+            assert [event.get("event_type") for event in events] == [
+                "request.accepted",
+                "request.started",
+                "error",
+            ]
+            assert sum(event.get("terminal") is True for event in events) == 1
+            assert events[-1]["error"]["code"] == "ipc.invalid_frame"
+        finally:
+            await client.close()
+            await _stop(core, task)
+
+    asyncio.run(run())

@@ -31,6 +31,7 @@ request-cancel-v1
 core-health-v1
 profile-catalog-v1
 profile-management-v1
+model-registry-v1
 session-resume-v1
 event-replay-v1
 core-control-v1
@@ -78,6 +79,25 @@ Profile catalog entries contain exactly `profile_id`, `kind`, `display_name`, `c
 `identity_revision`. They contain no profile configuration, persona/context, permissions,
 messages, private data, timestamps, repository details, or database paths.
 
+M004 adds optional `model-registry-v1` without changing protocol version 1. It owns
+`installation.runtime.get/update`, `models.refresh/list/get`, `profiles.models.list/select`, and
+`profiles.models.config.get/update`. These operations require only `model-registry-v1` (plus the
+base request stream), not `profile-management-v1`. Installation/model catalog operations forbid a
+profile ID; profile-model operations require a stable profile ID. Syntactically malformed payloads
+fail before acceptance, while model availability and optimistic-revision domain failures use the
+normal accepted/started/single-error lifecycle.
+
+Protocol v1 excludes JSON floating-point scalars. Under the negotiated M004 capability, the four
+sampling decimals (`temperature`, `top_p`, `min_p`, and `repeat_penalty`) therefore use bounded
+decimal strings at the IPC boundary. Core converts and validates them as finite domain numbers;
+storage and service contracts remain numeric. Completion envelopes are validated before terminal
+arbitration, so an invalid handler result becomes one deliverable terminal error rather than an
+undeliverable recorded completion.
+
+`models.refresh` returns the authoritative registry records plus `partial_reason`. A null reason
+means reconciliation may mark unseen records missing. A bounded or interrupted scan reports a
+sanitized reason class and preserves previously known records that the partial scan did not visit.
+
 For shutdown, Core stores and drains the terminal `request.completed` event before entering
 `STOPPING` or server-driven closure of a healthy requester.
 
@@ -103,5 +123,6 @@ diagnostic corroboration only. A lock loser never cleans artifacts. A lock winne
 validated stale artifacts through directory-relative identity rechecks. No recovery path signals
 or kills a PID recovered from metadata.
 
-No database migration accompanies protocol version 1. Schema remains version 2 with only packaged
-migrations 0001 and 0002.
+Protocol version 1 itself has no database ownership. The current M004 product schema is version 3
+with packaged migrations `0001_migration_ledger.sql`, `0002_profile_system.sql`, and
+`0003_model_registry.sql`.

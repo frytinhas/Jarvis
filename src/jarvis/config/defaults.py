@@ -11,10 +11,11 @@ from typing import Final
 
 from jarvis.foundation.errors import ConfigurationError
 
-SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 2
-CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 2
+SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 3
+CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 3
 FOUNDATION_DIAGNOSTICS_CATEGORY: Final = "foundation_diagnostics"
 PROFILE_DEFAULTS_CATEGORY: Final = "profile_defaults"
+MODEL_DEFAULTS_CATEGORY: Final = "model_defaults"
 
 _ROOT_KEYS: Final = frozenset(
     {
@@ -22,6 +23,7 @@ _ROOT_KEYS: Final = frozenset(
         "product_defaults_version",
         FOUNDATION_DIAGNOSTICS_CATEGORY,
         PROFILE_DEFAULTS_CATEGORY,
+        MODEL_DEFAULTS_CATEGORY,
     }
 )
 _DIAGNOSTIC_KEYS: Final = frozenset(
@@ -86,11 +88,20 @@ class ProfileDefaults:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelDefaults:
+    reasoning: str
+    context_window: int
+    runtime_config: Mapping[str, object]
+    scanner_limits: Mapping[str, int]
+
+
+@dataclass(frozen=True, slots=True)
 class DefaultsSnapshot:
     defaults_schema_version: int
     product_defaults_version: int
     foundation_diagnostics: DiagnosticDefaults
     profile_defaults: ProfileDefaults
+    model_defaults: ModelDefaults
 
 
 def _require_exact_keys(
@@ -256,6 +267,71 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
             },
         )
     profile_defaults = _parse_profile_defaults(document[PROFILE_DEFAULTS_CATEGORY])
+    raw_models = document[MODEL_DEFAULTS_CATEGORY]
+    if not isinstance(raw_models, dict):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    _require_exact_keys(
+        raw_models,
+        frozenset({"reasoning", "context_window", "runtime_config", "scanner_limits"}),
+        MODEL_DEFAULTS_CATEGORY,
+    )
+    limits = raw_models.get("scanner_limits")
+    expected_limits = frozenset(
+        {
+            "max_directories",
+            "max_path_bytes",
+            "max_depth",
+            "max_directory_entries",
+            "max_candidates",
+            "metadata_budget_bytes",
+            "max_metadata_entries",
+            "max_key_bytes",
+            "max_display_string_bytes",
+            "max_array_payload_bytes",
+            "max_metadata_payload_bytes",
+        }
+    )
+    if not isinstance(limits, dict):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    _require_exact_keys(limits, expected_limits, "model_defaults.scanner_limits")
+    if any(type(v) is not int or v <= 0 for v in limits.values()):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    model_defaults = ModelDefaults(
+        reasoning=_string(raw_models.get("reasoning"), "model_defaults.reasoning"),
+        context_window=_positive_int(
+            raw_models.get("context_window"), "model_defaults.context_window"
+        ),
+        runtime_config=MappingProxyType({}),
+        scanner_limits=MappingProxyType({str(k): int(v) for k, v in limits.items()}),
+    )
+    if model_defaults.reasoning not in {"off", "low", "medium", "high", "max"}:
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    raw_runtime = raw_models.get("runtime_config")
+    if not isinstance(raw_runtime, dict):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    from jarvis.models.errors import ModelError
+    from jarvis.models.models import ModelRuntimeConfig
+
+    try:
+        runtime_config = ModelRuntimeConfig.from_mapping(
+            {
+                "reasoning": model_defaults.reasoning,
+                "context_window": model_defaults.context_window,
+                **raw_runtime,
+            }
+        ).to_mapping()
+    except ModelError as error:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details=error.safe_details,
+        ) from error
+    model_defaults = ModelDefaults(
+        model_defaults.reasoning,
+        model_defaults.context_window,
+        MappingProxyType(runtime_config),
+        model_defaults.scanner_limits,
+    )
     # Reuse the profile domain's authoritative value validation without making defaults depend on
     # persistence or services. The local import avoids a module-import cycle.
     from jarvis.profiles.configuration import ProfileConfigurationValues
@@ -270,7 +346,9 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
             safe_details=error.safe_details,
             internal_message=error.internal_message,
         ) from error
-    return DefaultsSnapshot(schema_version, product_version, diagnostics, profile_defaults)
+    return DefaultsSnapshot(
+        schema_version, product_version, diagnostics, profile_defaults, model_defaults
+    )
 
 
 class DefaultsRegistry:
@@ -303,9 +381,9 @@ class DefaultsRegistry:
 def transition_persisted_defaults(
     values: Mapping[str, object], *, from_version: int, to_version: int
 ) -> Mapping[str, object]:
-    """Return unchanged current values; no version-1 profile configuration ever existed."""
+    """Preserve profile values across defaults revisions; model state has no v2 rows."""
 
-    if from_version == to_version == CURRENT_PRODUCT_DEFAULTS_VERSION:
+    if (from_version, to_version) in {(2, 2), (2, 3), (3, 3)}:
         return MappingProxyType(dict(values))
     raise ConfigurationError(
         code="defaults.unsupported_version",
