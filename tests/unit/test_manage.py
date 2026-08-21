@@ -12,6 +12,11 @@ def test_management_help_is_local_and_requires_no_core(capsys: pytest.CaptureFix
     output = capsys.readouterr().out
     assert "Jarvis Management" in output
     assert "runtime-update" in output
+    assert "runtime-policy-update" in output
+    assert "runtime-start" in output
+    assert "runtime-status" in output
+    assert "runtime-stop" in output
+    assert "runtime-switch" in output
     with pytest.raises(SystemExit) as caught:
         main(["--help"])
     assert caught.value.code == 0

@@ -748,6 +748,13 @@ class ProfileDestructiveCoordinator:
                 connection.execute(
                     "DELETE FROM profile_models WHERE profile_id = ?", (str(command.profile_id),)
                 )
+                connection.execute(
+                    "DELETE FROM runtime_events WHERE profile_id = ?", (str(command.profile_id),)
+                )
+                connection.execute(
+                    "DELETE FROM profile_runtime_last_valid WHERE profile_id = ?",
+                    (str(command.profile_id),),
+                )
             return ResetProfileResult(
                 command.profile_id,
                 scope,

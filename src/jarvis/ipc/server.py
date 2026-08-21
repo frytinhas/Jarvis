@@ -32,6 +32,7 @@ from jarvis.ipc.models import (
     PROFILE_CATALOG,
     PROFILE_MANAGEMENT,
     REQUEST_CANCEL,
+    RUNTIME_MANAGER,
     SERVER_CAPABILITIES,
     SESSION_RESUME,
     ConnectionId,
@@ -74,6 +75,10 @@ from jarvis.profiles.models import (
 )
 from jarvis.profiles.names import MAX_ALIAS_LENGTH, MAX_DISPLAY_NAME_BYTES
 from jarvis.profiles.service import ProfileConfigService, ProfileService
+from jarvis.runtimes.errors import RuntimeManagerError
+from jarvis.runtimes.lifecycle import ProfileRuntimeLifecycleCoordinator
+from jarvis.runtimes.manager import RuntimeManager
+from jarvis.runtimes.models import RuntimeSnapshot
 
 MAX_CONNECTIONS = 32
 MAX_LOGICAL_SESSIONS = 128
@@ -183,6 +188,7 @@ class IpcServer:
         defaults: DefaultsSnapshot,
         started_at_utc: str,
         shutdown_callback: ShutdownCallback,
+        runtime_manager: RuntimeManager | None = None,
         protocol_ids: ProtocolIdGenerator | None = None,
         handlers: Mapping[str, Handler] | None = None,
         diagnostics: InfrastructureDiagnosticSink | None = None,
@@ -195,6 +201,14 @@ class IpcServer:
         self.profiles = profiles
         self.profile_configuration = profile_configuration
         self.model_registry = model_registry
+        self.runtime_manager = runtime_manager
+        self.profile_lifecycle = (
+            None
+            if runtime_manager is None
+            else ProfileRuntimeLifecycleCoordinator(
+                profiles, profile_configuration, runtime_manager
+            )
+        )
         self.defaults = defaults
         self.started_at_utc = started_at_utc
         self.shutdown_callback = shutdown_callback
@@ -458,6 +472,12 @@ class IpcServer:
             "profiles.models.select",
             "profiles.models.config.get",
             "profiles.models.config.update",
+            "profiles.runtime.start",
+            "profiles.runtime.status",
+            "profiles.runtime.stop",
+            "profiles.runtime.switch",
+            "installation.runtime.policy.get",
+            "installation.runtime.policy.update",
         }
         if request.operation not in operations:
             raise ipc_error("ipc.operation_not_supported", operation=request.operation)
@@ -479,6 +499,10 @@ class IpcServer:
             "profiles.models.select",
             "profiles.models.config.get",
             "profiles.models.config.update",
+            "profiles.runtime.start",
+            "profiles.runtime.status",
+            "profiles.runtime.stop",
+            "profiles.runtime.switch",
         }
         if request.operation in profile_operations:
             if request.profile_id is None:
@@ -490,10 +514,17 @@ class IpcServer:
         if request.operation == "core.health" and CORE_HEALTH not in session.capabilities:
             raise ipc_error("ipc.capability_mismatch", reason="core_health_not_negotiated")
         if (
-            request.operation.startswith(("models.", "installation.", "profiles.models."))
+            request.operation.startswith(
+                ("models.", "installation.", "profiles.models.", "profiles.runtime.")
+            )
             and MODEL_REGISTRY not in session.capabilities
         ):
             raise ipc_error("ipc.capability_mismatch", reason="model_registry_not_negotiated")
+        if (
+            request.operation.startswith("profiles.runtime.")
+            or request.operation.startswith("installation.runtime.policy.")
+        ) and RUNTIME_MANAGER not in session.capabilities:
+            raise ipc_error("ipc.capability_mismatch", reason="runtime_manager_not_negotiated")
         if (
             request.operation in {"profiles.list", "profiles.get"}
             and PROFILE_CATALOG not in session.capabilities
@@ -503,11 +534,16 @@ class IpcServer:
             request.operation.startswith("profiles.")
             and request.operation not in {"profiles.list", "profiles.get"}
             and not request.operation.startswith("profiles.models.")
+            and not request.operation.startswith("profiles.runtime.")
             and PROFILE_MANAGEMENT not in session.capabilities
         ):
             raise ipc_error("ipc.capability_mismatch", reason="profile_management_not_negotiated")
         if request.operation.startswith(("models.", "installation.", "profiles.models.")):
             _validate_model_registry_payload(request)
+        if request.operation.startswith("profiles.runtime.") or request.operation.startswith(
+            "installation.runtime.policy."
+        ):
+            _validate_runtime_manager_payload(request)
         if request.operation.startswith("profiles.") and request.operation not in {
             "profiles.list",
             "profiles.get",
@@ -561,7 +597,7 @@ class IpcServer:
                 await self._send_event_if_attached(session, terminal)
             raise
         except BaseException as error:
-            if isinstance(error, ModelError):
+            if isinstance(error, (ModelError, RuntimeManagerError)):
                 error = ipc_error(error.code, **error.safe_details)
             terminal = await self.registry.fail(context, error)
             if terminal is not None:
@@ -576,6 +612,10 @@ class IpcServer:
             return await self.handlers[operation](context)
         if operation == "core.health":
             return self._health()
+        if operation.startswith("profiles.runtime.") or operation.startswith(
+            "installation.runtime.policy."
+        ):
+            return await self._dispatch_runtime(context)
         if operation == "installation.runtime.get":
             if context.request.payload:
                 raise ipc_error("ipc.invalid_message", reason="payload_must_be_empty")
@@ -644,6 +684,12 @@ class IpcServer:
                     raise ValueError
             except (TypeError, ValueError) as error:
                 raise ipc_error("ipc.invalid_message", reason="invalid_model_selection") from error
+            if self.runtime_manager is not None and self.runtime_manager.has_active(
+                context.request.profile_id
+            ):
+                from jarvis.runtimes.errors import RuntimeSwitchRequiredError
+
+                raise RuntimeSwitchRequiredError()
             await asyncio.to_thread(
                 self.model_registry.select, context.request.profile_id, model_id, revision
             )
@@ -792,10 +838,30 @@ class IpcServer:
             assert context.request.profile_id is not None
             _exact_payload(context.request.payload, {"scope"})
             scope = _payload_reset_scope(context.request.payload)
-            preview = await asyncio.to_thread(
-                self.profile_configuration.preview_reset, context.request.profile_id, scope
-            )
-            return {"preview": _preview_wire(preview)}
+            if self.profile_lifecycle is None:
+                preview = await asyncio.to_thread(
+                    self.profile_configuration.preview_reset, context.request.profile_id, scope
+                )
+                active = False
+            else:
+                preview, active = await self.profile_lifecycle.preview_reset(
+                    context.request.profile_id, scope
+                )
+            wire = _preview_wire(preview)
+            if scope is ResetScope.WHOLE_PROFILE and self.profile_lifecycle is not None:
+                items = wire["items"]
+                assert isinstance(items, list)
+                items.append(
+                    {
+                        "key": "runtime",
+                        "action": "quiesce",
+                        "current_count": int(active),
+                        "target_count": 0,
+                        "will_change": active,
+                    }
+                )
+                wire["has_changes"] = bool(wire["has_changes"] or active)
+            return {"preview": wire}
         if operation == "profiles.reset.confirm":
             assert context.request.profile_id is not None
             _exact_payload(context.request.payload, {"operation_id", "scope", "confirmation_token"})
@@ -806,9 +872,12 @@ class IpcServer:
                 DestructiveOperationKind.RESET_CONFIGURATION,
                 scope,
             )
-            reset_result = await asyncio.to_thread(
-                self.profile_configuration.confirm_reset, command
-            )
+            if self.profile_lifecycle is None:
+                reset_result = await asyncio.to_thread(
+                    self.profile_configuration.confirm_reset, command
+                )
+            else:
+                reset_result = await self.profile_lifecycle.confirm_reset(command)
             return {
                 "profile_id": str(reset_result.profile_id),
                 "scope": reset_result.scope.value,
@@ -818,10 +887,30 @@ class IpcServer:
         if operation == "profiles.delete.preview":
             assert context.request.profile_id is not None
             _exact_payload(context.request.payload, set())
-            preview = await asyncio.to_thread(
-                self.profiles.preview_delete, context.request.profile_id
-            )
-            return {"preview": _preview_wire(preview)}
+            if self.profile_lifecycle is None:
+                preview = await asyncio.to_thread(
+                    self.profiles.preview_delete, context.request.profile_id
+                )
+                active = False
+            else:
+                preview, active = await self.profile_lifecycle.preview_delete(
+                    context.request.profile_id
+                )
+            wire = _preview_wire(preview)
+            if self.profile_lifecycle is not None:
+                items = wire["items"]
+                assert isinstance(items, list)
+                items.append(
+                    {
+                        "key": "runtime",
+                        "action": "quiesce",
+                        "current_count": int(active),
+                        "target_count": 0,
+                        "will_change": active,
+                    }
+                )
+                wire["has_changes"] = bool(wire["has_changes"] or active)
+            return {"preview": wire}
         if operation == "profiles.delete.confirm":
             assert context.request.profile_id is not None
             _exact_payload(context.request.payload, {"operation_id", "confirmation_token"})
@@ -831,7 +920,10 @@ class IpcServer:
                 DestructiveOperationKind.DELETE_PROFILE,
                 DeletionScope.WHOLE_PROFILE,
             )
-            delete_result = await asyncio.to_thread(self.profiles.confirm_delete, command)
+            if self.profile_lifecycle is None:
+                delete_result = await asyncio.to_thread(self.profiles.confirm_delete, command)
+            else:
+                delete_result = await self.profile_lifecycle.confirm_delete(command)
             return {
                 "deleted_profile_id": str(delete_result.profile_id),
                 "old_alias": delete_result.alias_change.old_alias,
@@ -839,6 +931,96 @@ class IpcServer:
         if operation == "core.shutdown":
             return {"shutdown_scheduled": True}
         raise ipc_error("ipc.operation_not_supported", operation=operation)
+
+    async def _dispatch_runtime(self, context: RequestContext) -> Mapping[str, object]:
+        manager = self.runtime_manager
+        if manager is None:
+            raise ipc_error("ipc.operation_not_supported", operation=context.request.operation)
+        operation = context.request.operation
+        if operation == "installation.runtime.policy.get":
+            policy = await asyncio.to_thread(manager.policy)
+            return {
+                "max_concurrent_runtimes": policy.max_concurrent_runtimes,
+                "revision": policy.revision,
+                "updated_at_utc": policy.updated_at_utc,
+            }
+        if operation == "installation.runtime.policy.update":
+            policy = await manager.update_policy(
+                _payload_positive_int(context.request.payload, "max_concurrent_runtimes"),
+                _payload_positive_int(context.request.payload, "expected_revision"),
+            )
+            return {
+                "max_concurrent_runtimes": policy.max_concurrent_runtimes,
+                "revision": policy.revision,
+                "updated_at_utc": policy.updated_at_utc,
+            }
+        assert context.request.profile_id is not None
+
+        async def state_changed(snapshot: RuntimeSnapshot) -> None:
+            payload = snapshot.to_safe_mapping()
+            # Validate the exact event envelope before sequence/state arbitration.
+            encode_frame(
+                IpcEvent(
+                    core_instance_id=self.core_instance_id,
+                    request_id=context.request_id,
+                    sequence=context.next_sequence,
+                    event_type="runtime.state_changed",
+                    terminal=False,
+                    payload=payload,
+                ).to_wire()
+            )
+            event = await self.registry.emit(context, "runtime.state_changed", payload)
+            session = self._sessions.get(context.owner)
+            if event is not None and session is not None:
+                await self._send_event_if_attached(session, event)
+
+        if operation == "profiles.runtime.status":
+            return (await manager.status(context.request.profile_id)).to_safe_mapping()
+        if operation == "profiles.runtime.start":
+            result = await self._runtime_cancellable(
+                context,
+                manager.start(context.request.profile_id, on_state=state_changed),
+            )
+            return result.to_safe_mapping()
+        if operation == "profiles.runtime.stop":
+            result = await self._runtime_cancellable(
+                context,
+                manager.stop(context.request.profile_id, on_state=state_changed),
+            )
+            return result.to_safe_mapping()
+        if operation == "profiles.runtime.switch":
+            result = await self._runtime_cancellable(
+                context,
+                manager.switch(
+                    context.request.profile_id,
+                    _payload_model_id(context.request.payload),
+                    _payload_positive_int(
+                        context.request.payload, "expected_profile_model_revision"
+                    ),
+                    on_state=state_changed,
+                ),
+            )
+            return result.to_safe_mapping()
+        raise ipc_error("ipc.operation_not_supported", operation=operation)
+
+    @staticmethod
+    async def _runtime_cancellable(
+        context: RequestContext, operation: Awaitable[RuntimeSnapshot]
+    ) -> RuntimeSnapshot:
+        task: asyncio.Future[RuntimeSnapshot] = asyncio.ensure_future(operation)
+        cancellation = asyncio.create_task(context.cancellation.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                (task, cancellation), return_when=asyncio.FIRST_COMPLETED
+            )
+            if cancellation in done and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise asyncio.CancelledError
+            return await task
+        finally:
+            cancellation.cancel()
+            await asyncio.gather(cancellation, return_exceptions=True)
 
     def _health(self) -> dict[str, object]:
         return {
@@ -850,7 +1032,7 @@ class IpcServer:
             "capabilities": sorted(SERVER_CAPABILITIES),
             "active_connections": self.active_connections,
             "in_flight_requests": self.registry.in_flight_count,
-            "database_schema_version": 3,
+            "database_schema_version": 4,
             "defaults_schema_version": self.defaults.defaults_schema_version,
             "product_defaults_version": self.defaults.product_defaults_version,
         }
@@ -1138,6 +1320,28 @@ def _validate_model_registry_payload(request: IpcRequest) -> None:
             ModelRuntimeConfig.from_mapping(_profile_model_config_from_wire(payload.get("config")))
         except ModelError as error:
             raise ipc_error("ipc.invalid_message", reason="invalid_model_config") from error
+
+
+def _validate_runtime_manager_payload(request: IpcRequest) -> None:
+    operation = request.operation
+    payload = request.payload
+    if operation in {
+        "profiles.runtime.start",
+        "profiles.runtime.status",
+        "profiles.runtime.stop",
+        "installation.runtime.policy.get",
+    }:
+        _exact_payload(payload, set())
+    elif operation == "profiles.runtime.switch":
+        _exact_payload(payload, {"model_id", "expected_profile_model_revision"})
+        _payload_model_id(payload)
+        _payload_positive_int(payload, "expected_profile_model_revision")
+    elif operation == "installation.runtime.policy.update":
+        _exact_payload(payload, {"max_concurrent_runtimes", "expected_revision"})
+        capacity = _payload_positive_int(payload, "max_concurrent_runtimes")
+        if capacity > 16:
+            raise ipc_error("ipc.invalid_message", reason="invalid_runtime_capacity")
+        _payload_positive_int(payload, "expected_revision")
 
 
 def _payload_model_id(payload: Mapping[str, object]) -> ModelId:

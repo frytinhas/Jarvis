@@ -24,8 +24,11 @@ from jarvis.ipc.models import (
     RandomProtocolIdGenerator,
 )
 from jarvis.ipc.server import Handler, IpcServer
+from jarvis.llm.llama_cpp import LlamaCppProvider
+from jarvis.llm.provider import LLMProvider
 from jarvis.models.service import ModelRegistryService
 from jarvis.profiles.service import ProfileConfigService, ProfileService
+from jarvis.runtimes.manager import RuntimeManager
 from jarvis.storage.xdg import XdgPaths, initialize_xdg_directories, resolve_xdg_paths
 
 
@@ -42,6 +45,7 @@ class CoreResources:
     profiles: ProfileService
     profile_configuration: ProfileConfigService
     model_registry: ModelRegistryService
+    runtime_manager: RuntimeManager
     clock: Clock
     event_ids: IdGenerator
     _closed: bool = False
@@ -53,6 +57,7 @@ class CoreResources:
         clock: Clock | None = None,
         event_ids: IdGenerator | None = None,
         protocol_ids: ProtocolIdGenerator | None = None,
+        provider: LLMProvider | None = None,
     ) -> CoreResources:
         active_clock = SystemClock() if clock is None else clock
         active_event_ids = RandomIdGenerator() if event_ids is None else event_ids
@@ -107,6 +112,16 @@ class CoreResources:
                 event_ids=active_event_ids,
                 defaults=defaults_registry,
             )
+            runtime_manager = RuntimeManager(
+                database_path=paths.data / DATABASE_FILENAME,
+                runtime_root=paths.runtime,
+                models=model_registry,
+                provider=LlamaCppProvider() if provider is None else provider,
+                defaults=defaults_registry,
+                clock=active_clock,
+                event_ids=active_event_ids,
+                diagnostics=diagnostics,
+            )
             listener = ownership.bind_socket()
             lifecycle.transition(CoreLifecycleState.READY)
             ownership.publish_metadata(identity, lifecycle.state, sorted(SERVER_CAPABILITIES))
@@ -129,6 +144,7 @@ class CoreResources:
                 profiles=profiles,
                 profile_configuration=profile_configuration,
                 model_registry=model_registry,
+                runtime_manager=runtime_manager,
                 clock=active_clock,
                 event_ids=active_event_ids,
             )
@@ -212,8 +228,14 @@ def _emit(
 class JarvisCore:
     """Foreground authoritative Core host."""
 
-    def __init__(self, *, handlers: dict[str, Handler] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        handlers: dict[str, Handler] | None = None,
+        provider: LLMProvider | None = None,
+    ) -> None:
         self._handlers = handlers
+        self._provider = provider
         self._shutdown = asyncio.Event()
         self._resources: CoreResources | None = None
         self._server: IpcServer | None = None
@@ -230,7 +252,7 @@ class JarvisCore:
         self._shutdown.set()
 
     async def run(self) -> None:
-        self._resources = CoreResources.start()
+        self._resources = CoreResources.start(provider=self._provider)
         resources = self._resources
         server = IpcServer(
             listener=resources.listener,
@@ -239,6 +261,7 @@ class JarvisCore:
             profiles=resources.profiles,
             profile_configuration=resources.profile_configuration,
             model_registry=resources.model_registry,
+            runtime_manager=resources.runtime_manager,
             defaults=resources.defaults,
             started_at_utc=resources.identity.started_at_utc,
             shutdown_callback=self.request_shutdown,
@@ -249,6 +272,7 @@ class JarvisCore:
         )
         self._server = server
         try:
+            await resources.runtime_manager.recover_stale()
             await server.start()
             await self._shutdown.wait()
             resources.begin_stopping()
@@ -257,6 +281,7 @@ class JarvisCore:
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._wait_for_requests(), timeout=5.0)
             await server.close()
+            await resources.runtime_manager.close()
         finally:
             resources.close()
 

@@ -11,11 +11,12 @@ from typing import Final
 
 from jarvis.foundation.errors import ConfigurationError
 
-SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 3
-CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 3
+SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 4
+CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 4
 FOUNDATION_DIAGNOSTICS_CATEGORY: Final = "foundation_diagnostics"
 PROFILE_DEFAULTS_CATEGORY: Final = "profile_defaults"
 MODEL_DEFAULTS_CATEGORY: Final = "model_defaults"
+RUNTIME_MANAGER_CATEGORY: Final = "runtime_manager"
 
 _ROOT_KEYS: Final = frozenset(
     {
@@ -24,6 +25,7 @@ _ROOT_KEYS: Final = frozenset(
         FOUNDATION_DIAGNOSTICS_CATEGORY,
         PROFILE_DEFAULTS_CATEGORY,
         MODEL_DEFAULTS_CATEGORY,
+        RUNTIME_MANAGER_CATEGORY,
     }
 )
 _DIAGNOSTIC_KEYS: Final = frozenset(
@@ -96,12 +98,22 @@ class ModelDefaults:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeManagerDefaults:
+    max_concurrent_runtimes: int
+    max_pending_starts: int
+    stream_capture_bytes: int
+    event_retention_count: int
+    endpoint_allocation_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
 class DefaultsSnapshot:
     defaults_schema_version: int
     product_defaults_version: int
     foundation_diagnostics: DiagnosticDefaults
     profile_defaults: ProfileDefaults
     model_defaults: ModelDefaults
+    runtime_manager: RuntimeManagerDefaults
 
 
 def _require_exact_keys(
@@ -346,8 +358,38 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
             safe_details=error.safe_details,
             internal_message=error.internal_message,
         ) from error
+    raw_runtime_manager = document[RUNTIME_MANAGER_CATEGORY]
+    if not isinstance(raw_runtime_manager, dict):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    runtime_keys = frozenset(
+        {
+            "max_concurrent_runtimes",
+            "max_pending_starts",
+            "stream_capture_bytes",
+            "event_retention_count",
+            "endpoint_allocation_attempts",
+        }
+    )
+    _require_exact_keys(raw_runtime_manager, runtime_keys, RUNTIME_MANAGER_CATEGORY)
+    runtime_manager = RuntimeManagerDefaults(
+        **{
+            key: _positive_int(raw_runtime_manager[key], f"runtime_manager.{key}")
+            for key in runtime_keys
+        }
+    )
+    if runtime_manager.max_concurrent_runtimes > 16:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": "runtime_manager.max_concurrent_runtimes"},
+        )
     return DefaultsSnapshot(
-        schema_version, product_version, diagnostics, profile_defaults, model_defaults
+        schema_version,
+        product_version,
+        diagnostics,
+        profile_defaults,
+        model_defaults,
+        runtime_manager,
     )
 
 
@@ -383,7 +425,14 @@ def transition_persisted_defaults(
 ) -> Mapping[str, object]:
     """Preserve profile values across defaults revisions; model state has no v2 rows."""
 
-    if (from_version, to_version) in {(2, 2), (2, 3), (3, 3)}:
+    if (from_version, to_version) in {
+        (2, 2),
+        (2, 3),
+        (2, 4),
+        (3, 3),
+        (3, 4),
+        (4, 4),
+    }:
         return MappingProxyType(dict(values))
     raise ConfigurationError(
         code="defaults.unsupported_version",

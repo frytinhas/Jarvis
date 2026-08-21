@@ -109,7 +109,7 @@ def test_unsupported_message_defaults_origin_fails_closed_before_preview(tmp_pat
     jarvis = profiles.ensure_jarvis()
     with SQLiteDatabase(path) as database:
         database.connection().execute(
-            "UPDATE profile_configuration_sections SET defaults_version = 4 "
+            "UPDATE profile_configuration_sections SET defaults_version = 5 "
             "WHERE profile_id = ? AND section_name = 'waiting-messages'",
             (str(jarvis.profile.profile_id),),
         )

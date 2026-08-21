@@ -10,12 +10,13 @@ from collections.abc import Sequence
 
 from jarvis.ipc.client import JarvisIpcClient
 from jarvis.ipc.errors import IpcError
-from jarvis.ipc.models import REQUEST_STREAM
+from jarvis.ipc.models import REQUEST_STREAM, RUNTIME_MANAGER
 from jarvis.storage.xdg import resolve_xdg_paths
 
 HELP = """Jarvis Management
 
-Manage local model directories and the stored llama-server path through Jarvis Core."""
+Manage local model discovery, selection, runtime capacity, and Core-owned profile runtimes through
+Jarvis Core. Runtime controls do not provide chat or inference UX."""
 
 _DECIMAL_CONFIG_FIELDS = frozenset({"temperature", "top_p", "min_p", "repeat_penalty"})
 
@@ -32,9 +33,20 @@ def _config_payload(value: object) -> object:
 
 
 async def _run(args: argparse.Namespace) -> int:
+    runtime_commands = {
+        "runtime-policy-get",
+        "runtime-policy-update",
+        "runtime-start",
+        "runtime-status",
+        "runtime-stop",
+        "runtime-switch",
+    }
+    required = [REQUEST_STREAM, "model-registry-v1"]
+    if args.command in runtime_commands:
+        required.append(RUNTIME_MANAGER)
     c = await JarvisIpcClient.connect(
         resolve_xdg_paths().runtime / "core.sock",
-        required_capabilities=(REQUEST_STREAM, "model-registry-v1"),
+        required_capabilities=tuple(required),
         client_name="jarvis-manage",
     )
     try:
@@ -53,6 +65,12 @@ async def _run(args: argparse.Namespace) -> int:
             "select": "profiles.models.select",
             "config-get": "profiles.models.config.get",
             "config-update": "profiles.models.config.update",
+            "runtime-policy-get": "installation.runtime.policy.get",
+            "runtime-policy-update": "installation.runtime.policy.update",
+            "runtime-start": "profiles.runtime.start",
+            "runtime-status": "profiles.runtime.status",
+            "runtime-stop": "profiles.runtime.stop",
+            "runtime-switch": "profiles.runtime.switch",
         }[args.command]
         if args.command in {"get", "config-get"}:
             payload = {"model_id": args.model_id}
@@ -63,6 +81,16 @@ async def _run(args: argparse.Namespace) -> int:
                 "model_id": args.model_id,
                 "expected_profile_model_revision": args.revision,
                 "config": _config_payload(json.loads(args.config)),
+            }
+        if args.command == "runtime-policy-update":
+            payload = {
+                "max_concurrent_runtimes": args.max_concurrent_runtimes,
+                "expected_revision": args.revision,
+            }
+        if args.command == "runtime-switch":
+            payload = {
+                "model_id": args.model_id,
+                "expected_profile_model_revision": args.revision,
             }
         events = [
             event
@@ -88,6 +116,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     u.add_argument("--runtime-path")
     sub.add_parser("refresh")
     sub.add_parser("list")
+    sub.add_parser("runtime-policy-get")
+    policy_update = sub.add_parser("runtime-policy-update")
+    policy_update.add_argument("max_concurrent_runtimes", type=int)
+    policy_update.add_argument("--revision", required=True, type=int)
     g = sub.add_parser("get")
     g.add_argument("model_id")
     for command in ("profile-models", "select", "config-get", "config-update"):
@@ -99,6 +131,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             item.add_argument("--revision", required=True, type=int)
         if command == "config-update":
             item.add_argument("--config", required=True)
+    for command in ("runtime-start", "runtime-status", "runtime-stop", "runtime-switch"):
+        item = sub.add_parser(command)
+        item.add_argument("--profile-id", required=True)
+        if command == "runtime-switch":
+            item.add_argument("model_id")
+            item.add_argument("--revision", required=True, type=int)
     a = p.parse_args(argv)
     if not a.command:
         p.print_help()

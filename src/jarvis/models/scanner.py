@@ -46,7 +46,7 @@ class ScanHooks:
     after_candidate_parse: Callable[[Path, int], None] | None = None
 
 
-def _fingerprint(path: Path, metadata: os.stat_result, header_digest: str) -> str:
+def model_fingerprint(path: Path, metadata: os.stat_result, header_digest: str) -> str:
     digest = hashlib.sha256()
     digest.update(os.fsencode(path))
     digest.update(b"\0")
@@ -81,7 +81,7 @@ def _record_failure(
         metadata.st_size,
         metadata.st_mtime_ns,
         {},
-        _fingerprint(safe_path, metadata, digest),
+        model_fingerprint(safe_path, metadata, digest),
         availability,
         reason,
         "",
@@ -322,7 +322,7 @@ def scan_directories(roots: tuple[Path, ...], *, hooks: ScanHooks | None = None)
                                 parsed.size,
                                 parsed.mtime_ns,
                                 parsed.metadata,
-                                _fingerprint(path, opened, parsed.header_digest),
+                                model_fingerprint(path, opened, parsed.header_digest),
                                 ModelAvailability.AVAILABLE,
                                 None,
                                 "",

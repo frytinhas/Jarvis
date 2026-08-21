@@ -1,10 +1,10 @@
-# Foundation, profile-domain, Core IPC, and configuration-client development
+# Foundation through local runtime-manager development
 
 ## Scope
 
-Milestones 000–003 contain repository/security infrastructure, the service-level profile domain,
-one foreground Core with versioned Unix-domain IPC, and a thin profile-first configuration client.
-They deliberately have no model, chat, policy, broker, host tool, updater, installer, TUI, network
+Milestones 000–005 contain repository/security infrastructure, profiles, one Core, thin management
+clients, a read-only GGUF registry, and Core-owned authenticated loopback model processes. They
+deliberately have no chat, policy, broker, host tool, updater, installer, TUI, external-network
 subsystem, assistant client, or executable profile alias.
 `AGENTS.md` is the product authority, `ROADMAP.md` defines milestone boundaries, `PLANS.md` defines
 execution discipline, and `docs/plans/000-foundation.md` plus
@@ -36,14 +36,14 @@ pytest
 ruff check .
 ruff format --check .
 mypy src tests
-python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m003-wheel .
+python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m005-wheel .
 git diff --check
 ```
 
 The wheel must contain only the `jarvis` package and its packaged TOML/SQL resources. Its
 metadata must report GPL-3.0-only, Python >=3.12, and no `Requires-Dist` entry except optional `dev`
 requirements guarded by the `extra == "dev"` marker. It must declare `jarvisd`, `jarvis-config`,
-and `jarvis-help` with their documented targets, omit a public `jarvis` or profile command, and
+`jarvis-help`, and `jarvis-manage` with their documented targets, omit a public `jarvis` or profile command, and
 retain zero runtime dependencies.
 
 ## Disposable XDG verification
@@ -97,7 +97,27 @@ pending set. Failure rolls the set back and preserves the database for inspectio
 never downgrades, restores, or deletes a nonempty database automatically. Migration 0002 adds the
 seven profile-domain tables documented in the M001 ExecPlan. Migration 0003 adds installation
 runtime locations, durable read-only model records/path history, and profile-model associations.
+Migration 0004 adds metadata-only runtime events, last-ready evidence, and the revisioned
+installation runtime-capacity policy. Process handles, ports, locks, tokens, queues, and output
+counters remain ephemeral under XDG runtime storage.
 Jarvis bootstrap follows migration and completes before initialization is published.
+
+## M005 runtime boundary
+
+The production provider invokes only a revalidated native executable with
+`asyncio.create_subprocess_exec`, structured managed arguments, `/dev/null` stdin, a private cwd,
+new process group, inherited read-only model and private API-key descriptors, and an exact
+environment allowlist. It binds only `127.0.0.1`, authenticates `/health` using a random private
+key descriptor, continuously
+drains bounded server output, and persists only aggregate counts. Nonempty stored extra server
+arguments fail before spawn. The default suite uses deterministic fake providers and a compiled
+native test server; it never requires an installed `llama-server` or a real GGUF library.
+
+There is exactly one active runtime per profile. Different profiles may independently use the same
+GGUF. Installation capacity defaults to two; excess starts wait FIFO up to the bounded pending
+limit and never evict an existing runtime. Whole-profile reset/delete and Core shutdown quiesce the
+runtime first. Runtime startup does not create learning/chat state and M005 contains no prompt,
+moderation, output filtering, content classification, or provider-policy behavior.
 
 Foundation infrastructure diagnostics are stored only in XDG state. Defaults are 256 MiB total,
 8 MiB per file, 64 KiB per event, 16 KiB per text value, depth 8, 100 entries per container, at most

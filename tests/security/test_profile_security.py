@@ -213,10 +213,11 @@ def test_schema_and_source_surface_contain_no_later_milestone_capabilities(tmp_p
         "models",
         "model_paths",
         "profile_models",
+        "runtime_events",
+        "profile_runtime_last_valid",
+        "installation_runtime_policy",
     }
     forbidden = {
-        "llm",
-        "runtime",
         "tools",
         "permissions",
         "memory",

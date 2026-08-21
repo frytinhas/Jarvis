@@ -72,6 +72,15 @@ The provider interface hides inference-backend details from the Agent Engine. Th
 
 The Runtime Manager owns `STARTING`, `READY`, `BUSY`, `ERROR`, `STOPPING`, and `STOPPED` transitions, race-safe local endpoint ownership, health, timeouts, and quota-bounded sanitized server diagnostics. Runtime ID, PID start time/executable identity, lock, owned endpoint, and expected health evidence enforce at most one active model server per profile and recover stale/orphan artifacts without killing an unrelated reused PID. Different profiles may concurrently run the same GGUF, but their runtime and persistent state remain independent.
 
+M005 implements this boundary with authenticated IPv4 loopback HTTP only. Core constructs a
+structured, offline `llama-server` argv from typed M004 configuration, passes descriptor-bound
+revalidated model and private API-key files, filters the environment, owns the process group, and accepts READY only after
+process/executable, listener-inode, endpoint, and authenticated-health evidence agree. Runtime
+capacity is installation-wide, revisioned, configurable from 1–16, and defaults to two. Admission
+is bounded FIFO and never stops an existing profile to make room. Only metadata events and
+last-ready association evidence persist; tokens, handles, ports, locks, queues, and raw output do
+not. Whole-profile reset/delete and Core shutdown quiesce owned runtimes before persistent cleanup.
+
 Initially, a deterministic FIFO coordinator serializes generations for one profile/runtime while allowing different profiles to generate concurrently. A model switch waits for the active generation or explicitly cancels and records it, stops the old runtime completely, and only then starts the replacement.
 
 ## Agent Engine and Context Builder

@@ -136,7 +136,7 @@ def test_unknown_higher_database_version_fails_closed(tmp_path: Path) -> None:
         MigrationRunner(database, _clock()).apply()
         connection = database.connection()
         connection.execute(
-            "INSERT INTO schema_migrations VALUES (4, 'future', ?, ?)",
+            "INSERT INTO schema_migrations VALUES (5, 'future', ?, ?)",
             ("0" * 64, "2026-08-10T12:00:00.000000Z"),
         )
         with pytest.raises(StorageError) as caught:
@@ -192,9 +192,9 @@ def test_concurrent_initializers_serialize_and_apply_once(tmp_path: Path) -> Non
     for thread in threads:
         thread.join(timeout=10)
     assert not failures
-    assert sorted(results) == [(), (1, 2, 3)]
+    assert sorted(results) == [(), (1, 2, 3, 4)]
     with SQLiteDatabase(path) as database:
-        assert current_schema_version(database) == 3
+        assert current_schema_version(database) == 4
 
 
 def test_cross_process_connection_initialization_is_serialized(tmp_path: Path) -> None:
@@ -214,7 +214,7 @@ def test_cross_process_connection_initialization_is_serialized(tmp_path: Path) -
         process.join(timeout=10)
     assert [process.exitcode for process in processes] == [0, 0, 0, 0]
     with SQLiteDatabase(path) as database:
-        assert current_schema_version(database) == 3
+        assert current_schema_version(database) == 4
 
 
 @pytest.mark.parametrize(

@@ -2,16 +2,19 @@
 
 Jarvis-CLI is a privacy-first, telemetry-free local AI assistant for Linux. The implemented domain
 currently includes the security foundation, persistent profile identity/configuration, one
-foreground Jarvis Core behind versioned local IPC, the profile-first `jarvis-config` client, and a
-read-only local GGUF registry with minimum `jarvis-manage` configuration. No model process,
-inference, chat, host tool, network feature, TUI, or public Jarvis assistant command exists yet.
+foreground Jarvis Core behind versioned local IPC, the profile-first `jarvis-config` client, a
+read-only local GGUF registry, and a Core-owned per-profile `llama-server` runtime manager. No
+inference/chat UX, host tool, external-network feature, TUI, or public Jarvis assistant command
+exists yet.
 
 The current implementation provides user-local XDG storage, versioned defaults, SQLite migrations,
 bounded redacted infrastructure diagnostics, quota reservations, typed errors, active-installation
 identity checks, and Core-owned profile/model lifecycle/configuration APIs. `jarvis-config`,
 `jarvis-manage`, and `jarvis-help` are thin local clients; logical profile aliases are data mappings
 only and do not create commands. GGUF discovery is explicit, bounded, descriptor-based, and
-read-only. Local model inference and assistant clients are later milestones.
+read-only. `jarvis-manage` can start, inspect, stop, and switch authenticated loopback-only model
+runtimes, with one runtime per profile and a configurable installation-wide capacity (default 2).
+Local model inference and assistant clients are later milestones.
 
 ## Requirements
 
@@ -20,8 +23,9 @@ read-only. Local model inference and assistant clients are later milestones.
 - Development dependencies installed explicitly by a maintainer. Application startup and tests do
   not install or download dependencies.
 
-Jarvis-CLI has no runtime Python dependencies through Milestone 004 and performs no intentional
-network access or telemetry.
+Jarvis-CLI has no runtime Python dependencies through Milestone 005 and performs no external
+network access or telemetry. M005 uses authenticated IPv4 loopback HTTP only between Core and its
+owned local `llama-server` process.
 
 ## Development commands
 

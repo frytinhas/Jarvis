@@ -60,7 +60,7 @@ def test_schema_one_upgrades_to_profile_schema_once(tmp_path: Path) -> None:
             .fetchall()
         }
     assert first.applied_versions == (1,)
-    assert upgrade.applied_versions == (2, 3)
+    assert upgrade.applied_versions == (2, 3, 4)
     assert repeated.applied_versions == ()
     assert tables == {
         "schema_migrations",
@@ -75,6 +75,9 @@ def test_schema_one_upgrades_to_profile_schema_once(tmp_path: Path) -> None:
         "models",
         "model_paths",
         "profile_models",
+        "runtime_events",
+        "profile_runtime_last_valid",
+        "installation_runtime_policy",
     }
 
 
@@ -94,7 +97,7 @@ def test_schema_two_upgrades_atomically_to_model_registry_without_backfill(tmp_p
         MigrationRunner(database, _clock(), packaged[:2]).apply()
         _insert_profile(database.connection(), JARVIS_ID, "jarvis", "jarvis")
         upgraded = MigrationRunner(database, _clock()).apply()
-        assert upgraded.applied_versions == (3,)
+        assert upgraded.applied_versions == (3, 4)
         assert database.connection().execute("SELECT count(*) FROM models").fetchone()[0] == 0
         assert (
             database.connection().execute("SELECT count(*) FROM profile_models").fetchone()[0] == 0
@@ -347,7 +350,6 @@ def test_future_milestone_tables_are_absent(tmp_path: Path) -> None:
         "tool_calls",
         "approvals",
         "audit_events",
-        "runtime_events",
         "ipc_requests",
     }
     assert names.isdisjoint(forbidden)

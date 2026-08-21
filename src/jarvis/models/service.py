@@ -18,6 +18,7 @@ from jarvis.models.errors import (
     InvalidRuntimeLocationError,
     ModelDatabaseError,
 )
+from jarvis.models.gguf import read_gguf_fd
 from jarvis.models.models import (
     ModelAvailability,
     ModelId,
@@ -26,7 +27,13 @@ from jarvis.models.models import (
     RuntimeLocationConfig,
 )
 from jarvis.models.repository import ModelRepository
-from jarvis.models.scanner import MAX_DIRECTORIES, MAX_PATH_BYTES, ScanResult, scan_directories
+from jarvis.models.scanner import (
+    MAX_DIRECTORIES,
+    MAX_PATH_BYTES,
+    ScanResult,
+    model_fingerprint,
+    scan_directories,
+)
 from jarvis.profiles.models import ProfileId
 from jarvis.storage.database import SQLiteDatabase
 
@@ -223,6 +230,74 @@ class ModelRegistryService:
                 )
         except sqlite3.Error as error:
             raise ModelDatabaseError("conflict") from error
+
+    def ensure_runtime_association(self, profile_id: ProfileId, model_id: ModelId) -> int:
+        try:
+            with SQLiteDatabase(self.path) as database, database.transaction(immediate=True):
+                return ModelRepository(database.connection()).ensure_association(
+                    profile_id, model_id, self._default_runtime_config, self.clock.now()
+                )
+        except sqlite3.Error as error:
+            raise ModelDatabaseError("conflict") from error
+
+    def runtime_association(
+        self, profile_id: ProfileId, model_id: ModelId | None = None
+    ) -> tuple[ModelRecord, ModelRuntimeConfig, int]:
+        try:
+            with SQLiteDatabase(self.path) as database, database.transaction(immediate=False):
+                return ModelRepository(database.connection()).runtime_association(
+                    profile_id, model_id
+                )
+        except sqlite3.Error as error:
+            raise ModelDatabaseError("database") from error
+
+    def promote_runtime_selection(
+        self, profile_id: ProfileId, model_id: ModelId, expected_revision: int
+    ) -> int:
+        try:
+            with SQLiteDatabase(self.path) as database, database.transaction(immediate=True):
+                return ModelRepository(database.connection()).promote_selection(
+                    profile_id, model_id, expected_revision, self.clock.now()
+                )
+        except sqlite3.Error as error:
+            raise ModelDatabaseError("conflict") from error
+
+    def open_revalidated_model(self, record: ModelRecord) -> int:
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
+        try:
+            descriptor = os.open(record.canonical_path, flags)
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode) or (
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+            ) != (record.device, record.inode, record.size_bytes, record.mtime_ns):
+                raise InvalidRuntimeLocationError("model_identity_changed")
+            parsed = read_gguf_fd(descriptor)
+            if (
+                model_fingerprint(record.canonical_path, metadata, parsed.header_digest)
+                != record.fingerprint_sha256
+            ):
+                raise InvalidRuntimeLocationError("model_fingerprint_changed")
+            final = os.fstat(descriptor)
+            if (final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns) != (
+                metadata.st_dev,
+                metadata.st_ino,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+            ):
+                raise InvalidRuntimeLocationError("model_changed_during_validation")
+            return descriptor
+        except BaseException:
+            if "descriptor" in locals():
+                os.close(descriptor)
+            raise
 
 
 def _validated_location(requested: Path, *, directory: bool) -> Path:

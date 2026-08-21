@@ -32,6 +32,7 @@ core-health-v1
 profile-catalog-v1
 profile-management-v1
 model-registry-v1
+runtime-manager-v1
 session-resume-v1
 event-replay-v1
 core-control-v1
@@ -98,6 +99,17 @@ undeliverable recorded completion.
 means reconciliation may mark unseen records missing. A bounded or interrupted scan reports a
 sanitized reason class and preserves previously known records that the partial scan did not visit.
 
+M005 adds optional `runtime-manager-v1`, retaining protocol version 1. Runtime management also
+requires the base request stream and `model-registry-v1`. Profile operations
+`profiles.runtime.start/status/stop/switch` require a stable profile ID; switch carries a target
+`model_id` and expected profile-model revision. Installation operations
+`installation.runtime.policy.get/update` forbid a profile ID and expose a revision-checked capacity
+from 1 through 16 (default 2). Runtime lifecycle requests may emit pre-encoded
+`runtime.state_changed` events before their one terminal event. Safe snapshots contain only runtime
+and model IDs, state/health classes, and timestamps—never PID, port, path, argv, configuration,
+server output, or authentication material. Disconnect does not cancel accepted runtime work;
+explicit cancellation invokes cleanup.
+
 For shutdown, Core stores and drains the terminal `request.completed` event before entering
 `STOPPING` or server-driven closure of a healthy requester.
 
@@ -116,13 +128,17 @@ Resume never survives a new `CoreInstanceId`.
 
 ## Runtime ownership
 
-Runtime artifacts are `core.lock`, `core.sock`, and informational `core-runtime.json`. The exclusive
+Core artifacts are `core.lock`, `core.sock`, and informational `core-runtime.json`. The exclusive
 nonblocking `flock` held on a verified `core.lock` descriptor for the complete Core lifetime is the
 single-instance authority. Metadata, PID, process start ticks, executable identity, and boot ID are
 diagnostic corroboration only. A lock loser never cleans artifacts. A lock winner can remove only
 validated stale artifacts through directory-relative identity rechecks. No recovery path signals
-or kills a PID recovered from metadata.
+or kills a PID recovered from Core metadata. M005 model-runtime recovery is a separate stricter
+contract: it signals an orphan process group only after boot ID, PID start ticks, executable
+device/inode, process group, model descriptor identity, owned IPv4-loopback listener,
+runtime/profile identity, and private artifact validation all match. Ambiguous evidence is retained
+and never signalled.
 
-Protocol version 1 itself has no database ownership. The current M004 product schema is version 3
-with packaged migrations `0001_migration_ledger.sql`, `0002_profile_system.sql`, and
-`0003_model_registry.sql`.
+Protocol version 1 itself has no database ownership. The current M005 product schema is version 4
+with packaged migrations `0001_migration_ledger.sql`, `0002_profile_system.sql`,
+`0003_model_registry.sql`, and `0004_runtime_manager.sql`.

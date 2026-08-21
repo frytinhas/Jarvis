@@ -12,8 +12,8 @@ pytestmark = pytest.mark.unit
 
 def _valid_toml() -> str:
     return """
-defaults_schema_version = 3
-product_defaults_version = 3
+defaults_schema_version = 4
+product_defaults_version = 4
 [foundation_diagnostics]
 total_bytes = 268435456
 file_bytes = 8388608
@@ -74,6 +74,12 @@ max_key_bytes = 256
 max_display_string_bytes = 16384
 max_array_payload_bytes = 65536
 max_metadata_payload_bytes = 16777216
+[runtime_manager]
+max_concurrent_runtimes = 2
+max_pending_starts = 16
+stream_capture_bytes = 1048576
+event_retention_count = 1000
+endpoint_allocation_attempts = 16
 """
 
 
@@ -81,8 +87,8 @@ def test_packaged_defaults_are_deterministic_and_exact() -> None:
     first = DefaultsRegistry.load_packaged().current()
     second = DefaultsRegistry.load_packaged().current()
     assert first == second
-    assert first.defaults_schema_version == 3
-    assert first.product_defaults_version == 3
+    assert first.defaults_schema_version == 4
+    assert first.product_defaults_version == 4
     assert first.foundation_diagnostics.total_bytes == 256 * 1024 * 1024
     assert first.foundation_diagnostics.file_bytes == 8 * 1024 * 1024
     assert first.foundation_diagnostics.event_bytes == 64 * 1024
@@ -91,6 +97,7 @@ def test_packaged_defaults_are_deterministic_and_exact() -> None:
     assert first.profile_defaults.permissions["delete"] == "ask"
     assert first.model_defaults.runtime_config["temperature"] == 0.8
     assert first.model_defaults.runtime_config["llama_server_arguments"] == ()
+    assert first.runtime_manager.max_concurrent_runtimes == 2
 
 
 def test_defaults_snapshot_is_immutable() -> None:
@@ -117,8 +124,8 @@ def test_missing_unknown_and_invalid_values_fail_closed(source: str) -> None:
 @pytest.mark.parametrize(
     "source",
     [
-        _valid_toml().replace("defaults_schema_version = 3", "defaults_schema_version = 1"),
-        _valid_toml().replace("product_defaults_version = 3", "product_defaults_version = 1"),
+        _valid_toml().replace("defaults_schema_version = 4", "defaults_schema_version = 1"),
+        _valid_toml().replace("product_defaults_version = 4", "product_defaults_version = 1"),
     ],
 )
 def test_unsupported_versions_fail_closed(source: str) -> None:
@@ -129,14 +136,14 @@ def test_unsupported_versions_fail_closed(source: str) -> None:
 
 def test_transition_requires_an_explicit_supported_version_path() -> None:
     original = {"setting": "value"}
-    unchanged = transition_persisted_defaults(original, from_version=3, to_version=3)
+    unchanged = transition_persisted_defaults(original, from_version=4, to_version=4)
     assert unchanged == original
     with pytest.raises(TypeError):
         unchanged["setting"] = "changed"  # type: ignore[index]
     with pytest.raises(ConfigurationError):
-        transition_persisted_defaults(original, from_version=1, to_version=3)
+        transition_persisted_defaults(original, from_version=1, to_version=4)
     with pytest.raises(ConfigurationError):
-        transition_persisted_defaults(original, from_version=3, to_version=1)
+        transition_persisted_defaults(original, from_version=4, to_version=1)
 
 
 def test_future_quota_categories_are_not_present_in_foundation_defaults() -> None:
@@ -148,7 +155,7 @@ def test_future_quota_categories_are_not_present_in_foundation_defaults() -> Non
 
 def test_no_fictitious_profile_defaults_version_one_transition_exists() -> None:
     with pytest.raises(ConfigurationError) as caught:
-        transition_persisted_defaults({}, from_version=1, to_version=3)
+        transition_persisted_defaults({}, from_version=1, to_version=4)
     assert caught.value.code == "defaults.unsupported_version"
 
 

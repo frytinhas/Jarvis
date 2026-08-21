@@ -228,6 +228,81 @@ class ModelRepository:
             raise ModelNotFoundError()
         return {"model_id": str(model_id), "revision": int(row[0]), "config": json.loads(row[1])}
 
+    def runtime_association(
+        self, profile_id: ProfileId, model_id: ModelId | None = None
+    ) -> tuple[ModelRecord, ModelRuntimeConfig, int]:
+        self._require_profile(profile_id)
+        if model_id is None:
+            row = self._connection.execute(
+                "SELECT model_id, profile_model_revision, runtime_config_json "
+                "FROM profile_models WHERE profile_id = ? AND selected = 1",
+                (str(profile_id),),
+            ).fetchone()
+        else:
+            row = self._connection.execute(
+                "SELECT model_id, profile_model_revision, runtime_config_json "
+                "FROM profile_models WHERE profile_id = ? AND model_id = ?",
+                (str(profile_id), str(model_id)),
+            ).fetchone()
+        if row is None:
+            raise ModelNotFoundError()
+        record = self.get_record(ModelId.parse(str(row[0])))
+        if record.availability is not ModelAvailability.AVAILABLE:
+            raise ModelUnavailableError()
+        return record, ModelRuntimeConfig.from_mapping(json.loads(row[2])), int(row[1])
+
+    def ensure_association(
+        self,
+        profile_id: ProfileId,
+        model_id: ModelId,
+        default_config: ModelRuntimeConfig,
+        now: datetime,
+    ) -> int:
+        self._require_profile(profile_id)
+        record = self.get_record(model_id)
+        if record.availability is not ModelAvailability.AVAILABLE:
+            raise ModelUnavailableError()
+        existing = self._connection.execute(
+            "SELECT profile_model_revision FROM profile_models WHERE profile_id = ? AND model_id = ?",
+            (str(profile_id), str(model_id)),
+        ).fetchone()
+        if existing is not None:
+            return int(existing[0])
+        timestamp = format_utc(now)
+        self._connection.execute(
+            """INSERT INTO profile_models
+               (profile_id, model_id, profile_model_revision, selected, last_valid,
+                runtime_config_json, created_at_utc, updated_at_utc)
+               VALUES (?, ?, 1, 0, 0, ?, ?, ?)""",
+            (str(profile_id), str(model_id), _config_to_json(default_config), timestamp, timestamp),
+        )
+        return 1
+
+    def promote_selection(
+        self,
+        profile_id: ProfileId,
+        model_id: ModelId,
+        expected_revision: int,
+        now: datetime,
+    ) -> int:
+        row = self._connection.execute(
+            "SELECT profile_model_revision FROM profile_models WHERE profile_id = ? AND model_id = ?",
+            (str(profile_id), str(model_id)),
+        ).fetchone()
+        if row is None or int(row[0]) != expected_revision:
+            raise ConcurrentModelModificationError("profile_model_revision_mismatch")
+        self._connection.execute(
+            "UPDATE profile_models SET selected = 0, last_valid = 0 WHERE profile_id = ?",
+            (str(profile_id),),
+        )
+        self._connection.execute(
+            """UPDATE profile_models SET selected = 1, last_valid = 1,
+               profile_model_revision = profile_model_revision + 1, updated_at_utc = ?
+               WHERE profile_id = ? AND model_id = ?""",
+            (format_utc(now), str(profile_id), str(model_id)),
+        )
+        return expected_revision + 1
+
     def update_config(
         self,
         profile_id: ProfileId,
