@@ -14,6 +14,12 @@ from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from jarvis.chat.agent import AgentEngine, AgentStreamEvent
+from jarvis.chat.diagnostics import ChatDiagnosticService
+from jarvis.chat.errors import ChatError
+from jarvis.chat.learning import LearningService
+from jarvis.chat.models import SessionId, TurnId
+from jarvis.chat.repository import ConversationRepository
 from jarvis.config.defaults import DefaultsSnapshot
 from jarvis.core.lifecycle import CoreLifecycle, CoreLifecycleState
 from jarvis.core.requests import IpcEvent, RequestContext, RequestRegistry
@@ -24,6 +30,7 @@ from jarvis.foundation.identifiers import IdGenerator
 from jarvis.ipc.codec import encode_frame, read_frame
 from jarvis.ipc.errors import IpcError, ipc_error
 from jarvis.ipc.models import (
+    CHAT_V1,
     CORE_CONTROL,
     CORE_HEALTH,
     EVENT_REPLAY,
@@ -189,6 +196,10 @@ class IpcServer:
         started_at_utc: str,
         shutdown_callback: ShutdownCallback,
         runtime_manager: RuntimeManager | None = None,
+        agent: AgentEngine | None = None,
+        conversations: ConversationRepository | None = None,
+        learning: LearningService | None = None,
+        chat_diagnostics: ChatDiagnosticService | None = None,
         protocol_ids: ProtocolIdGenerator | None = None,
         handlers: Mapping[str, Handler] | None = None,
         diagnostics: InfrastructureDiagnosticSink | None = None,
@@ -202,6 +213,10 @@ class IpcServer:
         self.profile_configuration = profile_configuration
         self.model_registry = model_registry
         self.runtime_manager = runtime_manager
+        self.agent = agent
+        self.conversations = conversations
+        self.learning = learning
+        self.chat_diagnostics = chat_diagnostics
         self.profile_lifecycle = (
             None
             if runtime_manager is None
@@ -478,6 +493,14 @@ class IpcServer:
             "profiles.runtime.switch",
             "installation.runtime.policy.get",
             "installation.runtime.policy.update",
+            "chat.submit",
+            "chat.session.resolve",
+            "chat.turn.status",
+            "chat.turn.attach",
+            "chat.learning.status",
+            "chat.learning.start",
+            "chat.learning.finish",
+            "chat.diagnostics.summary",
         }
         if request.operation not in operations:
             raise ipc_error("ipc.operation_not_supported", operation=request.operation)
@@ -503,6 +526,14 @@ class IpcServer:
             "profiles.runtime.status",
             "profiles.runtime.stop",
             "profiles.runtime.switch",
+            "chat.submit",
+            "chat.session.resolve",
+            "chat.turn.status",
+            "chat.turn.attach",
+            "chat.learning.status",
+            "chat.learning.start",
+            "chat.learning.finish",
+            "chat.diagnostics.summary",
         }
         if request.operation in profile_operations:
             if request.profile_id is None:
@@ -513,6 +544,8 @@ class IpcServer:
             raise ipc_error("ipc.capability_mismatch", reason="core_control_not_negotiated")
         if request.operation == "core.health" and CORE_HEALTH not in session.capabilities:
             raise ipc_error("ipc.capability_mismatch", reason="core_health_not_negotiated")
+        if request.operation.startswith("chat.") and CHAT_V1 not in session.capabilities:
+            raise ipc_error("ipc.capability_mismatch", reason="chat_not_negotiated")
         if (
             request.operation.startswith(
                 ("models.", "installation.", "profiles.models.", "profiles.runtime.")
@@ -549,6 +582,8 @@ class IpcServer:
             "profiles.get",
         }:
             _validate_management_payload(request)
+        if request.operation.startswith("chat."):
+            _validate_chat_payload(request)
 
     async def _run_request(self, session: LogicalSession, context: RequestContext) -> None:
         try:
@@ -562,17 +597,22 @@ class IpcServer:
             # values. Validate the exact terminal envelope before terminal arbitration so an
             # application handler cannot strand a healthy client with an undeliverable terminal
             # result after the registry has already committed COMPLETED.
+            terminal_type = (
+                "response_completed"
+                if context.request.operation.startswith("chat.")
+                else "request.completed"
+            )
             encode_frame(
                 IpcEvent(
                     core_instance_id=self.core_instance_id,
                     request_id=context.request_id,
                     sequence=context.next_sequence,
-                    event_type="request.completed",
+                    event_type=terminal_type,
                     terminal=True,
                     payload=result,
                 ).to_wire()
             )
-            terminal = await self.registry.complete(context, result)
+            terminal = await self.registry.complete(context, result, event_type=terminal_type)
             if terminal is not None:
                 if context.request.operation == "core.shutdown":
                     try:
@@ -597,7 +637,7 @@ class IpcServer:
                 await self._send_event_if_attached(session, terminal)
             raise
         except BaseException as error:
-            if isinstance(error, (ModelError, RuntimeManagerError)):
+            if isinstance(error, (ModelError, RuntimeManagerError, ChatError)):
                 error = ipc_error(error.code, **error.safe_details)
             terminal = await self.registry.fail(context, error)
             if terminal is not None:
@@ -612,6 +652,8 @@ class IpcServer:
             return await self.handlers[operation](context)
         if operation == "core.health":
             return self._health()
+        if operation.startswith("chat."):
+            return await self._dispatch_chat(context)
         if operation.startswith("profiles.runtime.") or operation.startswith(
             "installation.runtime.policy."
         ):
@@ -932,6 +974,89 @@ class IpcServer:
             return {"shutdown_scheduled": True}
         raise ipc_error("ipc.operation_not_supported", operation=operation)
 
+    async def _dispatch_chat(self, context: RequestContext) -> Mapping[str, object]:
+        if (
+            self.agent is None
+            or self.conversations is None
+            or self.learning is None
+            or self.chat_diagnostics is None
+        ):
+            raise ipc_error("ipc.operation_not_supported", operation=context.request.operation)
+        assert context.request.profile_id is not None
+        profile_id = context.request.profile_id
+        operation = context.request.operation
+        payload = context.request.payload
+        if operation == "chat.submit":
+            content = _payload_text(
+                payload, "content", max_bytes=self.defaults.chat.max_message_bytes
+            )
+            raw_session = payload.get("session_id")
+            try:
+                session_id = None if raw_session is None else SessionId.parse(str(raw_session))
+            except (ValueError, TypeError) as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_session_id") from error
+
+            async def emit_agent(event: AgentStreamEvent) -> None:
+                if event.event_type == "response_completed":
+                    return
+                encode_frame(
+                    IpcEvent(
+                        core_instance_id=self.core_instance_id,
+                        request_id=context.request_id,
+                        sequence=context.next_sequence,
+                        event_type=event.event_type,
+                        terminal=False,
+                        payload=event.payload,
+                    ).to_wire()
+                )
+                emitted = await self.registry.emit(context, event.event_type, event.payload)
+                session = self._sessions.get(context.owner)
+                if emitted is not None and session is not None:
+                    await self._send_event_if_attached(session, emitted)
+
+            turn = await self.agent.chat(
+                profile_id=profile_id,
+                request_id=str(context.request_id),
+                content=content,
+                cancellation=context.cancellation,
+                emit=emit_agent,
+                session_id=session_id,
+                new_session=bool(payload.get("new_session", False)),
+            )
+            return turn.to_safe_mapping()
+        if operation == "chat.session.resolve":
+            model_id = _payload_model_id(payload)
+            session_id = await asyncio.to_thread(
+                self.conversations.resolve_session, profile_id, model_id
+            )
+            return {
+                "profile_id": str(profile_id),
+                "model_id": str(model_id),
+                "session_id": None if session_id is None else str(session_id),
+            }
+        if operation in {"chat.turn.status", "chat.turn.attach", "chat.diagnostics.summary"}:
+            try:
+                turn_id = TurnId.parse(str(payload["turn_id"]))
+            except (KeyError, ValueError, TypeError) as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_turn_id") from error
+            turn = await asyncio.to_thread(self.conversations.get_turn, turn_id, profile_id)
+            if operation == "chat.diagnostics.summary":
+                summary = await asyncio.to_thread(self.chat_diagnostics.summary, turn)
+                return summary.to_safe_mapping()
+            result = turn.to_safe_mapping()
+            result["authoritative"] = True
+            return result
+        if operation.startswith("chat.learning."):
+            model_id = _payload_model_id(payload)
+            if operation == "chat.learning.status":
+                snapshot = await asyncio.to_thread(self.learning.status, profile_id, model_id)
+            elif operation == "chat.learning.start":
+                snapshot = await asyncio.to_thread(self.learning.start, profile_id, model_id)
+            else:
+                snapshot = await asyncio.to_thread(self.learning.finish, profile_id, model_id)
+            return snapshot.to_safe_mapping()
+        raise ipc_error("ipc.operation_not_supported", operation=operation)
+
     async def _dispatch_runtime(self, context: RequestContext) -> Mapping[str, object]:
         manager = self.runtime_manager
         if manager is None:
@@ -1032,7 +1157,7 @@ class IpcServer:
             "capabilities": sorted(SERVER_CAPABILITIES),
             "active_connections": self.active_connections,
             "in_flight_requests": self.registry.in_flight_count,
-            "database_schema_version": 4,
+            "database_schema_version": 5,
             "defaults_schema_version": self.defaults.defaults_schema_version,
             "product_defaults_version": self.defaults.product_defaults_version,
         }
@@ -1342,6 +1467,40 @@ def _validate_runtime_manager_payload(request: IpcRequest) -> None:
         if capacity > 16:
             raise ipc_error("ipc.invalid_message", reason="invalid_runtime_capacity")
         _payload_positive_int(payload, "expected_revision")
+
+
+def _validate_chat_payload(request: IpcRequest) -> None:
+    payload = request.payload
+    operation = request.operation
+    if operation == "chat.submit":
+        if set(payload) - {"content", "session_id", "new_session"} or "content" not in payload:
+            raise ipc_error("ipc.invalid_message", reason="invalid_chat_payload")
+        content = _payload_text(payload, "content", max_bytes=65_536)
+        if not content or "\x00" in content:
+            raise ipc_error("ipc.invalid_message", reason="invalid_chat_content")
+        session_id = payload.get("session_id")
+        if session_id is not None:
+            try:
+                SessionId.parse(str(session_id))
+            except (ValueError, TypeError) as error:
+                raise ipc_error("ipc.invalid_message", reason="invalid_session_id") from error
+        new_session = payload.get("new_session", False)
+        if type(new_session) is not bool or (session_id is not None and new_session):
+            raise ipc_error("ipc.invalid_message", reason="invalid_session_selection")
+    elif operation in {"chat.turn.status", "chat.turn.attach", "chat.diagnostics.summary"}:
+        _exact_payload(payload, {"turn_id"})
+        try:
+            TurnId.parse(_payload_text(payload, "turn_id", max_bytes=36))
+        except ValueError as error:
+            raise ipc_error("ipc.invalid_message", reason="invalid_turn_id") from error
+    elif operation in {
+        "chat.session.resolve",
+        "chat.learning.status",
+        "chat.learning.start",
+        "chat.learning.finish",
+    }:
+        _exact_payload(payload, {"model_id"})
+        _payload_model_id(payload)
 
 
 def _payload_model_id(payload: Mapping[str, object]) -> ModelId:

@@ -1,5 +1,5 @@
-defaults_schema_version = 4
-product_defaults_version = 4
+defaults_schema_version = 5
+product_defaults_version = 5
 
 [foundation_diagnostics]
 total_bytes = 268435456
@@ -73,3 +73,16 @@ max_pending_starts = 16
 stream_capture_bytes = 1048576
 event_retention_count = 1000
 endpoint_allocation_attempts = 16
+
+[chat]
+max_message_bytes = 65536
+max_partial_bytes = 262144
+max_session_bytes = 8388608
+max_diagnostic_bytes = 16777216
+minimum_diagnostic_reservation_bytes = 4096
+max_diagnostic_summary_bytes = 16384
+max_context_contribution_bytes = 65536
+max_provider_delta_bytes = 65536
+max_sse_frame_bytes = 262144
+max_sse_response_bytes = 67108864
+max_queued_generations = 16

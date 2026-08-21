@@ -203,12 +203,16 @@ class RequestRegistry:
         return event
 
     async def complete(
-        self, context: RequestContext, payload: Mapping[str, object]
+        self,
+        context: RequestContext,
+        payload: Mapping[str, object],
+        *,
+        event_type: str = "request.completed",
     ) -> IpcEvent | None:
         return await self._terminal(
             context,
             state=RequestState.COMPLETED,
-            event_type="request.completed",
+            event_type=event_type,
             payload=payload,
         )
 
@@ -250,7 +254,18 @@ class RequestRegistry:
                 return CancelOutcome.ALREADY_TERMINAL
             first = context.cancellation.request()
             context.state = RequestState.CANCELLED
-            context._append("request.cancelled", terminal=True, payload={})
+            if context.request.operation.startswith("chat."):
+                context._append(
+                    "error",
+                    terminal=True,
+                    error={
+                        "code": "chat.cancelled",
+                        "message_key": "error.chat.cancelled",
+                        "safe_details": {"reason": "explicit_cancellation"},
+                    },
+                )
+            else:
+                context._append("request.cancelled", terminal=True, payload={})
         await self._release_admission(context)
         await self._enforce_replay_bounds(context.owner)
         return CancelOutcome.REQUESTED if first else CancelOutcome.ALREADY_REQUESTED

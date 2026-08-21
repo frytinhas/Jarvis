@@ -45,9 +45,9 @@ def test_initialization_is_idempotent_and_marker_is_written_last(tmp_path: Path)
     clock = FakeClock(datetime(2026, 8, 10, 12, tzinfo=UTC))
     first = initialize_foundation(env, clock=clock, identifiers=_ids(1))
     second = initialize_foundation(env, clock=clock, identifiers=_ids(10))
-    assert first["applied_migrations"] == [1, 2, 3, 4]
+    assert first["applied_migrations"] == [1, 2, 3, 4, 5]
     assert second["applied_migrations"] == []
-    assert first["database_schema_version"] == second["database_schema_version"] == 4
+    assert first["database_schema_version"] == second["database_schema_version"] == 5
     marker = Path(env["XDG_STATE_HOME"]) / "jarvis-cli" / "foundation-state.json"
     assert json.loads(marker.read_text())["foundation_state_version"] == 1
     assert marker.stat().st_mode & 0o777 == 0o600
@@ -110,8 +110,8 @@ def test_inspection_is_read_only_and_reports_foundation_only(tmp_path: Path) -> 
     }
     assert before == after
     assert result["foundation_state_version"] == 1
-    assert result["database_schema_version"] == 4
-    assert len(cast(list[object], result["migrations"])) == 4
+    assert result["database_schema_version"] == 5
+    assert len(cast(list[object], result["migrations"])) == 5
     assert all(cast(dict[str, bool], result["directory_safety"]).values())
     assert "profiles" not in result
     assert "models" not in result
@@ -123,7 +123,7 @@ def test_inspection_fails_closed_while_wal_transaction_is_active(tmp_path: Path)
     path = Path(env["XDG_DATA_HOME"]) / "jarvis-cli" / "jarvis.sqlite3"
     with SQLiteDatabase(path) as database, database.transaction():
         assert inspect_foundation(env)["database_schema_version"] is None
-    assert inspect_foundation(env)["database_schema_version"] == 4
+    assert inspect_foundation(env)["database_schema_version"] == 5
 
 
 def test_initializer_never_uses_real_process_xdg_when_explicit_environment_is_supplied(

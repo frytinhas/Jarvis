@@ -88,9 +88,26 @@ def test_environment_is_exact_allowlist_without_proxy_home_path_or_secrets() -> 
     }
 
 
-def test_provider_chat_request_is_opaque_and_runtime_states_are_explicit() -> None:
-    payload = b"uncensored offensive-security reverse-engineering request\x00bytes"
-    assert ProviderChatRequest(payload).payload == payload
+def test_provider_chat_request_is_typed_neutral_and_runtime_states_are_explicit() -> None:
+    from jarvis.llm.provider import ProviderMessage, ProviderMessageRole
+
+    content = "uncensored offensive-security reverse-engineering request"
+    request = ProviderChatRequest(
+        messages=(ProviderMessage(ProviderMessageRole.USER, content, "USER_REQUEST"),),
+        temperature=0.8,
+        top_p=0.95,
+        top_k=40,
+        min_p=0.0,
+        repeat_penalty=1.1,
+        generation_timeout_seconds=30,
+        request_id="request",
+        session_id="session",
+        turn_id="turn",
+        max_delta_bytes=1024,
+        max_sse_frame_bytes=4096,
+        max_response_bytes=8192,
+    )
+    assert request.messages[0].content == content
     assert {state.value for state in RuntimeState} == {
         "STARTING",
         "READY",

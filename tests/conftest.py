@@ -28,8 +28,14 @@ def isolated_xdg_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.fixture(autouse=True)
-def deny_external_network(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def deny_external_network(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> Iterator[None]:
     """Fail every test that attempts an IPv4/IPv6 connection."""
+
+    if request.node.get_closest_marker("local_loopback") is not None:
+        yield
+        return
 
     original_connect = socket.socket.connect
     original_connect_ex = socket.socket.connect_ex

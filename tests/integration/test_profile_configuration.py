@@ -148,7 +148,7 @@ def test_creation_clones_complete_current_jarvis_configuration_only(tmp_path: Pa
     )
     assert {
         revision.defaults_version for revision in clone.configuration.section_revisions.values()
-    } == {4}
+    } == {5}
     assert profiles.get_profile(jarvis.profile.profile_id).configuration == customized
 
     configurations.update_configuration(

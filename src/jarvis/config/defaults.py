@@ -11,12 +11,13 @@ from typing import Final
 
 from jarvis.foundation.errors import ConfigurationError
 
-SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 4
-CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 4
+SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 5
+CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 5
 FOUNDATION_DIAGNOSTICS_CATEGORY: Final = "foundation_diagnostics"
 PROFILE_DEFAULTS_CATEGORY: Final = "profile_defaults"
 MODEL_DEFAULTS_CATEGORY: Final = "model_defaults"
 RUNTIME_MANAGER_CATEGORY: Final = "runtime_manager"
+CHAT_CATEGORY: Final = "chat"
 
 _ROOT_KEYS: Final = frozenset(
     {
@@ -26,6 +27,7 @@ _ROOT_KEYS: Final = frozenset(
         PROFILE_DEFAULTS_CATEGORY,
         MODEL_DEFAULTS_CATEGORY,
         RUNTIME_MANAGER_CATEGORY,
+        CHAT_CATEGORY,
     }
 )
 _DIAGNOSTIC_KEYS: Final = frozenset(
@@ -107,6 +109,21 @@ class RuntimeManagerDefaults:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatDefaults:
+    max_message_bytes: int
+    max_partial_bytes: int
+    max_session_bytes: int
+    max_diagnostic_bytes: int
+    minimum_diagnostic_reservation_bytes: int
+    max_diagnostic_summary_bytes: int
+    max_context_contribution_bytes: int
+    max_provider_delta_bytes: int
+    max_sse_frame_bytes: int
+    max_sse_response_bytes: int
+    max_queued_generations: int
+
+
+@dataclass(frozen=True, slots=True)
 class DefaultsSnapshot:
     defaults_schema_version: int
     product_defaults_version: int
@@ -114,6 +131,7 @@ class DefaultsSnapshot:
     profile_defaults: ProfileDefaults
     model_defaults: ModelDefaults
     runtime_manager: RuntimeManagerDefaults
+    chat: ChatDefaults
 
 
 def _require_exact_keys(
@@ -383,6 +401,24 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
             message_key="error.defaults.invalid",
             safe_details={"field": "runtime_manager.max_concurrent_runtimes"},
         )
+    raw_chat = document[CHAT_CATEGORY]
+    chat_keys = frozenset(ChatDefaults.__dataclass_fields__)
+    if not isinstance(raw_chat, dict):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
+    _require_exact_keys(raw_chat, chat_keys, CHAT_CATEGORY)
+    chat = ChatDefaults(**{key: _positive_int(raw_chat[key], f"chat.{key}") for key in chat_keys})
+    if chat.max_queued_generations != 16:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": "chat.max_queued_generations"},
+        )
+    if not (
+        chat.minimum_diagnostic_reservation_bytes <= chat.max_diagnostic_bytes
+        and chat.max_provider_delta_bytes <= chat.max_sse_frame_bytes
+        and chat.max_sse_frame_bytes <= chat.max_sse_response_bytes
+    ):
+        raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
     return DefaultsSnapshot(
         schema_version,
         product_version,
@@ -390,6 +426,7 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
         profile_defaults,
         model_defaults,
         runtime_manager,
+        chat,
     )
 
 
@@ -429,9 +466,13 @@ def transition_persisted_defaults(
         (2, 2),
         (2, 3),
         (2, 4),
+        (2, 5),
         (3, 3),
         (3, 4),
+        (3, 5),
         (4, 4),
+        (4, 5),
+        (5, 5),
     }:
         return MappingProxyType(dict(values))
     raise ConfigurationError(

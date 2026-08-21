@@ -1,11 +1,12 @@
-# Foundation through local runtime-manager development
+# Foundation through Core chat-pipeline development
 
 ## Scope
 
-Milestones 000–005 contain repository/security infrastructure, profiles, one Core, thin management
-clients, a read-only GGUF registry, and Core-owned authenticated loopback model processes. They
-deliberately have no chat, policy, broker, host tool, updater, installer, TUI, external-network
-subsystem, assistant client, or executable profile alias.
+Milestones 000–006A contain repository/security infrastructure, profiles, one Core, thin management
+clients, a read-only GGUF registry, Core-owned authenticated loopback model processes, and a
+client-neutral durable streaming chat pipeline. They deliberately have no chat presentation,
+policy, broker, host tool, updater, installer, TUI, external-network subsystem, assistant client,
+or executable profile alias.
 `AGENTS.md` is the product authority, `ROADMAP.md` defines milestone boundaries, `PLANS.md` defines
 execution discipline, and `docs/plans/000-foundation.md` plus
 `docs/plans/001-profile-system.md` are predecessor evidence records;
@@ -36,7 +37,7 @@ pytest
 ruff check .
 ruff format --check .
 mypy src tests
-python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m005-wheel .
+python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m006a-wheel .
 git diff --check
 ```
 
@@ -100,6 +101,10 @@ runtime locations, durable read-only model records/path history, and profile-mod
 Migration 0004 adds metadata-only runtime events, last-ready evidence, and the revisioned
 installation runtime-capacity policy. Process handles, ports, locks, tokens, queues, and output
 counters remain ephemeral under XDG runtime storage.
+Migration 0005 adds profile/model-owned chat sessions, turns, ordered messages, minimum learning
+state, and bounded chat diagnostics. Defaults and schema are 5/5. The per-profile generation queue
+admits one active plus 16 queued requests; cross-profile generation remains concurrent. The test
+suite's fake streaming provider exercises chat without a real GGUF or network service.
 Jarvis bootstrap follows migration and completes before initialization is published.
 
 ## M005 runtime boundary

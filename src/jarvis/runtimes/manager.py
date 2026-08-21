@@ -24,6 +24,8 @@ from jarvis.llm.provider import (
     ExecutableIdentity,
     LLMProvider,
     ProcessEvidence,
+    ProviderChatRequest,
+    ProviderStreamEvent,
     RuntimeHandle,
     RuntimeSpecification,
 )
@@ -67,11 +69,31 @@ StateCallback = Callable[[RuntimeSnapshot], Awaitable[None]]
 class GenerationCoordinator(Protocol):
     async def quiesce(self, profile_id: ProfileId, *, cancel: bool) -> str: ...
 
+    async def hold(self, profile_id: ProfileId, *, cancel: bool) -> _GenerationHold: ...
+
+
+class _GenerationHold(Protocol):
+    async def __aenter__(self) -> str: ...
+
+    async def __aexit__(self, *_exc: object) -> None: ...
+
+
+class _IdleGenerationHold:
+    async def __aenter__(self) -> str:
+        return "idle"
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
 
 class IdleGenerationCoordinator:
     async def quiesce(self, profile_id: ProfileId, *, cancel: bool) -> str:
         del profile_id, cancel
         return "idle"
+
+    async def hold(self, profile_id: ProfileId, *, cancel: bool) -> _GenerationHold:
+        del profile_id, cancel
+        return _IdleGenerationHold()
 
 
 @dataclass(slots=True)
@@ -488,7 +510,10 @@ class RuntimeManager:
     ) -> RuntimeSnapshot:
         await self._cancel_pending_admission(profile_id)
         self._cancel_start(profile_id)
-        async with self._profile_lock(profile_id):
+        async with (
+            await self._generations.hold(profile_id, cancel=False),
+            self._profile_lock(profile_id),
+        ):
             return await self._stop_locked(profile_id, on_state=on_state)
 
     def _cancel_start(self, profile_id: ProfileId) -> None:
@@ -544,7 +569,6 @@ class RuntimeManager:
             return snapshot
         if active.ownership_ambiguous:
             raise RuntimeOwnershipError("stop_identity_ambiguous")
-        await self._generations.quiesce(profile_id, cancel=False)
         stopping = active.snapshot
         if active.snapshot.state is not RuntimeState.STOPPING:
             stopping = RuntimeSnapshot(
@@ -590,7 +614,10 @@ class RuntimeManager:
     ) -> RuntimeSnapshot:
         await self._cancel_pending_admission(profile_id)
         self._cancel_start(profile_id)
-        async with self._profile_lock(profile_id):
+        async with (
+            await self._generations.hold(profile_id, cancel=False),
+            self._profile_lock(profile_id),
+        ):
             revision = await asyncio.to_thread(
                 self._models.ensure_runtime_association, profile_id, model_id
             )
@@ -607,7 +634,6 @@ class RuntimeManager:
                     RuntimeEventKind.SWITCH_REQUESTED,
                     None,
                 )
-            await self._generations.quiesce(profile_id, cancel=False)
             await self._stop_locked(profile_id, on_state=on_state)
             candidate = await self._start_locked(
                 profile_id, model_id, on_state=on_state, persist_ready=False
@@ -645,8 +671,10 @@ class RuntimeManager:
 
         await self._cancel_pending_admission(profile_id)
         self._cancel_start(profile_id)
-        async with self._profile_lock(profile_id):
-            outcome = await self._generations.quiesce(profile_id, cancel=cancel)
+        async with (
+            await self._generations.hold(profile_id, cancel=cancel) as outcome,
+            self._profile_lock(profile_id),
+        ):
             stopped = await self._stop_locked(profile_id, on_state=None)
             if stopped.runtime_id is not None and stopped.model_id is not None:
                 await asyncio.to_thread(
@@ -668,6 +696,65 @@ class RuntimeManager:
         for profile_id in profile_ids:
             with suppress(BaseException):
                 await self.stop(profile_id)
+
+    async def stream_chat(
+        self, profile_id: ProfileId, request: ProviderChatRequest
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Auto-start, mark BUSY, and restore READY around one coordinated generation."""
+
+        async with self._profile_lock(profile_id):
+            active = self._active.get(profile_id)
+        if active is None:
+            with suppress(RuntimeAlreadyActiveError):
+                await self.start(profile_id)
+        async with self._profile_lock(profile_id):
+            active = self._active.get(profile_id)
+            if active is None or active.handle is None:
+                raise RuntimeStartupError("runtime_not_ready")
+            if active.snapshot.state is not RuntimeState.READY:
+                raise RuntimeStartupError("runtime_not_ready")
+            runtime_id = active.snapshot.runtime_id
+            busy = RuntimeSnapshot(
+                active.snapshot.runtime_id,
+                active.snapshot.model_id,
+                RuntimeState.BUSY,
+                RuntimeHealthClass.HEALTHY,
+                active.snapshot.started_at_utc,
+                active.snapshot.ready_at_utc,
+            )
+            await self._transition(profile_id, busy, RuntimeEventKind.BUSY, None)
+            handle = active.handle
+        try:
+            async for event in self._provider.chat(handle, request):
+                yield event
+        finally:
+            async with self._profile_lock(profile_id):
+                current = self._active.get(profile_id)
+                if (
+                    current is not None
+                    and current.snapshot.runtime_id == runtime_id
+                    and current.handle is not None
+                    and current.snapshot.state is RuntimeState.BUSY
+                ):
+                    health = await self._provider.health(
+                        current.handle, current.config.network_timeout_seconds
+                    )
+                    if health.state is RuntimeState.ERROR:
+                        await self._fail_active_locked(
+                            profile_id,
+                            current,
+                            health.reason_class or "generation_runtime_failure",
+                        )
+                    else:
+                        ready = RuntimeSnapshot(
+                            current.snapshot.runtime_id,
+                            current.snapshot.model_id,
+                            RuntimeState.READY,
+                            RuntimeHealthClass.HEALTHY,
+                            current.snapshot.started_at_utc,
+                            current.snapshot.ready_at_utc,
+                        )
+                        await self._transition(profile_id, ready, RuntimeEventKind.READY, None)
 
     async def _monitor(self, profile_id: ProfileId, runtime_id: RuntimeId) -> None:
         try:

@@ -28,12 +28,12 @@ def test_initialize_twice_and_inspect_end_to_end() -> None:
     second = _run("initialize", "--json")
     inspected = _run("inspect", "--json")
     assert first.returncode == second.returncode == inspected.returncode == 0
-    assert json.loads(first.stdout)["applied_migrations"] == [1, 2, 3, 4]
+    assert json.loads(first.stdout)["applied_migrations"] == [1, 2, 3, 4, 5]
     assert json.loads(second.stdout)["applied_migrations"] == []
     inspection = json.loads(inspected.stdout)
-    assert inspection["database_schema_version"] == 4
+    assert inspection["database_schema_version"] == 5
     assert inspection["foundation_state_version"] == 1
-    assert len(inspection["migrations"]) == 4
+    assert len(inspection["migrations"]) == 5
     assert "profiles" not in inspection
     assert "models" not in inspection
 

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import AsyncIterator
 from contextlib import suppress
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
@@ -14,11 +16,48 @@ from jarvis.profiles.models import ProfileId
 from jarvis.runtimes.models import RuntimeHealthClass, RuntimeId, RuntimeState
 
 
+class ProviderMessageRole(StrEnum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderMessage:
+    role: ProviderMessageRole
+    content: str
+    provenance: str
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderChatRequest:
-    """Opaque future transport payload; providers must not transform its content."""
+    messages: tuple[ProviderMessage, ...]
+    temperature: float
+    top_p: float
+    top_k: int
+    min_p: float
+    repeat_penalty: float
+    generation_timeout_seconds: int
+    request_id: str
+    session_id: str
+    turn_id: str
+    max_delta_bytes: int
+    max_sse_frame_bytes: int
+    max_response_bytes: int
 
-    payload: bytes
+
+class ProviderStreamEventKind(StrEnum):
+    TEXT_DELTA = "text_delta"
+    COMPLETED = "completed"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderStreamEvent:
+    kind: ProviderStreamEventKind
+    text: str = ""
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +129,9 @@ class LLMProvider(Protocol):
 
     async def stop(self, runtime: RuntimeHandle, timeout_seconds: int) -> None: ...
 
-    async def chat(self, runtime: RuntimeHandle, request: ProviderChatRequest) -> bytes: ...
+    def chat(
+        self, runtime: RuntimeHandle, request: ProviderChatRequest
+    ) -> AsyncIterator[ProviderStreamEvent]: ...
 
 
 def close_model_descriptor(specification: RuntimeSpecification) -> None:

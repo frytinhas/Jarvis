@@ -216,6 +216,11 @@ def test_schema_and_source_surface_contain_no_later_milestone_capabilities(tmp_p
         "runtime_events",
         "profile_runtime_last_valid",
         "installation_runtime_policy",
+        "chat_sessions",
+        "chat_turns",
+        "chat_messages",
+        "learning_state",
+        "chat_diagnostics",
     }
     forbidden = {
         "tools",

@@ -33,6 +33,7 @@ profile-catalog-v1
 profile-management-v1
 model-registry-v1
 runtime-manager-v1
+chat-v1
 session-resume-v1
 event-replay-v1
 core-control-v1
@@ -113,6 +114,22 @@ explicit cancellation invokes cleanup.
 For shutdown, Core stores and drains the terminal `request.completed` event before entering
 `STOPPING` or server-driven closure of a healthy requester.
 
+M006A adds optional `chat-v1` while retaining protocol version 1. Profile-scoped operations are
+`chat.submit`, `chat.session.resolve`, `chat.turn.status`, `chat.turn.attach`,
+`chat.learning.status/start/finish`, and the human-only `chat.diagnostics.summary`. Chat submission
+emits `response_started`, zero or more `text_delta` events, and exactly one terminal
+`response_completed` or `error`. Submission accepts bounded `content`, an optional canonical
+session UUID, and optional `new_session`; the physical connection owns neither the durable session
+nor accepted generation. Status/attach returns the authoritative bounded durable turn snapshot.
+Reconnect uses the existing same-owner resume/replay contracts. Diagnostic summaries use a
+dedicated bounded result type and are never Context Builder contributions.
+
+Chat auto-starts the selected runtime through RuntimeManager. One generation is active per profile,
+at most 16 are queued FIFO excluding active, and different profiles may generate concurrently.
+Explicit cancellation owns queued/active cancellation; disconnect does not cancel. Model switch
+drains the old generation, while whole-profile reset/delete and Core shutdown cancel and durably
+record active work before cleanup.
+
 ## Resume and replay
 
 Handshake returns a random 256-bit resume token bound to one logical `connection_id`. Tokens are
@@ -139,6 +156,6 @@ device/inode, process group, model descriptor identity, owned IPv4-loopback list
 runtime/profile identity, and private artifact validation all match. Ambiguous evidence is retained
 and never signalled.
 
-Protocol version 1 itself has no database ownership. The current M005 product schema is version 4
+Protocol version 1 itself has no database ownership. The current M006A product schema is version 5
 with packaged migrations `0001_migration_ledger.sql`, `0002_profile_system.sql`,
-`0003_model_registry.sql`, and `0004_runtime_manager.sql`.
+`0003_model_registry.sql`, `0004_runtime_manager.sql`, and `0005_chat_pipeline.sql`.

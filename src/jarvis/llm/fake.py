@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -10,6 +11,8 @@ from jarvis.llm.provider import (
     ExecutableIdentity,
     ProcessEvidence,
     ProviderChatRequest,
+    ProviderStreamEvent,
+    ProviderStreamEventKind,
     RuntimeHandle,
     RuntimeHealth,
     RuntimeSpecification,
@@ -32,10 +35,16 @@ class FakeLLMProvider:
     _specifications: dict[object, RuntimeSpecification] = field(default_factory=dict)
     _stopped: set[object] = field(default_factory=set)
     unhealthy: set[object] = field(default_factory=set)
+    chat_deltas: tuple[str, ...] = ("fake response",)
+    chat_gate: asyncio.Event = field(default_factory=asyncio.Event)
+    chat_entered: asyncio.Event = field(default_factory=asyncio.Event)
+    captured_requests: list[ProviderChatRequest] = field(default_factory=list)
+    fail_chat_after: int | None = None
 
     def __post_init__(self) -> None:
         self.start_gate.set()
         self.health_gate.set()
+        self.chat_gate.set()
 
     async def start(self, specification: RuntimeSpecification) -> RuntimeHandle:
         self.starts.append(specification)
@@ -95,9 +104,24 @@ class FakeLLMProvider:
         self._stopped.add(runtime.runtime_id)
         self.stops.append(self._specifications[runtime.runtime_id])
 
-    async def chat(self, runtime: RuntimeHandle, request: ProviderChatRequest) -> bytes:
+    async def chat(
+        self, runtime: RuntimeHandle, request: ProviderChatRequest
+    ) -> AsyncIterator[ProviderStreamEvent]:
         del runtime
-        return request.payload
+        self.captured_requests.append(request)
+        self.chat_entered.set()
+        await self.chat_gate.wait()
+        for index, delta in enumerate(self.chat_deltas):
+            if self.fail_chat_after is not None and index >= self.fail_chat_after:
+                from jarvis.chat.errors import ProviderStreamError
+
+                raise ProviderStreamError("fake_failure")
+            yield ProviderStreamEvent(ProviderStreamEventKind.TEXT_DELTA, text=delta)
+        yield ProviderStreamEvent(
+            ProviderStreamEventKind.COMPLETED,
+            completion_tokens=sum(len(item) for item in self.chat_deltas),
+            finish_reason="stop",
+        )
 
 
 __all__ = ["FakeLLMProvider", "RuntimeHandle"]

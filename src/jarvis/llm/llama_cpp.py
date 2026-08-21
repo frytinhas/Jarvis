@@ -6,12 +6,15 @@ import asyncio
 import json
 import os
 import signal
+from collections.abc import AsyncIterator
 from contextlib import suppress
 
 from jarvis.foundation.clock import format_utc
 from jarvis.llm.errors import RuntimeEndpointError, RuntimeOwnershipError, RuntimeStartupError
 from jarvis.llm.provider import (
     ProviderChatRequest,
+    ProviderStreamEvent,
+    ProviderStreamEventKind,
     RuntimeHandle,
     RuntimeHealth,
     RuntimeSpecification,
@@ -213,7 +216,208 @@ class LlamaCppProvider:
                         raise RuntimeOwnershipError("process_survived_sigkill") from kill_error
         await asyncio.gather(runtime.stdout_task, runtime.stderr_task)
 
-    async def chat(self, runtime: RuntimeHandle, request: ProviderChatRequest) -> bytes:
-        # M005 intentionally exposes no inference path. Preserve the future request byte-for-byte.
-        del runtime
-        return request.payload
+    async def chat(
+        self, runtime: RuntimeHandle, request: ProviderChatRequest
+    ) -> AsyncIterator[ProviderStreamEvent]:
+        """Stream llama.cpp's authenticated loopback SSE without leaking transport upward."""
+
+        from jarvis.chat.errors import ProviderStreamError
+
+        if runtime.host != "127.0.0.1":
+            raise ProviderStreamError("non_loopback_runtime")
+        body = json.dumps(
+            {
+                "messages": [
+                    {"role": message.role.value, "content": message.content}
+                    for message in request.messages
+                ],
+                "temperature": request.temperature,
+                "top_p": request.top_p,
+                "top_k": request.top_k,
+                "min_p": request.min_p,
+                "repeat_penalty": request.repeat_penalty,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        writer: asyncio.StreamWriter | None = None
+        try:
+            async with asyncio.timeout(request.generation_timeout_seconds):
+                reader, writer = await asyncio.open_connection(runtime.host, runtime.port)
+                header = (
+                    "POST /v1/chat/completions HTTP/1.1\r\n"
+                    f"Host: {runtime.host}\r\n"
+                    f"Authorization: Bearer {runtime.api_key}\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Accept: text/event-stream\r\n"
+                    f"Content-Length: {len(body)}\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("ascii")
+                writer.write(header + body)
+                await writer.drain()
+                status_and_headers = await reader.readuntil(b"\r\n\r\n")
+                if len(status_and_headers) > 65_536:
+                    raise ProviderStreamError("response_headers_too_large")
+                head = status_and_headers.decode("ascii", "strict")
+                lines = head.split("\r\n")
+                if not lines or not lines[0].startswith("HTTP/1.1 200"):
+                    raise ProviderStreamError("http_status")
+                headers: dict[str, str] = {}
+                for line in lines[1:]:
+                    if not line:
+                        continue
+                    name, separator, value = line.partition(":")
+                    if not separator:
+                        raise ProviderStreamError("malformed_headers")
+                    headers[name.strip().lower()] = value.strip().lower()
+                total = 0
+                frame = bytearray()
+                completed = False
+                usage: tuple[int | None, int | None] = (None, None)
+                finish_reason: str | None = None
+                async for chunk in _response_chunks(reader, headers, request.max_sse_frame_bytes):
+                    total += len(chunk)
+                    if total > request.max_response_bytes:
+                        raise ProviderStreamError("response_too_large")
+                    frame.extend(chunk)
+                    if len(frame) > request.max_sse_frame_bytes:
+                        raise ProviderStreamError("sse_frame_too_large")
+                    while (located := _sse_boundary(frame)) is not None:
+                        boundary, delimiter_size = located
+                        raw = bytes(frame[:boundary]).replace(b"\r\n", b"\n")
+                        del frame[: boundary + delimiter_size]
+                        data_lines = [
+                            line[5:].lstrip()
+                            for line in raw.split(b"\n")
+                            if line.startswith(b"data:")
+                        ]
+                        if not data_lines:
+                            continue
+                        data = b"\n".join(data_lines)
+                        try:
+                            decoded = data.decode("utf-8", "strict")
+                        except UnicodeDecodeError as error:
+                            raise ProviderStreamError("invalid_utf8") from error
+                        if decoded == "[DONE]":
+                            completed = True
+                            yield ProviderStreamEvent(
+                                ProviderStreamEventKind.COMPLETED,
+                                prompt_tokens=usage[0],
+                                completion_tokens=usage[1],
+                                finish_reason=finish_reason,
+                            )
+                            return
+                        try:
+                            payload = json.loads(decoded)
+                            if not isinstance(payload, dict):
+                                raise ValueError
+                            raw_usage = payload.get("usage")
+                            if isinstance(raw_usage, dict):
+                                prompt = raw_usage.get("prompt_tokens")
+                                completion = raw_usage.get("completion_tokens")
+                                usage = (
+                                    prompt if type(prompt) is int and prompt >= 0 else None,
+                                    (
+                                        completion
+                                        if type(completion) is int and completion >= 0
+                                        else None
+                                    ),
+                                )
+                            choices = payload.get("choices", [])
+                            if not isinstance(choices, list):
+                                raise ValueError
+                            for choice in choices:
+                                if not isinstance(choice, dict):
+                                    raise ValueError
+                                delta = choice.get("delta", {})
+                                if not isinstance(delta, dict):
+                                    raise ValueError
+                                content = delta.get("content", "")
+                                if content is None:
+                                    content = ""
+                                if not isinstance(content, str):
+                                    raise ValueError
+                                raw_finish_reason = choice.get("finish_reason")
+                                if raw_finish_reason is not None:
+                                    if (
+                                        not isinstance(raw_finish_reason, str)
+                                        or len(raw_finish_reason.encode("utf-8")) > 128
+                                    ):
+                                        raise ValueError
+                                    finish_reason = raw_finish_reason
+                                if len(content.encode("utf-8")) > request.max_delta_bytes:
+                                    raise ProviderStreamError("delta_too_large")
+                                if content:
+                                    yield ProviderStreamEvent(
+                                        ProviderStreamEventKind.TEXT_DELTA, text=content
+                                    )
+                        except (ValueError, TypeError, json.JSONDecodeError) as error:
+                            raise ProviderStreamError("malformed_sse_json") from error
+                if frame.strip():
+                    raise ProviderStreamError("truncated_sse_frame")
+                if not completed:
+                    raise ProviderStreamError("provider_disconnected")
+        except TimeoutError as error:
+            raise ProviderStreamError("timeout") from error
+        except asyncio.LimitOverrunError as error:
+            raise ProviderStreamError("response_headers_too_large") from error
+        except (OSError, asyncio.IncompleteReadError, UnicodeError) as error:
+            raise ProviderStreamError("transport_failure") from error
+        finally:
+            if writer is not None:
+                writer.close()
+                with suppress(ConnectionError, OSError):
+                    await writer.wait_closed()
+
+
+async def _response_chunks(
+    reader: asyncio.StreamReader, headers: dict[str, str], maximum_chunk: int
+) -> AsyncIterator[bytes]:
+    """Decode bounded HTTP/1.1 content-length, chunked, or close-delimited bodies."""
+
+    from jarvis.chat.errors import ProviderStreamError
+
+    if "chunked" in headers.get("transfer-encoding", ""):
+        while True:
+            line = await reader.readline()
+            if len(line) > 128 or not line.endswith(b"\n"):
+                raise ProviderStreamError("malformed_http_chunk")
+            try:
+                size = int(line.split(b";", 1)[0].strip(), 16)
+            except ValueError as error:
+                raise ProviderStreamError("malformed_http_chunk") from error
+            if size == 0:
+                await reader.readuntil(b"\r\n")
+                return
+            if size > maximum_chunk:
+                raise ProviderStreamError("http_chunk_too_large")
+            yield await reader.readexactly(size)
+            if await reader.readexactly(2) != b"\r\n":
+                raise ProviderStreamError("malformed_http_chunk")
+    length = headers.get("content-length")
+    if length is not None:
+        try:
+            remaining = int(length)
+        except ValueError as error:
+            raise ProviderStreamError("malformed_content_length") from error
+        if remaining < 0:
+            raise ProviderStreamError("malformed_content_length")
+        while remaining:
+            chunk = await reader.read(min(remaining, 65_536))
+            if not chunk:
+                raise ProviderStreamError("provider_disconnected")
+            remaining -= len(chunk)
+            yield chunk
+        return
+    while chunk := await reader.read(65_536):
+        yield chunk
+
+
+def _sse_boundary(frame: bytearray) -> tuple[int, int] | None:
+    lf = frame.find(b"\n\n")
+    crlf = frame.find(b"\r\n\r\n")
+    candidates = [(offset, size) for offset, size in ((lf, 2), (crlf, 4)) if offset >= 0]
+    return min(candidates) if candidates else None

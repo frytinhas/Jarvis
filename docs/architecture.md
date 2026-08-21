@@ -85,9 +85,20 @@ Initially, a deterministic FIFO coordinator serializes generations for one profi
 
 ## Agent Engine and Context Builder
 
-The Agent Engine coordinates a turn: resolve profile/model/session, transactionally activate first-run learning when applicable, reserve bounded diagnostic capacity, ask the centralized Context Builder for a bounded prompt, enter the profile FIFO coordinator, invoke the provider, persist conversation and diagnostics, interpret structured tool proposals, and stream one ordered terminal outcome over IPC.
+The Agent Engine coordinates a turn: resolve profile/model/session, reserve bounded diagnostic
+capacity, transactionally activate first-run learning, ask the centralized Context Builder for a
+bounded request, enter the profile FIFO coordinator, invoke the provider, persist conversation and
+diagnostics, and stream one ordered terminal outcome over IPC. M006A treats tool-looking model text
+as ordinary assistant text and introduces no host capability path.
 
 The Context Builder is the only authority for assembling model input. It orders and budgets documented product protocol/tool instructions, profile persona/context, explicit user-configured behavioral instructions, relevant capability/permission descriptions, model-private notes, selectively retrieved semantic/episodic memory, workspace/tool context, recent conversation, and the current request. Other modules contribute typed, bounded candidates with identifiable provenance; they do not append arbitrary prompt text.
+
+In M006A its implemented order is exactly `CORE_PROTOCOL`, `PROFILE_PERSONA`, `PROFILE_CONTEXT`,
+`USER_CONFIGURED`, `TECHNICAL_FORMATTING`, `CONVERSATION`, and `USER_REQUEST`. Oldest conversation
+is dropped first. Persona, profile context, and the current request are mandatory and cause a typed
+pre-generation overflow error rather than silent truncation. Notes, memory, workspace, tools,
+permission descriptions, diagnostics, audit records, and raw logs are not M006A inputs; the broader
+candidate classes above belong only to their later owning milestones.
 
 Every persistent or system-level Jarvis-owned prompt component must identify its source and purpose. Product-required components are limited to documented protocol/tool instructions and required technical formatting/tool-use instructions; behavioral components come from the selected profile/model configuration. There is no undocumented provider-policy prompt layer.
 

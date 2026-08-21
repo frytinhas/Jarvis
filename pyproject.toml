@@ -45,6 +45,7 @@ markers = [
     "integration: tests spanning foundation components",
     "migration: SQLite migration contract tests",
     "security: security-boundary and privacy tests",
+    "local_loopback: test an explicitly managed IPv4 loopback transport",
 ]
 
 [tool.ruff]

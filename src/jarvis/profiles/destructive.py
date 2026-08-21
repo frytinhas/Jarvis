@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import RFC_4122, UUID, uuid4
 
 from jarvis.config.defaults import DefaultsRegistry
@@ -350,10 +350,62 @@ def _profile_model_state(
     )
 
 
+def _chat_state(
+    connection: sqlite3.Connection, profile_id: ProfileId
+) -> tuple[tuple[object, ...], ...]:
+    """Bounded structural state used to stale destructive confirmations."""
+
+    rows: list[tuple[object, ...]] = []
+    for table in (
+        "chat_sessions",
+        "chat_turns",
+        "chat_messages",
+        "learning_state",
+        "chat_diagnostics",
+    ):
+        count, latest = connection.execute(
+            f"SELECT COUNT(*), MAX(rowid) FROM {table} WHERE profile_id = ?",  # noqa: S608
+            (str(profile_id),),
+        ).fetchone()
+        rows.append((table, int(count), None if latest is None else int(latest)))
+    return tuple(rows)
+
+
+def _chat_preview_items(
+    connection: sqlite3.Connection, profile_id: ProfileId
+) -> tuple[DestructivePreviewItem, ...]:
+    labels = {
+        "chat_sessions": "conversation-sessions",
+        "chat_turns": "conversation-turns",
+        "chat_messages": "conversation-messages",
+        "learning_state": "learning-state",
+        "chat_diagnostics": "chat-diagnostics",
+    }
+    return tuple(
+        DestructivePreviewItem(
+            labels[str(table)], "delete", cast(int, count), 0, cast(int, count) > 0
+        )
+        for table, count, _latest in _chat_state(connection, profile_id)
+    )
+
+
+def _chat_confirmation_state(
+    connection: sqlite3.Connection, profile_id: ProfileId
+) -> tuple[tuple[object, ...], ...]:
+    """Stable ownership counts; coordinator-driven cancellation may change diagnostics/state."""
+
+    return tuple(
+        (table, count)
+        for table, count, _latest in _chat_state(connection, profile_id)
+        if table != "chat_diagnostics"
+    )
+
+
 def _state_digest(
     aggregate: ProfileAggregate,
     target: DestructiveTarget,
     profile_models: tuple[tuple[object, ...], ...],
+    chat_state: tuple[tuple[object, ...], ...],
 ) -> str:
     profile = aggregate.profile
     configuration = aggregate.configuration
@@ -395,6 +447,7 @@ def _state_digest(
             },
         },
         "profile_models": [list(row) for row in profile_models],
+        "chat_state": [list(row) for row in chat_state],
     }
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -548,7 +601,7 @@ class ProfileDestructiveIntentService:
                     0,
                     bool(aggregate.configuration.values.goodbye_messages),
                 ),
-            )
+            ) + _chat_preview_items(database.connection(), profile_id)
             return self._store_preview(
                 database.connection(), aggregate, target, items, target_defaults_version=None
             )
@@ -578,7 +631,7 @@ class ProfileDestructiveIntentService:
                         0,
                         association_count > 0,
                     ),
-                )
+                ) + _chat_preview_items(database.connection(), aggregate.profile.profile_id)
             return self._store_preview(
                 database.connection(),
                 aggregate,
@@ -615,7 +668,10 @@ class ProfileDestructiveIntentService:
             expected_identity_revision=aggregate.profile.identity_revision,
             expected_configuration_revision=aggregate.configuration.configuration_revision,
             state_digest_sha256=_state_digest(
-                aggregate, target, _profile_model_state(connection, aggregate.profile.profile_id)
+                aggregate,
+                target,
+                _profile_model_state(connection, aggregate.profile.profile_id),
+                _chat_confirmation_state(connection, aggregate.profile.profile_id),
             ),
             token_digest_sha256=token_digest,
             created_at_utc=now,
@@ -746,6 +802,12 @@ class ProfileDestructiveCoordinator:
             configuration = ProfileConfigurationRepository(connection).get(command.profile_id)
             if scope is ResetScope.WHOLE_PROFILE:
                 connection.execute(
+                    "DELETE FROM chat_sessions WHERE profile_id = ?", (str(command.profile_id),)
+                )
+                connection.execute(
+                    "DELETE FROM learning_state WHERE profile_id = ?", (str(command.profile_id),)
+                )
+                connection.execute(
                     "DELETE FROM profile_models WHERE profile_id = ?", (str(command.profile_id),)
                 )
                 connection.execute(
@@ -804,7 +866,7 @@ class ProfileDestructiveCoordinator:
                     0,
                     bool(aggregate.configuration.values.goodbye_messages),
                 ),
-            )
+            ) + _chat_preview_items(connection, command.profile_id)
             if not ProfileRepository(connection).delete(command.profile_id):
                 raise ConfirmationStaleError(safe_details={"reason": "profile_changed"})
             return DeleteProfileResult(
@@ -847,7 +909,10 @@ class ProfileDestructiveCoordinator:
         ):
             raise ConfirmationStaleError(safe_details={"reason": "revision_mismatch"})
         recomputed = _state_digest(
-            aggregate, command.target, _profile_model_state(connection, command.profile_id)
+            aggregate,
+            command.target,
+            _profile_model_state(connection, command.profile_id),
+            _chat_confirmation_state(connection, command.profile_id),
         )
         if not hmac.compare_digest(recomputed, intent.state_digest_sha256):
             raise ConfirmationStaleError(safe_details={"reason": "state_mismatch"})

@@ -22,6 +22,7 @@ PROFILE_CATALOG = "profile-catalog-v1"
 PROFILE_MANAGEMENT = "profile-management-v1"
 MODEL_REGISTRY = "model-registry-v1"
 RUNTIME_MANAGER = "runtime-manager-v1"
+CHAT_V1 = "chat-v1"
 SESSION_RESUME = "session-resume-v1"
 EVENT_REPLAY = "event-replay-v1"
 CORE_CONTROL = "core-control-v1"
@@ -34,6 +35,7 @@ SERVER_CAPABILITIES = frozenset(
         PROFILE_MANAGEMENT,
         MODEL_REGISTRY,
         RUNTIME_MANAGER,
+        CHAT_V1,
         SESSION_RESUME,
         EVENT_REPLAY,
         CORE_CONTROL,

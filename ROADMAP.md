@@ -4,13 +4,11 @@
 
 This roadmap decomposes the product specified by `AGENTS.md` into sequential, independently verifiable milestones. `AGENTS.md` remains authoritative. If this roadmap and `AGENTS.md` differ, implementation stops until the roadmap is corrected; a milestone may not reinterpret an invariant.
 
-This document plans work only. Milestones 000, 001, and 002 are **DONE**. Their required CPython
-3.12 and 3.14 verification passed; CPython 3.13 was unavailable and remains conditional. Milestone
-003 is **DONE**. Its Core-IPC profile-management client, logical aliases, concurrent snapshot
-correction, clean-wheel audit, and disposable-XDG walkthrough are recorded in
-`docs/plans/003-profile-config-client.md`. Before any milestone starts, its ExecPlan must be
-created and maintained as required by `PLANS.md`. Milestone 004 and every later implementation
-milestone are **NOT STARTED**.
+This document plans work only. Milestones 000 through 005 are **DONE**; their evidence is retained
+in the corresponding completed ExecPlans. Milestone 006A is **ACTIVE** under
+`docs/plans/006a-chat-core.md`. Before any milestone starts, its ExecPlan must be created and
+maintained as required by `PLANS.md`. Milestone 006B and every later implementation milestone are
+**NOT STARTED**.
 
 The roadmap excludes Jarvis Voice and the Jarvis Desktop App. Their compatibility requirement is preserved by keeping Jarvis Core behind a versioned local IPC protocol and keeping all client presentation outside Core.
 

@@ -54,7 +54,7 @@ def test_schema_three_upgrades_to_four_without_runtime_side_effect(tmp_path: Pat
     with database:
         MigrationRunner(database, _clock(), migrations[:3]).apply()
         assert current_schema_version(database) == 3
-        result = MigrationRunner(database, _clock()).apply()
+        result = MigrationRunner(database, _clock(), migrations[:4]).apply()
         assert result.applied_versions == (4,)
         assert current_schema_version(database) == 4
         connection = database.connection()
