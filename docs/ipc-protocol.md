@@ -33,6 +33,7 @@ profile-catalog-v1
 profile-management-v1
 model-registry-v1
 runtime-manager-v1
+setup-v1
 chat-v1
 session-resume-v1
 event-replay-v1
@@ -130,6 +131,16 @@ Explicit cancellation owns queued/active cancellation; disconnect does not cance
 drains the old generation, while whole-profile reset/delete and Core shutdown cancel and durably
 record active work before cleanup.
 
+M006C adds optional `setup-v1` without changing protocol version 1. Its profile-scoped operations
+are `setup.start`, `setup.advance`, `setup.validate`, and `setup.cancel`. Core returns an opaque
+memory-only setup token, an optimistic revision, and one typed state: `ready`,
+`needs-runtime-path`, `needs-model-directory`, `needs-discovery`, `needs-model-selection`,
+`needs-essential-settings`, `validating`, `cancelled`, or `failed`. The client renders those states
+and gathers choices; M004 owns runtime-location updates, discovery, model selection, and structured
+configuration, while M005 owns readiness validation. A token is profile-bound and Core-local;
+revision, profile, cancellation, and Core-restart confusion fail with typed errors. Setup and
+runtime readiness submit no chat and create no first-chat learning state.
+
 ## Resume and replay
 
 Handshake returns a random 256-bit resume token bound to one logical `connection_id`. Tokens are
@@ -149,7 +160,7 @@ replay/live-delivery race for presentation clients without changing Core ownersh
 disconnect as cancellation. A replay gap is reported with authoritative Core status; the client
 does not submit a replacement generation.
 
-## Runtime ownership
+## Runtime ownership and production activation
 
 Core artifacts are `core.lock`, `core.sock`, and informational `core-runtime.json`. The exclusive
 nonblocking `flock` held on a verified `core.lock` descriptor for the complete Core lifetime is the
@@ -161,6 +172,14 @@ contract: it signals an orphan process group only after boot ID, PID start ticks
 device/inode, process group, model descriptor identity, owned IPv4-loopback listener,
 runtime/profile identity, and private artifact validation all match. Ambiguous evidence is retained
 and never signalled.
+
+In installed mode, user systemd owns `%t/jarvis-cli/core.sock` and passes exactly one named Unix
+stream listener as descriptor 3. Core validates activation PID/count/name, descriptor domain/type/
+listening state, exact non-abstract pathname, current UID, mode 0600, link count, and the safe 0700
+runtime parent. It adopts without bind or unlink and retains the same Core lock. Direct development
+mode alone may recover, bind, and remove its own socket. Client activation retry is bounded;
+successful `hello.ok` is Core readiness, while unavailable, timeout, and protocol failures remain
+distinct typed outcomes.
 
 Protocol version 1 itself has no database ownership. The current M006A product schema is version 5
 with packaged migrations `0001_migration_ledger.sql`, `0002_profile_system.sql`,

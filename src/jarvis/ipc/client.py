@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import errno
+import time
 from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
@@ -35,6 +37,23 @@ class HandshakeResult:
         return ResumeProof(self.core_instance_id, self.connection_id, self.resume_token)
 
 
+@dataclass(frozen=True, slots=True)
+class ActivationPolicy:
+    timeout_seconds: float = 8.0
+    attempt_timeout_seconds: float = 2.0
+    initial_delay_seconds: float = 0.025
+    maximum_delay_seconds: float = 0.4
+
+    def __post_init__(self) -> None:
+        if (
+            self.timeout_seconds <= 0
+            or self.attempt_timeout_seconds <= 0
+            or self.initial_delay_seconds <= 0
+            or self.maximum_delay_seconds < self.initial_delay_seconds
+        ):
+            raise ValueError("invalid activation policy")
+
+
 class JarvisIpcClient:
     def __init__(
         self,
@@ -57,6 +76,62 @@ class JarvisIpcClient:
         self._send_lock = asyncio.Lock()
         self._control_lock = asyncio.Lock()
         self._reader_task = asyncio.create_task(self._reader_loop())
+
+    @classmethod
+    async def connect_ready(
+        cls,
+        path: Path,
+        *,
+        required_capabilities: Iterable[str] = (REQUEST_STREAM,),
+        optional_capabilities: Iterable[str] = (),
+        client_name: str = "jarvis-internal-client",
+        resume: ResumeProof | None = None,
+        policy: ActivationPolicy | None = None,
+    ) -> JarvisIpcClient:
+        """Wait boundedly for socket activation; hello.ok is the readiness boundary."""
+
+        active_policy = ActivationPolicy() if policy is None else policy
+        deadline = time.monotonic() + active_policy.timeout_seconds
+        delay = active_policy.initial_delay_seconds
+        while True:
+            try:
+                return await asyncio.wait_for(
+                    cls.connect(
+                        path,
+                        required_capabilities=required_capabilities,
+                        optional_capabilities=optional_capabilities,
+                        client_name=client_name,
+                        resume=resume,
+                    ),
+                    timeout=min(
+                        active_policy.attempt_timeout_seconds,
+                        max(0.001, deadline - time.monotonic()),
+                    ),
+                )
+            except IpcError as error:
+                if error.code == "ipc.core_unavailable":
+                    raise ipc_error(
+                        "ipc.activation_unavailable", reason="hello_rejected"
+                    ) from error
+                if error.code in {
+                    "ipc.invalid_message",
+                    "ipc.capability_mismatch",
+                    "ipc.version_mismatch",
+                }:
+                    raise ipc_error("ipc.activation_protocol_failed", cause=error.code) from error
+                raise
+            except PermissionError as error:
+                raise ipc_error("ipc.activation_unavailable", reason="permission_denied") from error
+            except OSError as error:
+                if error.errno not in {errno.ENOENT, errno.ECONNREFUSED, errno.ECONNRESET}:
+                    raise ipc_error("ipc.activation_unavailable", reason="transport") from error
+            except TimeoutError:
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ipc_error("ipc.activation_timeout")
+            await asyncio.sleep(min(delay, remaining))
+            delay = min(active_policy.maximum_delay_seconds, delay * 2)
 
     @classmethod
     async def connect(
@@ -141,7 +216,7 @@ class JarvisIpcClient:
         return cls(path, reader, writer, handshake, requirements, options)
 
     async def resume(self) -> JarvisIpcClient:
-        return await self.connect(
+        return await self.connect_ready(
             self.path,
             required_capabilities=self._required_capabilities,
             optional_capabilities=self._optional_capabilities,

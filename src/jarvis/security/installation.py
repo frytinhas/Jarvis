@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from importlib import metadata
@@ -242,6 +243,9 @@ def discover_active_installation() -> InstallationIdentity:
             mode=InstallationMode.AMBIGUOUS,
         )
     anchor = Path(module_file).absolute()
+    installed = _managed_installation_identity(anchor)
+    if installed is not None:
+        return installed
     source_root = _source_root(anchor)
     try:
         distribution = metadata.distribution("jarvis-cli")
@@ -300,6 +304,45 @@ def discover_active_installation() -> InstallationIdentity:
         distribution_version=version,
         mode=InstallationMode.AMBIGUOUS,
     )
+
+
+def _managed_installation_identity(anchor: Path) -> InstallationIdentity | None:
+    """Consume M006C's manifest only when this exact private interpreter owns it."""
+
+    try:
+        from jarvis.installation.manifest import load_manifest, verify_manifest
+        from jarvis.installation.paths import resolve_installation_paths
+
+        paths = resolve_installation_paths()
+        if not paths.manifest.exists():
+            return None
+        manifest = load_manifest(paths.manifest)
+        if (
+            Path(sys.executable).absolute() != Path(manifest.interpreter.path).absolute()
+            or manifest.installation_root != str(paths.installation_root)
+            or not anchor.resolve(strict=True).is_relative_to(
+                paths.installation_root.resolve(strict=True)
+            )
+        ):
+            return None
+        verify_manifest(manifest)
+        return InstallationIdentity.capture(
+            (paths.installation_root,),
+            active_import_anchor=anchor,
+            distribution_version=manifest.distribution_version,
+            mode=InstallationMode.WHEEL,
+            additional_protected_files=(
+                *(Path(asset.path) for asset in manifest.assets),
+                paths.manifest,
+            ),
+        )
+    except BaseException:
+        return InstallationIdentity.capture(
+            (),
+            active_import_anchor=anchor,
+            distribution_version="unknown",
+            mode=InstallationMode.AMBIGUOUS,
+        )
 
 
 class InstallationProtector:

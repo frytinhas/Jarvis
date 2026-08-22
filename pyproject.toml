@@ -22,6 +22,7 @@ classifiers = [
 dependencies = []
 
 [project.scripts]
+jarvis = "jarvis.cli.__main__:main"
 jarvisd = "jarvis.core.__main__:main"
 jarvis-config = "jarvis.cli.__main__:config_main"
 jarvis-help = "jarvis.cli.__main__:help_main"

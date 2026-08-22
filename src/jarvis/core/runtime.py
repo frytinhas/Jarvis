@@ -6,6 +6,7 @@ import asyncio
 import socket
 from contextlib import suppress
 from dataclasses import dataclass
+from enum import StrEnum
 
 from jarvis.chat.agent import AgentEngine
 from jarvis.chat.coordinator import GenerationCoordinator
@@ -34,7 +35,13 @@ from jarvis.llm.provider import LLMProvider
 from jarvis.models.service import ModelRegistryService
 from jarvis.profiles.service import ProfileConfigService, ProfileService
 from jarvis.runtimes.manager import RuntimeManager
+from jarvis.setup import SetupService
 from jarvis.storage.xdg import XdgPaths, initialize_xdg_directories, resolve_xdg_paths
+
+
+class ListenerMode(StrEnum):
+    DIRECT = "direct"
+    SYSTEMD = "systemd"
 
 
 @dataclass(slots=True)
@@ -51,6 +58,7 @@ class CoreResources:
     profile_configuration: ProfileConfigService
     model_registry: ModelRegistryService
     runtime_manager: RuntimeManager
+    setup: SetupService
     conversations: ConversationRepository
     learning: LearningService
     chat_diagnostics: ChatDiagnosticService
@@ -68,8 +76,10 @@ class CoreResources:
         event_ids: IdGenerator | None = None,
         protocol_ids: ProtocolIdGenerator | None = None,
         provider: LLMProvider | None = None,
+        listener_mode: ListenerMode | None = None,
     ) -> CoreResources:
         active_clock = SystemClock() if clock is None else clock
+        active_listener_mode = ListenerMode.DIRECT if listener_mode is None else listener_mode
         active_event_ids = RandomIdGenerator() if event_ids is None else event_ids
         active_protocol_ids = RandomProtocolIdGenerator() if protocol_ids is None else protocol_ids
         lifecycle = CoreLifecycle()
@@ -80,7 +90,10 @@ class CoreResources:
         try:
             initialize_xdg_directories(paths)
             try:
-                ownership = RuntimeOwnership.acquire(paths.runtime)
+                ownership = RuntimeOwnership.acquire(
+                    paths.runtime,
+                    recover_socket=active_listener_mode is ListenerMode.DIRECT,
+                )
             except IpcError as error:
                 if error.code == "ipc.core_already_running":
                     classify_lock_loser(paths.runtime)
@@ -134,6 +147,7 @@ class CoreResources:
                 generations=generation_coordinator,
                 diagnostics=diagnostics,
             )
+            setup = SetupService(model_registry, runtime_manager)
             conversations = ConversationRepository(paths.data / DATABASE_FILENAME)
             chat_diagnostics = ChatDiagnosticService(
                 paths.data / DATABASE_FILENAME,
@@ -152,7 +166,11 @@ class CoreResources:
                 defaults=defaults_registry,
                 clock=active_clock,
             )
-            listener = ownership.bind_socket()
+            listener = (
+                ownership.bind_socket()
+                if active_listener_mode is ListenerMode.DIRECT
+                else ownership.adopt_inherited_socket()
+            )
             lifecycle.transition(CoreLifecycleState.READY)
             ownership.publish_metadata(identity, lifecycle.state, sorted(SERVER_CAPABILITIES))
             _emit(
@@ -175,6 +193,7 @@ class CoreResources:
                 profile_configuration=profile_configuration,
                 model_registry=model_registry,
                 runtime_manager=runtime_manager,
+                setup=setup,
                 conversations=conversations,
                 learning=learning,
                 chat_diagnostics=chat_diagnostics,
@@ -268,9 +287,11 @@ class JarvisCore:
         *,
         handlers: dict[str, Handler] | None = None,
         provider: LLMProvider | None = None,
+        listener_mode: ListenerMode = ListenerMode.DIRECT,
     ) -> None:
         self._handlers = handlers
         self._provider = provider
+        self._listener_mode = listener_mode
         self._shutdown = asyncio.Event()
         self._resources: CoreResources | None = None
         self._server: IpcServer | None = None
@@ -287,7 +308,10 @@ class JarvisCore:
         self._shutdown.set()
 
     async def run(self) -> None:
-        self._resources = CoreResources.start(provider=self._provider)
+        self._resources = CoreResources.start(
+            provider=self._provider,
+            listener_mode=self._listener_mode,
+        )
         resources = self._resources
         server = IpcServer(
             listener=resources.listener,
@@ -297,6 +321,7 @@ class JarvisCore:
             profile_configuration=resources.profile_configuration,
             model_registry=resources.model_registry,
             runtime_manager=resources.runtime_manager,
+            setup=resources.setup,
             agent=resources.agent,
             conversations=resources.conversations,
             learning=resources.learning,

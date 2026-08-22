@@ -1,0 +1,13 @@
+[Unit]
+Description=Jarvis Core
+Requires=jarvisd.socket
+After=jarvisd.socket
+StartLimitIntervalSec=30s
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=@PRIVATE_PYTHON@ -m jarvis.core --socket-activation
+Restart=on-failure
+RestartSec=1s
+NoNewPrivileges=yes

@@ -1,0 +1,12 @@
+[Unit]
+Description=Jarvis Core IPC socket
+
+[Socket]
+ListenStream=%t/jarvis-cli/core.sock
+SocketMode=0600
+DirectoryMode=0700
+FileDescriptorName=jarvis-core
+Service=jarvisd.service
+
+[Install]
+WantedBy=sockets.target

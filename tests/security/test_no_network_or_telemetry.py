@@ -35,6 +35,7 @@ def test_project_has_zero_runtime_dependencies() -> None:
     document = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert document["project"]["dependencies"] == []
     assert document["project"]["scripts"] == {
+        "jarvis": "jarvis.cli.__main__:main",
         "jarvisd": "jarvis.core.__main__:main",
         "jarvis-config": "jarvis.cli.__main__:config_main",
         "jarvis-help": "jarvis.cli.__main__:help_main",

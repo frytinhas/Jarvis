@@ -8,6 +8,7 @@ import os
 import socket
 import stat
 import struct
+from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
 
@@ -96,7 +97,7 @@ class RuntimeOwnership:
         self._closed = False
 
     @classmethod
-    def acquire(cls, runtime_directory: Path) -> RuntimeOwnership:
+    def acquire(cls, runtime_directory: Path, *, recover_socket: bool = True) -> RuntimeOwnership:
         expected_directory = verify_private_directory(runtime_directory)
         flags = os.O_RDONLY | os.O_DIRECTORY
         if hasattr(os, "O_CLOEXEC"):
@@ -132,7 +133,7 @@ class RuntimeOwnership:
             except BlockingIOError as error:
                 raise ipc_error("ipc.core_already_running") from error
             ownership = cls(runtime_directory, directory_fd, lock_fd)
-            ownership._recover_stale_artifacts()
+            ownership._recover_stale_artifacts(recover_socket=recover_socket)
             return ownership
         except BaseException:
             if lock_fd is not None:
@@ -153,10 +154,10 @@ class RuntimeOwnership:
         os.unlink(name, dir_fd=self._directory_fd)
         os.fsync(self._directory_fd)
 
-    def _recover_stale_artifacts(self) -> None:
+    def _recover_stale_artifacts(self, *, recover_socket: bool) -> None:
         uid = os.getuid()
         socket_metadata = self._lstat_optional(SOCKET_FILENAME)
-        if socket_metadata is not None:
+        if socket_metadata is not None and recover_socket:
             if (
                 not stat.S_ISSOCK(socket_metadata.st_mode)
                 or socket_metadata.st_uid != uid
@@ -170,6 +171,66 @@ class RuntimeOwnership:
             if not _private_regular(metadata, uid) or metadata.st_size > MAX_METADATA_BYTES:
                 raise ipc_error("ipc.core_unavailable", reason="unsafe_runtime_metadata")
             self._unlink_matching(METADATA_FILENAME, metadata)
+
+    def adopt_inherited_socket(
+        self,
+        *,
+        descriptor: int = 3,
+        env: Mapping[str, str] | None = None,
+    ) -> socket.socket:
+        """Validate and adopt systemd's one named production listener fail-closed."""
+
+        active = os.environ if env is None else env
+        if (
+            active.get("LISTEN_PID") != str(os.getpid())
+            or active.get("LISTEN_FDS") != "1"
+            or active.get("LISTEN_FDNAMES") != "jarvis-core"
+            or descriptor != 3
+        ):
+            raise ipc_error("ipc.activation_invalid", reason="activation_environment")
+        self.validate_socket_path()
+        try:
+            duplicate = socket.fromfd(descriptor, socket.AF_UNIX, socket.SOCK_STREAM)
+        except OSError as error:
+            raise ipc_error("ipc.activation_invalid", reason="descriptor_unavailable") from error
+        try:
+            # Validate the private duplicate and retain it.  Validating fd 3 and then
+            # adopting fd 3 leaves a descriptor-replacement window in a multi-threaded
+            # process; `fromfd` also gives the adopted listener close-on-exec by default.
+            descriptor_metadata = os.fstat(duplicate.fileno())
+            if (
+                not stat.S_ISSOCK(descriptor_metadata.st_mode)
+                or descriptor_metadata.st_uid != os.getuid()
+                or duplicate.family != socket.AF_UNIX
+                or (
+                    hasattr(socket, "SO_DOMAIN")
+                    and duplicate.getsockopt(socket.SOL_SOCKET, socket.SO_DOMAIN) != socket.AF_UNIX
+                )
+                or duplicate.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE) != socket.SOCK_STREAM
+                or duplicate.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN) != 1
+            ):
+                raise ipc_error("ipc.activation_invalid", reason="descriptor_type")
+            address = duplicate.getsockname()
+            if not isinstance(address, str) or not address or address.startswith("\x00"):
+                raise ipc_error("ipc.activation_invalid", reason="abstract_or_invalid_address")
+            if Path(address).absolute() != self.socket_path.absolute():
+                raise ipc_error("ipc.activation_invalid", reason="address_mismatch")
+            path_metadata = os.stat(
+                SOCKET_FILENAME, dir_fd=self._directory_fd, follow_symlinks=False
+            )
+            if (
+                not stat.S_ISSOCK(path_metadata.st_mode)
+                or path_metadata.st_uid != os.getuid()
+                or stat.S_IMODE(path_metadata.st_mode) != PRIVATE_FILE_MODE
+                or path_metadata.st_nlink != 1
+            ):
+                raise ipc_error("ipc.activation_invalid", reason="socket_identity_or_access")
+            duplicate.setblocking(False)
+            duplicate.set_inheritable(False)
+            return duplicate
+        except BaseException:
+            duplicate.close()
+            raise
 
     def validate_socket_path(self) -> None:
         if len(os.fsencode(self.socket_path)) > MAX_UNIX_PATH_BYTES:

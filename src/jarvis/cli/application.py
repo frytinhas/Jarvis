@@ -81,7 +81,7 @@ async def run_configuration(presenter: TerminalPresenter) -> int:
     if not presenter.interactive:
         presenter.write("jarvis-config requires an interactive terminal.")
         return EXIT_USAGE
-    client = await JarvisIpcClient.connect(
+    client = await JarvisIpcClient.connect_ready(
         resolve_xdg_paths().runtime / "core.sock",
         required_capabilities=(REQUEST_STREAM, PROFILE_CATALOG, PROFILE_MANAGEMENT),
         client_name="jarvis-config",

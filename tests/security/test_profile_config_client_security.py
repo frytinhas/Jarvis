@@ -85,11 +85,12 @@ def test_m006b_contains_no_launcher_path_or_physical_alias_implementation() -> N
     assert "models.refresh" not in client_source
 
 
-def test_only_approved_m006b_console_scripts_exist() -> None:
+def test_only_approved_m006c_console_scripts_exist() -> None:
     import tomllib
 
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["scripts"] == {
+        "jarvis": "jarvis.cli.__main__:main",
         "jarvisd": "jarvis.core.__main__:main",
         "jarvis-config": "jarvis.cli.__main__:config_main",
         "jarvis-help": "jarvis.cli.__main__:help_main",

@@ -22,6 +22,7 @@ from jarvis.ipc.models import (
     REQUEST_STREAM,
     RUNTIME_MANAGER,
     SESSION_RESUME,
+    SETUP_V1,
     RequestId,
 )
 from jarvis.profiles.models import ProfileId, VisibleLoggingMode
@@ -38,7 +39,8 @@ EXIT_INTERRUPTED = 130
 CHAT_HELP_TEXT = """Jarvis Simple CLI
 
 Usage:
-  python -m jarvis.cli [--profile-alias ALIAS] [request ...]
+  jarvis [--profile-alias ALIAS] [request ...]
+  python -m jarvis.cli [--profile-alias ALIAS] [request ...]  (development)
 
 Without a request, open the simple interactive client. With a request, run one
 non-TUI turn. The default logical profile is jarvis; aliases are resolved by Core.
@@ -73,6 +75,7 @@ _REQUIRED_CAPABILITIES = (
     PROFILE_MANAGEMENT,
     MODEL_REGISTRY,
     RUNTIME_MANAGER,
+    SETUP_V1,
     CHAT_V1,
     SESSION_RESUME,
     EVENT_REPLAY,
@@ -145,7 +148,7 @@ class SimpleChatClient:
         cls, presenter: TerminalPresenter, alias: str, *, socket_path: Path | None = None
     ) -> SimpleChatClient:
         path = socket_path or resolve_xdg_paths().runtime / "core.sock"
-        client = await JarvisIpcClient.connect(
+        client = await JarvisIpcClient.connect_ready(
             path,
             required_capabilities=_REQUIRED_CAPABILITIES,
             client_name="jarvis-simple-cli",
@@ -158,6 +161,7 @@ class SimpleChatClient:
             if not isinstance(profile_wire, dict):
                 raise RuntimeError("Core returned invalid profile")
             profile_id = ProfileId.parse(str(profile_wire["profile_id"]))
+            await _complete_setup(client, presenter, profile_id)
             associations = await _result(client, "profiles.models.list", profile_id=profile_id)
             selected = _selected_association(associations)
             logging = await _result(
@@ -532,3 +536,127 @@ def _license_text() -> str:
     except metadata.PackageNotFoundError:
         expression = None
     return f"Jarvis-CLI license: {display_text(expression or 'GPL-3.0-only')}"
+
+
+async def _complete_setup(
+    client: JarvisIpcClient, presenter: TerminalPresenter, profile_id: ProfileId
+) -> None:
+    state = await _result(client, "setup.start", profile_id=profile_id)
+    while True:
+        name = state.get("state")
+        if name == "ready":
+            return
+        if name == "validating":
+            presenter.write("Validating the local model runtime.")
+            state = await _result(
+                client,
+                "setup.validate",
+                profile_id=profile_id,
+                payload=_setup_identity(state),
+            )
+            continue
+        if name == "needs-discovery":
+            presenter.write("Searching configured model directories for GGUF files.")
+            state = await _setup_advance(client, profile_id, state, "discover", None)
+            continue
+        if not presenter.interactive:
+            await _cancel_setup(client, profile_id, state)
+            raise ClientOperationError("setup.input_required", "error.setup.input_required")
+        if name == "needs-runtime-path":
+            value = presenter.prompt("Path to llama-server (blank cancels)").strip()
+            if not value:
+                await _cancel_setup(client, profile_id, state)
+                raise ClientOperationError("setup.cancelled", "error.setup.cancelled")
+            state = await _setup_advance(client, profile_id, state, "runtime-path", value)
+        elif name == "needs-model-directory":
+            value = presenter.prompt("Directory containing GGUF models (blank cancels)").strip()
+            if not value:
+                await _cancel_setup(client, profile_id, state)
+                raise ClientOperationError("setup.cancelled", "error.setup.cancelled")
+            state = await _setup_advance(client, profile_id, state, "model-directory", value)
+        elif name == "needs-model-selection":
+            models = state.get("models")
+            available = (
+                [
+                    item
+                    for item in models
+                    if isinstance(item, dict) and item.get("availability") == "available"
+                ]
+                if isinstance(models, list)
+                else []
+            )
+            if not available:
+                value = presenter.prompt(
+                    "No usable GGUF found; add another model directory"
+                ).strip()
+                if not value:
+                    await _cancel_setup(client, profile_id, state)
+                    raise ClientOperationError("setup.cancelled", "error.setup.cancelled")
+                state = await _setup_advance(client, profile_id, state, "model-directory", value)
+                continue
+            labels = [
+                display_text(item.get("path", item.get("model_id", "model"))) for item in available
+            ]
+            choice = presenter.choose("Select a local model:", labels)
+            if choice < 0:
+                await _cancel_setup(client, profile_id, state)
+                raise ClientOperationError("setup.cancelled", "error.setup.cancelled")
+            state = await _setup_advance(
+                client, profile_id, state, "select-model", available[choice]["model_id"]
+            )
+        elif name == "needs-essential-settings":
+            reasoning = (
+                presenter.prompt(
+                    "Reasoning level (off/low/medium/high/max; default medium)"
+                ).strip()
+                or "medium"
+            )
+            context_text = presenter.prompt("Context window (default 8192)").strip() or "8192"
+            try:
+                context_window = int(context_text)
+            except ValueError as error:
+                raise ClientOperationError(
+                    "setup.invalid_input", "error.setup.invalid_input"
+                ) from error
+            state = await _setup_advance(
+                client,
+                profile_id,
+                state,
+                "essential-settings",
+                {"reasoning": reasoning, "context_window": context_window},
+            )
+        else:
+            raise ClientOperationError("setup.failed", "error.setup.failed")
+
+
+def _setup_identity(state: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "session_token": state["session_token"],
+        "expected_revision": state["revision"],
+    }
+
+
+async def _setup_advance(
+    client: JarvisIpcClient,
+    profile_id: ProfileId,
+    state: Mapping[str, object],
+    action: str,
+    value: object,
+) -> Mapping[str, object]:
+    return await _result(
+        client,
+        "setup.advance",
+        profile_id=profile_id,
+        payload={**_setup_identity(state), "action": action, "value": value},
+    )
+
+
+async def _cancel_setup(
+    client: JarvisIpcClient, profile_id: ProfileId, state: Mapping[str, object]
+) -> None:
+    await _result(
+        client,
+        "setup.cancel",
+        profile_id=profile_id,
+        payload=_setup_identity(state),
+    )

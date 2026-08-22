@@ -4,10 +4,11 @@ Jarvis-CLI is a privacy-first, telemetry-free local AI assistant for Linux. The 
 currently includes the security foundation, persistent profile identity/configuration, one
 foreground Jarvis Core behind versioned local IPC, the profile-first `jarvis-config` client, a
 read-only local GGUF registry, a Core-owned per-profile `llama-server` runtime manager, the
-client-neutral M006A chat pipeline, and the M006B simple CLI presenter. The package-level
-`python -m jarvis.cli` client can submit, stream, cancel, reconnect to, and inspect durable
-profile/model chat turns. No host tool, external-network feature, TUI, PATH-installed `jarvis`
-assistant command, or physical profile command exists yet.
+client-neutral M006A chat pipeline, the M006B simple CLI presenter, and the M006C permanent
+user-local installation/socket-activation foundation. Installed use exposes canonical `jarvis`
+from a Jarvis-managed private environment, while `python -m jarvis.cli` remains the development
+entry. No host tool, external-network feature, TUI, dynamic physical profile command, updater, or
+profile model autostart exists yet.
 
 The current implementation provides user-local XDG storage, versioned defaults, SQLite migrations,
 bounded redacted infrastructure diagnostics, quota reservations, typed errors, active-installation
@@ -28,7 +29,7 @@ visible logging modes, and never accesses persistence, runtime handles, or provi
 - Development dependencies installed explicitly by a maintainer. Application startup and tests do
   not install or download dependencies.
 
-Jarvis-CLI has no runtime Python dependencies through Milestone 006B and performs no external
+Jarvis-CLI has no runtime Python dependencies through Milestone 006C and performs no external
 network access or telemetry. Local generation uses authenticated IPv4 loopback HTTP/SSE only
 between Core and its owned `llama-server` process.
 
@@ -44,10 +45,12 @@ PYTHONPATH=src python -m jarvis.cli --profile-alias work "olá"
 PYTHONPATH=src python -m jarvis.manage --help
 ```
 
-An installed development wheel exposes `jarvisd`, `jarvis-config`, `jarvis-help`, and
-`jarvis-manage`, and its package supports `python -m jarvis.cli`. It does not expose a `jarvis`
-console script or physical profile commands, daemonize, install systemd units, or register PATH
-entries. Chat asks Core to auto-start the selected profile runtime. The protocol is documented in
+M006C's explicit local-wheel bootstrap is `python -m jarvis.installation PATH/TO/WHEEL`. It creates
+`$XDG_DATA_HOME/jarvis-cli/installation/venv`, collision-safe fixed launchers under
+`$HOME/.local/bin`, a mode-0600 installation manifest under XDG state, and `jarvisd.socket` plus
+`jarvisd.service` under the user systemd configuration root. It never edits shell startup files;
+when `$HOME/.local/bin` is absent from PATH it reports the exact action. Production Core is a
+foreground socket-activated service, not a launcher-spawned background process. The protocol is documented in
 [`docs/ipc-protocol.md`](docs/ipc-protocol.md).
 
 Always point all five XDG roots, including a pre-created mode-`0700` `XDG_RUNTIME_DIR`, at a

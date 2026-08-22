@@ -9,12 +9,14 @@ import signal
 import sys
 from collections.abc import Sequence
 
-from jarvis.core.runtime import JarvisCore
+from jarvis.core.runtime import JarvisCore, ListenerMode
 from jarvis.foundation.errors import JarvisError
 
 
-async def _run_core() -> None:
-    core = JarvisCore()
+async def _run_core(*, socket_activation: bool) -> None:
+    core = JarvisCore(
+        listener_mode=ListenerMode.SYSTEMD if socket_activation else ListenerMode.DIRECT
+    )
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signum, lambda: asyncio.create_task(core.request_shutdown()))
@@ -24,9 +26,10 @@ async def _run_core() -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jarvisd", description="Run Jarvis Core in foreground")
     parser.add_argument("--foreground", action="store_true", help=argparse.SUPPRESS)
-    parser.parse_args(argv)
+    parser.add_argument("--socket-activation", action="store_true")
+    arguments = parser.parse_args(argv)
     try:
-        asyncio.run(_run_core())
+        asyncio.run(_run_core(socket_activation=arguments.socket_activation))
     except KeyboardInterrupt:
         return 130
     except JarvisError as error:

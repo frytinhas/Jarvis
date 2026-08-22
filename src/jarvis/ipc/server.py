@@ -9,6 +9,7 @@ import re
 import secrets
 import socket
 import struct
+import sys
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
@@ -42,6 +43,7 @@ from jarvis.ipc.models import (
     RUNTIME_MANAGER,
     SERVER_CAPABILITIES,
     SESSION_RESUME,
+    SETUP_V1,
     ConnectionId,
     CoreInstanceId,
     IpcRequest,
@@ -86,6 +88,7 @@ from jarvis.runtimes.errors import RuntimeManagerError
 from jarvis.runtimes.lifecycle import ProfileRuntimeLifecycleCoordinator
 from jarvis.runtimes.manager import RuntimeManager
 from jarvis.runtimes.models import RuntimeSnapshot
+from jarvis.setup import SetupError, SetupService
 
 MAX_CONNECTIONS = 32
 MAX_LOGICAL_SESSIONS = 128
@@ -196,6 +199,7 @@ class IpcServer:
         started_at_utc: str,
         shutdown_callback: ShutdownCallback,
         runtime_manager: RuntimeManager | None = None,
+        setup: SetupService | None = None,
         agent: AgentEngine | None = None,
         conversations: ConversationRepository | None = None,
         learning: LearningService | None = None,
@@ -213,6 +217,7 @@ class IpcServer:
         self.profile_configuration = profile_configuration
         self.model_registry = model_registry
         self.runtime_manager = runtime_manager
+        self.setup = setup
         self.agent = agent
         self.conversations = conversations
         self.learning = learning
@@ -244,7 +249,15 @@ class IpcServer:
         return self._connected_transports
 
     async def start(self) -> None:
-        self._server = await asyncio.start_unix_server(self._accept, sock=self._listener)
+        # Python 3.13+ otherwise removes the pathname while closing an inherited
+        # Unix listener. RuntimeOwnership, not asyncio, owns direct cleanup; in
+        # socket-activated mode the pathname belongs to systemd for Core restarts.
+        if sys.version_info >= (3, 13):
+            self._server = await asyncio.start_unix_server(  # type: ignore[call-arg]
+                self._accept, sock=self._listener, cleanup_socket=False
+            )
+        else:
+            self._server = await asyncio.start_unix_server(self._accept, sock=self._listener)
 
     async def stop_accepting(self) -> None:
         if self._server is not None:
@@ -493,6 +506,10 @@ class IpcServer:
             "profiles.runtime.switch",
             "installation.runtime.policy.get",
             "installation.runtime.policy.update",
+            "setup.start",
+            "setup.advance",
+            "setup.cancel",
+            "setup.validate",
             "chat.submit",
             "chat.session.resolve",
             "chat.turn.status",
@@ -526,6 +543,10 @@ class IpcServer:
             "profiles.runtime.status",
             "profiles.runtime.stop",
             "profiles.runtime.switch",
+            "setup.start",
+            "setup.advance",
+            "setup.cancel",
+            "setup.validate",
             "chat.submit",
             "chat.session.resolve",
             "chat.turn.status",
@@ -546,6 +567,8 @@ class IpcServer:
             raise ipc_error("ipc.capability_mismatch", reason="core_health_not_negotiated")
         if request.operation.startswith("chat.") and CHAT_V1 not in session.capabilities:
             raise ipc_error("ipc.capability_mismatch", reason="chat_not_negotiated")
+        if request.operation.startswith("setup.") and SETUP_V1 not in session.capabilities:
+            raise ipc_error("ipc.capability_mismatch", reason="setup_not_negotiated")
         if (
             request.operation.startswith(
                 ("models.", "installation.", "profiles.models.", "profiles.runtime.")
@@ -584,6 +607,8 @@ class IpcServer:
             _validate_management_payload(request)
         if request.operation.startswith("chat."):
             _validate_chat_payload(request)
+        if request.operation.startswith("setup."):
+            _validate_setup_payload(request)
 
     async def _run_request(self, session: LogicalSession, context: RequestContext) -> None:
         try:
@@ -637,7 +662,7 @@ class IpcServer:
                 await self._send_event_if_attached(session, terminal)
             raise
         except BaseException as error:
-            if isinstance(error, (ModelError, RuntimeManagerError, ChatError)):
+            if isinstance(error, (ModelError, RuntimeManagerError, ChatError, SetupError)):
                 error = ipc_error(error.code, **error.safe_details)
             terminal = await self.registry.fail(context, error)
             if terminal is not None:
@@ -652,6 +677,8 @@ class IpcServer:
             return await self.handlers[operation](context)
         if operation == "core.health":
             return self._health()
+        if operation.startswith("setup."):
+            return await self._dispatch_setup(context)
         if operation.startswith("chat."):
             return await self._dispatch_chat(context)
         if operation.startswith("profiles.runtime.") or operation.startswith(
@@ -972,6 +999,31 @@ class IpcServer:
             }
         if operation == "core.shutdown":
             return {"shutdown_scheduled": True}
+        raise ipc_error("ipc.operation_not_supported", operation=operation)
+
+    async def _dispatch_setup(self, context: RequestContext) -> Mapping[str, object]:
+        if self.setup is None or context.request.profile_id is None:
+            raise ipc_error("ipc.operation_not_supported", operation=context.request.operation)
+        operation = context.request.operation
+        payload = context.request.payload
+        if operation == "setup.start":
+            return await self.setup.start(context.request.profile_id)
+        token = str(payload["session_token"])
+        revision_value = payload["expected_revision"]
+        assert type(revision_value) is int
+        revision = revision_value
+        if operation == "setup.advance":
+            return await self.setup.advance(
+                context.request.profile_id,
+                token,
+                revision,
+                str(payload["action"]),
+                payload.get("value"),
+            )
+        if operation == "setup.cancel":
+            return await self.setup.cancel(context.request.profile_id, token, revision)
+        if operation == "setup.validate":
+            return await self.setup.validate(context.request.profile_id, token, revision)
         raise ipc_error("ipc.operation_not_supported", operation=operation)
 
     async def _dispatch_chat(self, context: RequestContext) -> Mapping[str, object]:
@@ -1501,6 +1553,24 @@ def _validate_chat_payload(request: IpcRequest) -> None:
     }:
         _exact_payload(payload, {"model_id"})
         _payload_model_id(payload)
+
+
+def _validate_setup_payload(request: IpcRequest) -> None:
+    payload = request.payload
+    if request.operation == "setup.start":
+        _exact_payload(payload, set())
+        return
+    if request.operation == "setup.advance":
+        _exact_payload(payload, {"session_token", "expected_revision", "action", "value"})
+        _payload_text(payload, "action", max_bytes=64)
+    elif request.operation in {"setup.cancel", "setup.validate"}:
+        _exact_payload(payload, {"session_token", "expected_revision"})
+    else:
+        raise ipc_error("ipc.operation_not_supported", operation=request.operation)
+    token = _payload_text(payload, "session_token", max_bytes=256)
+    if not token:
+        raise ipc_error("ipc.invalid_message", reason="invalid_setup_session")
+    _payload_positive_int(payload, "expected_revision")
 
 
 def _payload_model_id(payload: Mapping[str, object]) -> ModelId:

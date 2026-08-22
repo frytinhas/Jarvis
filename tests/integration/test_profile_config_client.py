@@ -45,6 +45,8 @@ class _FakeClient:
         cls.profiles = [dict(cls.profiles[0])]
         return cls()
 
+    connect_ready = connect
+
     async def request(
         self, operation: str, *, payload: Mapping[str, object] | None = None, **_kwargs: Any
     ) -> AsyncIterator[dict[str, object]]:

@@ -44,7 +44,7 @@ async def _run(args: argparse.Namespace) -> int:
     required = [REQUEST_STREAM, "model-registry-v1"]
     if args.command in runtime_commands:
         required.append(RUNTIME_MANAGER)
-    c = await JarvisIpcClient.connect(
+    c = await JarvisIpcClient.connect_ready(
         resolve_xdg_paths().runtime / "core.sock",
         required_capabilities=tuple(required),
         client_name="jarvis-manage",

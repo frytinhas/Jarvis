@@ -45,6 +45,12 @@ activated development environment, does not depend on `pipx`, and neither instal
 global/system Python. Fixed dispatchers are collision-safe and never overwrite or claim unrelated
 executables or PATH entries.
 
+The M006C manifest under XDG state records a stable installation UUID, distribution/wheel and
+private-interpreter identity, and exact mode/hash/inode evidence for fixed dispatchers and user-unit
+assets. Matching assets are idempotent, absent owned assets may be restored, and altered, linked,
+foreign, or shadowed targets fail closed. The private venv and every manifest asset extend active
+installation protection.
+
 This same boundary is the compatibility point for future Voice and Jarvis Desktop App clients. Those future products are not part of the current implementation roadmap and must reuse Core rather than create separate agent brains.
 
 ## Jarvis Core (`jarvisd`)
