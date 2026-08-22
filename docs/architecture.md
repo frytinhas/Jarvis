@@ -22,6 +22,14 @@ Clients connect to Jarvis Core over a user-only Unix domain socket using bounded
 
 Each accepted request emits monotonically sequenced events and exactly one terminal completion or error. Approval requests expire and bind to the validated originating request/tool call. Disconnect does not imply cancellation: Core retains accepted work until a terminal state or valid explicit cancellation. Reconnect/replay behavior is bounded and negotiated; without replay, Core reports authoritative request status rather than asking a client to infer it.
 
+M006B implements the first chat presenter through `python -m jarvis.cli`. Bare package invocation
+is interactive, while an argument-bearing invocation is one-shot; `--profile-alias` is resolved by
+Core. The client renders ordered deltas, learning state, visible logging, cancellation, and bounded
+reconnect/replay. It intercepts the M006B slash-command set before chat submission. `/clear` marks
+the next Core chat submission as a new session without deleting history, and `/logs` consumes only
+the dedicated human diagnostic-summary result. The presenter has no repository, SQLite, provider,
+or RuntimeManager imports.
+
 This same boundary is the compatibility point for future Voice and Jarvis Desktop App clients. Those future products are not part of the current implementation roadmap and must reuse Core rather than create separate agent brains.
 
 ## Jarvis Core (`jarvisd`)

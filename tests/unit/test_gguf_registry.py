@@ -11,6 +11,7 @@ from jarvis.models import gguf, scanner
 from jarvis.models.errors import InvalidGgufError, UnreadableModelError
 from jarvis.models.gguf import (
     MAX_ARRAY_DEPTH,
+    MAX_ARRAY_ELEMENTS,
     MAX_ARRAY_PAYLOAD_BYTES,
     MAX_DISPLAY_STRING_BYTES,
     MAX_METADATA_ENTRIES,
@@ -152,6 +153,59 @@ def test_reader_bounds_tensor_count_and_nested_arrays(tmp_path: Path) -> None:
     )
     with pytest.raises(InvalidGgufError):
         read_gguf(huge)
+
+
+def test_reader_accepts_contemporary_large_string_array_metadata(tmp_path: Path) -> None:
+    """A tokenizer array may validly contain more than 64 Ki elements."""
+    count = 65_537
+    path = tmp_path / "large-tokenizer.gguf"
+    path.write_bytes(
+        b"GGUF"
+        + struct.pack("<IQQ", 3, 0, 2)
+        + _string(b"general.name")
+        + struct.pack("<I", 8)
+        + _string(b"Contemporary")
+        + _string(b"tokenizer.ggml.tokens")
+        + struct.pack("<IIQ", 9, 8, count)
+        + struct.pack("<Q", 0) * count
+    )
+
+    parsed = read_gguf(path)
+
+    assert parsed.metadata == {"general.name": "Contemporary"}
+
+
+def test_reader_accepts_valid_fixed_array_larger_than_legacy_budget(tmp_path: Path) -> None:
+    """A normal 30,522-token score array occupies more than the former 64 KiB cap."""
+    count = 30_522
+    path = tmp_path / "token-scores.gguf"
+    path.write_bytes(
+        b"GGUF"
+        + struct.pack("<IQQ", 3, 0, 1)
+        + _string(b"tokenizer.ggml.scores")
+        + struct.pack("<IIQ", 9, 6, count)
+        + struct.pack("<f", 0.0) * count
+    )
+
+    assert read_gguf(path).metadata == {}
+
+
+def test_reader_rejects_aggregate_array_element_exhaustion(tmp_path: Path) -> None:
+    first_count = MAX_ARRAY_ELEMENTS // 2 + 1
+    path = tmp_path / "too-many-elements.gguf"
+    path.write_bytes(
+        b"GGUF"
+        + struct.pack("<IQQ", 3, 0, 2)
+        + _string(b"tokenizer.ggml.tokens")
+        + struct.pack("<IIQ", 9, 0, first_count)
+        + b"\0" * first_count
+        + _string(b"tokenizer.ggml.token_type")
+        + struct.pack("<IIQ", 9, 0, first_count)
+    )
+
+    with pytest.raises(InvalidGgufError) as error:
+        read_gguf(path)
+    assert error.value.safe_details == {"reason": "array_elements"}
 
 
 def test_reader_omits_invalid_utf8_display_value_and_rejects_non_regular_fd(
@@ -356,6 +410,7 @@ def test_packaged_scanner_limits_match_enforced_constants() -> None:
         "max_key_bytes": gguf.MAX_KEY_BYTES,
         "max_display_string_bytes": gguf.MAX_DISPLAY_STRING_BYTES,
         "max_array_payload_bytes": gguf.MAX_ARRAY_PAYLOAD_BYTES,
+        "max_array_elements": gguf.MAX_ARRAY_ELEMENTS,
         "max_metadata_payload_bytes": gguf.MAX_METADATA_PAYLOAD_BYTES,
     }
 

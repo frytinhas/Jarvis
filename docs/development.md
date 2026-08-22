@@ -1,12 +1,12 @@
-# Foundation through Core chat-pipeline development
+# Foundation through simple CLI chat development
 
 ## Scope
 
-Milestones 000–006A contain repository/security infrastructure, profiles, one Core, thin management
-clients, a read-only GGUF registry, Core-owned authenticated loopback model processes, and a
-client-neutral durable streaming chat pipeline. They deliberately have no chat presentation,
-policy, broker, host tool, updater, installer, TUI, external-network subsystem, assistant client,
-or executable profile alias.
+Milestones 000–006B contain repository/security infrastructure, profiles, one Core, thin management
+clients, a read-only GGUF registry, Core-owned authenticated loopback model processes, a
+client-neutral durable streaming chat pipeline, and a dependency-free simple CLI presenter. They
+deliberately have no policy, broker, host tool, updater, installer, TUI, external-network
+subsystem, PATH-installed assistant command, or executable profile alias.
 `AGENTS.md` is the product authority, `ROADMAP.md` defines milestone boundaries, `PLANS.md` defines
 execution discipline, and `docs/plans/000-foundation.md` plus
 `docs/plans/001-profile-system.md` are predecessor evidence records;
@@ -37,15 +37,16 @@ pytest
 ruff check .
 ruff format --check .
 mypy src tests
-python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m006a-wheel .
+python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/jarvis-m006b-wheel .
 git diff --check
 ```
 
 The wheel must contain only the `jarvis` package and its packaged TOML/SQL resources. Its
 metadata must report GPL-3.0-only, Python >=3.12, and no `Requires-Dist` entry except optional `dev`
 requirements guarded by the `extra == "dev"` marker. It must declare `jarvisd`, `jarvis-config`,
-`jarvis-help`, and `jarvis-manage` with their documented targets, omit a public `jarvis` or profile command, and
-retain zero runtime dependencies.
+`jarvis-help`, and `jarvis-manage` with their documented targets, route `jarvis-config` separately
+from the package-level chat module, omit a public `jarvis` or profile command, and retain zero
+runtime dependencies.
 
 ## Disposable XDG verification
 
@@ -73,9 +74,11 @@ python -m jarvis.foundation initialize --json
 
 With the same disposable environment, `PYTHONPATH=src python -m jarvis.core --foreground` starts
 the Core. It creates only `core.lock`, `core.sock`, and `core-runtime.json` under the application
-runtime directory. `jarvis-config` then performs profile selection and mutation only through IPC;
-logical aliases never create files. Use the internal client library or test support for protocol
-checks. Clean shutdown removes the socket and metadata while the safe reusable lock file may remain.
+runtime directory. `jarvis-config` then performs profile selection and mutation only through IPC.
+With one selected GGUF per tested profile, `python -m jarvis.cli [--profile-alias ALIAS] [request]`
+runs the M006B simple client; omit `request` only from an interactive terminal. Logical aliases
+never create files. Clean shutdown removes the socket and metadata while the safe reusable lock
+file may remain.
 
 Production runtime resolution never falls back to `/tmp`. A safe absolute `XDG_RUNTIME_DIR` or safe
 existing `/run/user/<uid>` is required. `/tmp` is used above only as a disposable test container

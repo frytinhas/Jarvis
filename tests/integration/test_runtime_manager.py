@@ -11,7 +11,7 @@ from jarvis.config.defaults import DefaultsRegistry
 from jarvis.foundation.bootstrap import DATABASE_FILENAME, initialize_foundation
 from jarvis.foundation.clock import SystemClock
 from jarvis.llm.fake import FakeLLMProvider
-from jarvis.llm.provider import RuntimeHandle
+from jarvis.llm.provider import RuntimeHandle, RuntimeHealth
 from jarvis.models.service import ModelRegistryService
 from jarvis.profiles.models import CreateProfile, Profile
 from jarvis.profiles.service import ProfileService
@@ -21,7 +21,7 @@ from jarvis.runtimes.errors import (
     RuntimeStartupError,
 )
 from jarvis.runtimes.manager import RuntimeManager
-from jarvis.runtimes.models import RuntimeState
+from jarvis.runtimes.models import RuntimeHealthClass, RuntimeState
 from jarvis.storage.xdg import resolve_xdg_paths
 
 pytestmark = pytest.mark.integration
@@ -40,7 +40,22 @@ def _fixture(path: Path, name: bytes = b"Tiny") -> None:
     )
 
 
-def _setup(tmp_path: Path) -> tuple[RuntimeManager, FakeLLMProvider, Profile, Profile]:
+class _LoadingHealthProvider(FakeLLMProvider):
+    def __init__(self, ready_after: int | None) -> None:
+        super().__init__()
+        self.ready_after = ready_after
+        self.health_checks = 0
+
+    async def health(self, runtime: RuntimeHandle, timeout_seconds: int) -> RuntimeHealth:
+        self.health_checks += 1
+        if self.ready_after is None or self.health_checks <= self.ready_after:
+            return RuntimeHealth(RuntimeState.STARTING, RuntimeHealthClass.UNKNOWN, "model_loading")
+        return await super().health(runtime, timeout_seconds)
+
+
+def _setup(
+    tmp_path: Path, provider: FakeLLMProvider | None = None
+) -> tuple[RuntimeManager, FakeLLMProvider, Profile, Profile]:
     initialize_foundation()
     paths = resolve_xdg_paths()
     database_path = paths.data / DATABASE_FILENAME
@@ -57,7 +72,7 @@ def _setup(tmp_path: Path) -> tuple[RuntimeManager, FakeLLMProvider, Profile, Pr
     other = profiles.create_profile(CreateProfile("Other")).profile
     models.select(jarvis.profile_id, record.model_id, 0)
     models.select(other.profile_id, record.model_id, 0)
-    provider = FakeLLMProvider()
+    provider = FakeLLMProvider() if provider is None else provider
     manager = RuntimeManager(
         database_path=database_path,
         runtime_root=paths.runtime,
@@ -66,6 +81,47 @@ def _setup(tmp_path: Path) -> tuple[RuntimeManager, FakeLLMProvider, Profile, Pr
         defaults=defaults,
     )
     return manager, provider, jarvis, other
+
+
+def test_transient_model_loading_health_reaches_ready_without_restart(tmp_path: Path) -> None:
+    loading_provider = _LoadingHealthProvider(ready_after=2)
+    manager, provider, jarvis, _other = _setup(tmp_path, loading_provider)
+
+    async def run() -> None:
+        result = await manager.start(jarvis.profile_id)
+        assert result.state is RuntimeState.READY
+        assert loading_provider.health_checks == 3
+        assert len(provider.starts) == 1
+        assert provider.stops == []
+        await manager.close()
+
+    asyncio.run(run())
+
+
+def test_transient_model_loading_health_remains_bounded_by_startup_timeout(
+    tmp_path: Path,
+) -> None:
+    loading_provider = _LoadingHealthProvider(ready_after=None)
+    manager, provider, jarvis, _other = _setup(tmp_path, loading_provider)
+    models = ModelRegistryService(resolve_xdg_paths().data / DATABASE_FILENAME)
+    association = models.runtime_association(jarvis.profile_id)
+    models.update_config(
+        jarvis.profile_id,
+        association[0].model_id,
+        replace(association[1], startup_timeout_seconds=1),
+        association[2],
+    )
+
+    async def run() -> None:
+        with pytest.raises(RuntimeStartupError) as error:
+            await asyncio.wait_for(manager.start(jarvis.profile_id), 2)
+        assert error.value.safe_details == {"reason": "startup_health_timeout"}
+        assert loading_provider.health_checks > 1
+        assert len(provider.starts) == 1
+        assert len(provider.stops) == 1
+        assert not manager.has_active(jarvis.profile_id)
+
+    asyncio.run(run())
 
 
 def test_same_gguf_runs_independently_for_two_profiles_and_stop_is_idempotent(

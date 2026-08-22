@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
 
 import pytest
 
 from jarvis.chat.errors import ProviderStreamError
+from jarvis.llm import llama_cpp
 from jarvis.llm.llama_cpp import LlamaCppProvider
 from jarvis.llm.provider import (
     ExecutableIdentity,
@@ -23,7 +26,7 @@ from jarvis.llm.provider import (
 )
 from jarvis.models.models import ModelId
 from jarvis.profiles.models import ProfileId
-from jarvis.runtimes.models import RuntimeId
+from jarvis.runtimes.models import RuntimeHealthClass, RuntimeId, RuntimeState
 
 pytestmark = [pytest.mark.unit, pytest.mark.local_loopback]
 
@@ -75,6 +78,166 @@ def _runtime(port: int) -> RuntimeHandle:
 
 async def _collect(stream: AsyncIterator[ProviderStreamEvent]) -> list[ProviderStreamEvent]:
     return [event async for event in stream]
+
+
+def _health_response(status: bytes, payload: object) -> bytes:
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return (
+        b"HTTP/1.1 "
+        + status
+        + b"\r\nContent-Type: application/json\r\nContent-Length: "
+        + str(len(body)).encode("ascii")
+        + b"\r\nConnection: close\r\n\r\n"
+        + body
+    )
+
+
+def test_llama_health_treats_only_documented_loading_503_as_transient_then_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run() -> None:
+        loading = {
+            "error": {
+                "message": "Loading model",
+                "type": "unavailable_error",
+                "code": 503,
+            }
+        }
+        responses = [
+            _health_response(b"503 Service Unavailable", loading),
+            _health_response(b"200 OK", {"status": "ok"}),
+        ]
+        requests: list[bytes] = []
+
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            requests.append(await reader.readuntil(b"\r\n\r\n"))
+            writer.write(responses.pop(0))
+            await writer.drain()
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        runtime = _runtime(int(server.sockets[0].getsockname()[1]))
+        runtime.process = cast(asyncio.subprocess.Process, SimpleNamespace(returncode=None))
+        monkeypatch.setattr(llama_cpp, "process_matches", lambda _evidence: True)
+        monkeypatch.setattr(llama_cpp, "owned_listener", lambda _pid, _port: True)
+        try:
+            loading_health = await LlamaCppProvider().health(runtime, 1)
+            ready_health = await LlamaCppProvider().health(runtime, 1)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        assert loading_health.state is RuntimeState.STARTING
+        assert loading_health.health is RuntimeHealthClass.UNKNOWN
+        assert loading_health.reason_class == "model_loading"
+        assert ready_health.state is RuntimeState.READY
+        assert ready_health.health is RuntimeHealthClass.HEALTHY
+        assert len(requests) == 2
+        assert all(b"Authorization: Bearer private-token" in request for request in requests)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("status", "payload"),
+    [
+        (b"503 Service Unavailable", {"error": {"code": 503, "message": "busy"}}),
+        (
+            b"503 Service Unavailable",
+            {
+                "error": {
+                    "message": "Loading model",
+                    "type": "unavailable_error",
+                    "code": 503.0,
+                }
+            },
+        ),
+        (
+            b"500 Internal Server Error",
+            {
+                "error": {
+                    "message": "Loading model",
+                    "type": "unavailable_error",
+                    "code": 503,
+                }
+            },
+        ),
+        (b"401 Unauthorized", {}),
+        (b"200 OK", {"status": "loading"}),
+    ],
+)
+def test_llama_health_rejects_other_statuses_and_payloads(
+    monkeypatch: pytest.MonkeyPatch, status: bytes, payload: object
+) -> None:
+    async def run() -> None:
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(_health_response(status, payload))
+            await writer.drain()
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        runtime = _runtime(int(server.sockets[0].getsockname()[1]))
+        runtime.process = cast(asyncio.subprocess.Process, SimpleNamespace(returncode=None))
+        monkeypatch.setattr(llama_cpp, "process_matches", lambda _evidence: True)
+        monkeypatch.setattr(llama_cpp, "owned_listener", lambda _pid, _port: True)
+        try:
+            health = await LlamaCppProvider().health(runtime, 1)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        assert health.state is RuntimeState.ERROR
+        assert health.health is RuntimeHealthClass.UNHEALTHY
+        assert health.reason_class == "health_invalid"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n{not-json}",
+        (
+            b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n"
+            b'{"error":{"message":"Loading model","message":"Loading model",'
+            b'"type":"unavailable_error","code":503}}'
+        ),
+        b"HTTP/1.1 200 OK\r\n\r\n" + (b"x" * 65_537),
+    ],
+)
+def test_llama_health_rejects_malformed_or_oversized_responses(
+    monkeypatch: pytest.MonkeyPatch, response: bytes
+) -> None:
+    async def run() -> None:
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(response)
+            await writer.drain()
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        runtime = _runtime(int(server.sockets[0].getsockname()[1]))
+        runtime.process = cast(asyncio.subprocess.Process, SimpleNamespace(returncode=None))
+        monkeypatch.setattr(llama_cpp, "process_matches", lambda _evidence: True)
+        monkeypatch.setattr(llama_cpp, "owned_listener", lambda _pid, _port: True)
+        try:
+            health = await LlamaCppProvider().health(runtime, 1)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        assert health.state is RuntimeState.ERROR
+        assert health.health is RuntimeHealthClass.UNHEALTHY
+        assert health.reason_class == "health_invalid"
+
+    asyncio.run(run())
 
 
 def test_llama_provider_streams_authenticated_sse_and_completion_metadata() -> None:

@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from typing import TextIO
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_STREAM_CONTROL = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
 
 
 def display_text(value: object) -> str:
@@ -28,6 +29,19 @@ def display_text(value: object) -> str:
     )
 
 
+def display_stream_text(value: object) -> str:
+    """Render streamed model text while preserving line feeds, never terminal controls."""
+
+    def escaped(match: re.Match[str]) -> str:
+        return repr(match.group(0))[1:-1]
+
+    text = _STREAM_CONTROL.sub(escaped, str(value))
+    return "".join(
+        character if unicodedata.category(character) != "Cf" else f"\\u{ord(character):04x}"
+        for character in text
+    )
+
+
 class TerminalPresenter:
     def __init__(self, *, stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> None:
         self.stdin = stdin
@@ -35,6 +49,14 @@ class TerminalPresenter:
 
     def write(self, value: str = "") -> None:
         print(value, file=self.stdout)
+
+    def stream(self, value: str) -> None:
+        self.stdout.write(value)
+        self.stdout.flush()
+
+    def prompt_inline(self, label: str) -> str:
+        self.stream(f"{label}: ")
+        return self._readline()
 
     def choose(self, heading: str, options: Sequence[str]) -> int:
         self.write(heading)

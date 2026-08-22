@@ -36,7 +36,7 @@ def test_project_has_zero_runtime_dependencies() -> None:
     assert document["project"]["dependencies"] == []
     assert document["project"]["scripts"] == {
         "jarvisd": "jarvis.core.__main__:main",
-        "jarvis-config": "jarvis.cli.__main__:main",
+        "jarvis-config": "jarvis.cli.__main__:config_main",
         "jarvis-help": "jarvis.cli.__main__:help_main",
         "jarvis-manage": "jarvis.manage.__main__:main",
     }

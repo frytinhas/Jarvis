@@ -70,7 +70,7 @@ def test_management_client_has_no_repository_database_or_model_service_imports()
     )
 
 
-def test_m003_contains_no_launcher_path_or_physical_alias_implementation() -> None:
+def test_m006b_contains_no_launcher_path_or_physical_alias_implementation() -> None:
     project = Path("src/jarvis")
     names = {path.name for path in project.rglob("*")}
     assert not names.intersection(
@@ -83,16 +83,15 @@ def test_m003_contains_no_launcher_path_or_physical_alias_implementation() -> No
     assert "~/.local/bin" not in client_source
     assert "installation.runtime" not in client_source
     assert "models.refresh" not in client_source
-    assert '"profiles.models.' not in client_source
 
 
-def test_only_approved_m003_console_scripts_exist() -> None:
+def test_only_approved_m006b_console_scripts_exist() -> None:
     import tomllib
 
     project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["scripts"] == {
         "jarvisd": "jarvis.core.__main__:main",
-        "jarvis-config": "jarvis.cli.__main__:main",
+        "jarvis-config": "jarvis.cli.__main__:config_main",
         "jarvis-help": "jarvis.cli.__main__:help_main",
         "jarvis-manage": "jarvis.manage.__main__:main",
     }

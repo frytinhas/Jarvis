@@ -55,7 +55,7 @@ class ModelRuntimeConfig:
     repeat_penalty: float = 1.1
     gpu_layers: int = 0
     threads: int = 1
-    batch_size: int = 1
+    batch_size: int = 2048
     flash_attention: bool = False
     startup_timeout_seconds: int = 60
     generation_timeout_seconds: int = 600

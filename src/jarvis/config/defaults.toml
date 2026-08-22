@@ -45,7 +45,7 @@ min_p = 0.0
 repeat_penalty = 1.1
 gpu_layers = 0
 threads = 1
-batch_size = 1
+batch_size = 2048
 flash_attention = false
 startup_timeout_seconds = 60
 generation_timeout_seconds = 600
@@ -64,7 +64,8 @@ metadata_budget_bytes = 16777216
 max_metadata_entries = 8192
 max_key_bytes = 256
 max_display_string_bytes = 16384
-max_array_payload_bytes = 65536
+max_array_payload_bytes = 16777216
+max_array_elements = 1000000
 max_metadata_payload_bytes = 16777216
 
 [runtime_manager]

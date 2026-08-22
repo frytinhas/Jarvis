@@ -143,6 +143,12 @@ not change or restart when earlier events are dropped. A missing required gap re
 `ipc.replay_unavailable` with authoritative state, terminal status, and retained sequence range.
 Resume never survives a new `CoreInstanceId`.
 
+The shared IPC client registers an attached request queue before asking for replay, de-duplicates
+by the Core sequence, and then follows future events on that same logical request. This closes the
+replay/live-delivery race for presentation clients without changing Core ownership or treating a
+disconnect as cancellation. A replay gap is reported with authoritative Core status; the client
+does not submit a replacement generation.
+
 ## Runtime ownership
 
 Core artifacts are `core.lock`, `core.sock`, and informational `core-runtime.json`. The exclusive

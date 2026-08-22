@@ -22,8 +22,9 @@ MAX_TENSOR_COUNT = 1_000_000
 MAX_ARRAY_DEPTH = 16
 MAX_KEY_BYTES = 256
 MAX_DISPLAY_STRING_BYTES = 16 * 1024
-MAX_ARRAY_PAYLOAD_BYTES = 64 * 1024
 MAX_METADATA_PAYLOAD_BYTES = 16 * 1024 * 1024
+MAX_ARRAY_PAYLOAD_BYTES = MAX_METADATA_PAYLOAD_BYTES
+MAX_ARRAY_ELEMENTS = 1_000_000
 DISPLAY_KEYS = frozenset(
     {
         "general.name",
@@ -55,6 +56,7 @@ class _Reader:
         self.size = size
         self.offset = 0
         self.used = 0
+        self.array_elements = 0
         self.digest = hashlib.sha256()
 
     def read(self, amount: int, *, digest: bool = True) -> bytes:
@@ -85,6 +87,11 @@ class _Reader:
         if not isinstance(n, int) or n > maximum:
             raise InvalidGgufError("string_length")
         return self.read(n)
+
+    def claim_array_elements(self, count: int) -> None:
+        if count < 0 or self.array_elements + count > MAX_ARRAY_ELEMENTS:
+            raise InvalidGgufError("array_elements")
+        self.array_elements += count
 
 
 def _skip_value(
@@ -129,9 +136,9 @@ def _skip_value(
             not isinstance(element_type, int)
             or not isinstance(count, int)
             or element_type not in {*_SIZES, 8, 9}
-            or count > MAX_ARRAY_PAYLOAD_BYTES
         ):
             raise InvalidGgufError("array_header")
+        reader.claim_array_elements(count)
         if element_type in _SIZES and count * _SIZES[element_type] > array_budget:
             raise InvalidGgufError("array_budget")
         start = reader.used

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+import jarvis.llm.llama_cpp as llama_cpp
 from jarvis.foundation.bootstrap import DATABASE_FILENAME, initialize_foundation
 from jarvis.llm.fake import FakeLLMProvider
 from jarvis.llm.llama_cpp import LlamaCppProvider
@@ -20,6 +21,7 @@ from jarvis.profiles.service import ProfileService
 from jarvis.runtimes.artifacts import (
     RuntimeArtifacts,
     allocate_loopback_port,
+    capture_process_evidence,
     executable_identity,
     owned_listener,
 )
@@ -84,7 +86,20 @@ def test_native_provider_authenticates_owned_loopback_listener_and_stops_group(
 
     async def run() -> None:
         provider = LlamaCppProvider()
+        calls = 0
+
+        def delayed_exec_evidence(pid: int, identity: object) -> object:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                from jarvis.runtimes.errors import RuntimeOwnershipError
+
+                raise RuntimeOwnershipError("executable_identity_mismatch")
+            return capture_process_evidence(pid, identity)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(llama_cpp, "capture_process_evidence", delayed_exec_evidence)
         handle = await provider.start(specification)
+        assert calls >= 2
         os.close(model_fd)
         os.close(key_fd)
         for _ in range(100):
@@ -215,7 +230,6 @@ def test_provider_never_signals_an_unproven_process_group(
         ModelRuntimeConfig(),
         128,
     )
-    from jarvis.llm import llama_cpp
     from jarvis.runtimes.errors import RuntimeOwnershipError
 
     signals: list[tuple[int, int]] = []

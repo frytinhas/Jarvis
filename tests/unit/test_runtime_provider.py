@@ -55,6 +55,7 @@ def test_llama_argv_is_structured_loopback_offline_and_secret_free(tmp_path: Pat
     assert "--offline" in argv and "--no-webui" in argv and "--no-webui-mcp-proxy" in argv
     assert specification.api_key not in argv
     assert argv[argv.index("--api-key-file") + 1] == f"/proc/self/fd/{specification.api_key_fd}"
+    assert argv[argv.index("--batch-size") + 1] == "2048"
     assert all("0.0.0.0" not in value and value != "::" for value in argv)
 
 

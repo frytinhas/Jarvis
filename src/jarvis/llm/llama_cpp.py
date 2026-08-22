@@ -12,6 +12,8 @@ from contextlib import suppress
 from jarvis.foundation.clock import format_utc
 from jarvis.llm.errors import RuntimeEndpointError, RuntimeOwnershipError, RuntimeStartupError
 from jarvis.llm.provider import (
+    ExecutableIdentity,
+    ProcessEvidence,
     ProviderChatRequest,
     ProviderStreamEvent,
     ProviderStreamEventKind,
@@ -23,6 +25,35 @@ from jarvis.llm.provider import (
 from jarvis.runtimes.artifacts import capture_process_evidence, owned_listener, process_matches
 from jarvis.runtimes.errors import UnsupportedExtraArgumentsError
 from jarvis.runtimes.models import RuntimeHealthClass, RuntimeState
+
+_PROCESS_EVIDENCE_SETTLE_SECONDS = 1.0
+
+
+def _unique_json_object(pairs: list[tuple[object, object]]) -> dict[str, object]:
+    """Decode JSON objects without accepting duplicate response fields."""
+
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if not isinstance(key, str) or key in result:
+            raise ValueError("invalid health JSON object")
+        result[key] = value
+    return result
+
+
+def _is_documented_loading_response(payload: object) -> bool:
+    """Match only llama-server's typed authenticated loading response."""
+
+    if not isinstance(payload, dict) or set(payload) != {"error"}:
+        return False
+    error = payload["error"]
+    return (
+        isinstance(error, dict)
+        and set(error) == {"message", "type", "code"}
+        and error["message"] == "Loading model"
+        and error["type"] == "unavailable_error"
+        and type(error["code"]) is int
+        and error["code"] == 503
+    )
 
 
 def build_argv(specification: RuntimeSpecification) -> tuple[str, ...]:
@@ -100,6 +131,21 @@ async def _reap_unproven_process(process: asyncio.subprocess.Process) -> None:
     )
 
 
+async def _capture_started_process_evidence(
+    process: asyncio.subprocess.Process, expected: ExecutableIdentity
+) -> ProcessEvidence:
+    """Wait briefly for execve, while requiring the final exact process evidence."""
+
+    deadline = asyncio.get_running_loop().time() + _PROCESS_EVIDENCE_SETTLE_SECONDS
+    while True:
+        try:
+            return capture_process_evidence(process.pid, expected)
+        except RuntimeOwnershipError:
+            if asyncio.get_running_loop().time() >= deadline:
+                raise
+            await asyncio.sleep(0.01)
+
+
 class LlamaCppProvider:
     async def start(self, specification: RuntimeSpecification) -> RuntimeHandle:
         argv = build_argv(specification)
@@ -118,7 +164,9 @@ class LlamaCppProvider:
         except (OSError, ValueError) as error:
             raise RuntimeStartupError("spawn_failed") from error
         try:
-            evidence = capture_process_evidence(process.pid, specification.executable_identity)
+            evidence = await _capture_started_process_evidence(
+                process, specification.executable_identity
+            )
         except RuntimeOwnershipError:
             # PID/PGID is not ownership.  If /proc evidence cannot establish
             # the just-spawned child and its dedicated group, signalling it
@@ -175,12 +223,25 @@ class LlamaCppProvider:
                 writer.close()
                 with suppress(ConnectionError, OSError):
                     await writer.wait_closed()
-        if len(response) > 65_536 or not response.startswith(b"HTTP/1.1 200"):
-            return RuntimeHealth(RuntimeState.ERROR, RuntimeHealthClass.UNHEALTHY, "health_invalid")
         try:
-            _, body = response.split(b"\r\n\r\n", 1)
-            payload = json.loads(body)
+            if len(response) > 65_536:
+                raise ValueError("oversized health response")
+            head, body = response.split(b"\r\n\r\n", 1)
+            status_parts = head.split(b"\r\n", 1)[0].split(b" ")
+            if (
+                len(status_parts) < 2
+                or status_parts[0] != b"HTTP/1.1"
+                or len(status_parts[1]) != 3
+                or not status_parts[1].isdigit()
+            ):
+                raise ValueError("invalid health status")
+            status = int(status_parts[1])
+            payload = json.loads(body, object_pairs_hook=_unique_json_object)
         except (ValueError, UnicodeError):
+            return RuntimeHealth(RuntimeState.ERROR, RuntimeHealthClass.UNHEALTHY, "health_invalid")
+        if status == 503 and _is_documented_loading_response(payload):
+            return RuntimeHealth(RuntimeState.STARTING, RuntimeHealthClass.UNKNOWN, "model_loading")
+        if status != 200:
             return RuntimeHealth(RuntimeState.ERROR, RuntimeHealthClass.UNHEALTHY, "health_invalid")
         if not isinstance(payload, dict) or payload.get("status") != "ok":
             return RuntimeHealth(RuntimeState.ERROR, RuntimeHealthClass.UNHEALTHY, "health_invalid")

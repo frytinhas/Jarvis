@@ -211,6 +211,56 @@ class JarvisIpcClient:
             expected="replay.result",
         )
 
+    async def attach(
+        self, request_id: RequestId, *, after_sequence: int
+    ) -> AsyncIterator[dict[str, object]]:
+        """Replay retained events, then follow the same Core-owned request.
+
+        The queue is registered before replay so an event emitted during the
+        replay round trip cannot be lost. Sequence de-duplication reconciles
+        the retained snapshot with events concurrently delivered to the queue.
+        """
+
+        if after_sequence < 0:
+            raise ipc_error("ipc.invalid_message", reason="invalid_after_sequence")
+        if request_id in self._requests:
+            raise ipc_error("ipc.request_id_conflict")
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(64)
+        self._requests[request_id] = queue
+        latest = after_sequence
+        try:
+            replay = await self.replay(request_id, after_sequence=after_sequence)
+            events = replay.get("events")
+            status = replay.get("request")
+            if not isinstance(events, list) or not isinstance(status, dict):
+                raise ipc_error("ipc.invalid_message", reason="invalid_replay_response")
+            for event in events:
+                if not isinstance(event, dict):
+                    raise ipc_error("ipc.invalid_message", reason="invalid_replay_event")
+                sequence = event.get("sequence")
+                if type(sequence) is not int or sequence <= latest:
+                    if type(sequence) is int and sequence <= latest:
+                        continue
+                    raise ipc_error("ipc.invalid_message", reason="invalid_replay_sequence")
+                latest = sequence
+                yield event
+                if event.get("terminal") is True:
+                    return
+            if status.get("terminal") is True:
+                return
+            while True:
+                event = await queue.get()
+                sequence = event.get("sequence")
+                if type(sequence) is int:
+                    if sequence <= latest:
+                        continue
+                    latest = sequence
+                yield event
+                if event.get("terminal") is True or event.get("type") == "error":
+                    return
+        finally:
+            self._requests.pop(request_id, None)
+
     async def _control_call(
         self, message: dict[str, object], *, expected: str
     ) -> dict[str, object]:

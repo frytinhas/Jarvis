@@ -318,6 +318,7 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
             "max_key_bytes",
             "max_display_string_bytes",
             "max_array_payload_bytes",
+            "max_array_elements",
             "max_metadata_payload_bytes",
         }
     )
