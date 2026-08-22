@@ -92,6 +92,7 @@ def test_runtime_capability_policy_and_lifecycle_are_core_owned(tmp_path: Path) 
                 "started_at_utc",
                 "ready_at_utc",
                 "stopped_at_utc",
+                "effective_context_window",
             }
             stopped = await client.request(
                 request_id=str(uuid4()),

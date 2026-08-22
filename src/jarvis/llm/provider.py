@@ -6,7 +6,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -106,6 +106,8 @@ class RuntimeHandle:
     started_at_utc: str
     stdout_task: asyncio.Task[StreamSummary]
     stderr_task: asyncio.Task[StreamSummary]
+    startup_stderr_tail: bytearray = field(default_factory=bytearray)
+    startup_stderr_capture: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +128,10 @@ class LLMProvider(Protocol):
     async def start(self, specification: RuntimeSpecification) -> RuntimeHandle: ...
 
     async def health(self, runtime: RuntimeHandle, timeout_seconds: int) -> RuntimeHealth: ...
+
+    async def effective_context(self, runtime: RuntimeHandle, timeout_seconds: int) -> int: ...
+
+    async def startup_failure_reason(self, runtime: RuntimeHandle, fallback: str) -> str: ...
 
     async def stop(self, runtime: RuntimeHandle, timeout_seconds: int) -> None: ...
 

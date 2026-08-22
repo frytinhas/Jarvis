@@ -12,7 +12,7 @@ from typing import Final
 from jarvis.foundation.errors import ConfigurationError
 
 SUPPORTED_DEFAULTS_SCHEMA_VERSION: Final = 5
-CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 5
+CURRENT_PRODUCT_DEFAULTS_VERSION: Final = 6
 FOUNDATION_DIAGNOSTICS_CATEGORY: Final = "foundation_diagnostics"
 PROFILE_DEFAULTS_CATEGORY: Final = "profile_defaults"
 MODEL_DEFAULTS_CATEGORY: Final = "model_defaults"
@@ -158,6 +158,16 @@ def _positive_int(value: object, name: str) -> int:
             code="defaults.invalid",
             message_key="error.defaults.invalid",
             safe_details={"field": name, "reason": "expected_positive_integer"},
+        )
+    return value
+
+
+def _context_window(value: object, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1_000_000:
+        raise ConfigurationError(
+            code="defaults.invalid",
+            message_key="error.defaults.invalid",
+            safe_details={"field": name, "reason": "invalid_context_window"},
         )
     return value
 
@@ -329,7 +339,7 @@ def _parse_snapshot(document: Mapping[str, object]) -> DefaultsSnapshot:
         raise ConfigurationError(code="defaults.invalid", message_key="error.defaults.invalid")
     model_defaults = ModelDefaults(
         reasoning=_string(raw_models.get("reasoning"), "model_defaults.reasoning"),
-        context_window=_positive_int(
+        context_window=_context_window(
             raw_models.get("context_window"), "model_defaults.context_window"
         ),
         runtime_config=MappingProxyType({}),
@@ -468,12 +478,17 @@ def transition_persisted_defaults(
         (2, 3),
         (2, 4),
         (2, 5),
+        (2, 6),
         (3, 3),
         (3, 4),
         (3, 5),
+        (3, 6),
         (4, 4),
         (4, 5),
+        (4, 6),
         (5, 5),
+        (5, 6),
+        (6, 6),
     }:
         return MappingProxyType(dict(values))
     raise ConfigurationError(

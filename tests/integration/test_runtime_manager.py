@@ -98,6 +98,43 @@ def test_transient_model_loading_health_reaches_ready_without_restart(tmp_path: 
     asyncio.run(run())
 
 
+def test_auto_and_explicit_context_require_stop_update_start_with_new_runtime_identity(
+    tmp_path: Path,
+) -> None:
+    manager, provider, jarvis, _other = _setup(tmp_path)
+    models = ModelRegistryService(resolve_xdg_paths().data / DATABASE_FILENAME)
+
+    async def run() -> None:
+        auto = await manager.start(jarvis.profile_id)
+        assert provider.starts[-1].config.context_window == 0
+        stopped = await manager.stop(jarvis.profile_id)
+        association = models.runtime_association(jarvis.profile_id)
+        models.update_config(
+            jarvis.profile_id,
+            association[0].model_id,
+            replace(association[1], context_window=4096),
+            association[2],
+        )
+        explicit = await manager.start(jarvis.profile_id)
+        assert stopped.runtime_id == auto.runtime_id
+        assert explicit.runtime_id != auto.runtime_id
+        assert provider.starts[-1].config.context_window == 4096
+        await manager.stop(jarvis.profile_id)
+        association = models.runtime_association(jarvis.profile_id)
+        models.update_config(
+            jarvis.profile_id,
+            association[0].model_id,
+            replace(association[1], context_window=0),
+            association[2],
+        )
+        restarted_auto = await manager.start(jarvis.profile_id)
+        assert restarted_auto.runtime_id != explicit.runtime_id
+        assert provider.starts[-1].config.context_window == 0
+        await manager.close()
+
+    asyncio.run(run())
+
+
 def test_transient_model_loading_health_remains_bounded_by_startup_timeout(
     tmp_path: Path,
 ) -> None:
@@ -115,7 +152,7 @@ def test_transient_model_loading_health_remains_bounded_by_startup_timeout(
     async def run() -> None:
         with pytest.raises(RuntimeStartupError) as error:
             await asyncio.wait_for(manager.start(jarvis.profile_id), 2)
-        assert error.value.safe_details == {"reason": "startup_health_timeout"}
+        assert error.value.safe_details == {"reason": "startup_timeout"}
         assert loading_provider.health_checks > 1
         assert len(provider.starts) == 1
         assert len(provider.stops) == 1

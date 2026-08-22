@@ -125,6 +125,10 @@ class SetupService:
                 revision_value = matching[0]["revision"] if matching else 0
                 if type(revision_value) is not int:
                     raise _invalid("revision")
+                if self._runtimes.has_active(profile_id):
+                    from jarvis.runtimes.errors import RuntimeSwitchRequiredError
+
+                    raise RuntimeSwitchRequiredError()
                 revision = revision_value
                 await asyncio.to_thread(self._models.select, profile_id, model_id, revision)
                 session.essential_settings_pending = True
@@ -143,6 +147,10 @@ class SetupService:
                     config = ModelRuntimeConfig.from_mapping(current)
                 except JarvisError as error:
                     raise _invalid("essential_settings") from error
+                if self._runtimes.has_active(profile_id):
+                    from jarvis.runtimes.errors import RuntimeSwitchRequiredError
+
+                    raise RuntimeSwitchRequiredError()
                 await asyncio.to_thread(
                     self._models.update_config,
                     profile_id,
@@ -180,7 +188,7 @@ class SetupService:
                 raise SetupError(
                     code="setup.runtime_validation_failed",
                     message_key="error.setup.runtime_validation_failed",
-                    safe_details={"reason": error.code},
+                    safe_details={"reason": _safe_runtime_reason(error)},
                 ) from error
             if (
                 status.state is not RuntimeState.READY
@@ -300,6 +308,19 @@ def _invalid(field: str) -> SetupError:
         message_key="error.setup.invalid_input",
         safe_details={"field": field},
     )
+
+
+def _safe_runtime_reason(error: RuntimeManagerError) -> str:
+    reason = error.safe_details.get("reason")
+    if error.code == "runtime.start_failed" and reason in {
+        "model_load_failed",
+        "argument_incompatible",
+        "resource_exhausted",
+        "startup_timeout",
+        "process_exit",
+    }:
+        return str(reason)
+    return "runtime_unavailable"
 
 
 def _association_wire(item: dict[str, object]) -> dict[str, object]:

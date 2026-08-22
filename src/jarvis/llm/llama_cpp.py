@@ -27,6 +27,17 @@ from jarvis.runtimes.errors import UnsupportedExtraArgumentsError
 from jarvis.runtimes.models import RuntimeHealthClass, RuntimeState
 
 _PROCESS_EVIDENCE_SETTLE_SECONDS = 1.0
+_PROPS_RESPONSE_MAX_BYTES = 65_536
+_STARTUP_STDERR_TAIL_BYTES = 8192
+_STARTUP_REASONS = frozenset(
+    {
+        "model_load_failed",
+        "argument_incompatible",
+        "resource_exhausted",
+        "startup_timeout",
+        "process_exit",
+    }
+)
 
 
 def _unique_json_object(pairs: list[tuple[object, object]]) -> dict[str, object]:
@@ -56,6 +67,20 @@ def _is_documented_loading_response(payload: object) -> bool:
     )
 
 
+def _parse_effective_context(payload: object) -> int:
+    """Accept only llama-server's positive bounded generation context value."""
+
+    if not isinstance(payload, dict):
+        raise ValueError("invalid props payload")
+    settings = payload.get("default_generation_settings")
+    if not isinstance(settings, dict):
+        raise ValueError("missing default generation settings")
+    value = settings.get("n_ctx")
+    if type(value) is not int or not 1 <= value <= 1_000_000:
+        raise ValueError("invalid effective context")
+    return value
+
+
 def build_argv(specification: RuntimeSpecification) -> tuple[str, ...]:
     if specification.host != "127.0.0.1":
         raise RuntimeEndpointError("non_loopback_bind")
@@ -72,8 +97,6 @@ def build_argv(specification: RuntimeSpecification) -> tuple[str, ...]:
         str(specification.port),
         "--api-key-file",
         f"/proc/self/fd/{specification.api_key_fd}",
-        "--ctx-size",
-        str(config.context_window),
         "--temp",
         str(config.temperature),
         "--top-p",
@@ -94,6 +117,8 @@ def build_argv(specification: RuntimeSpecification) -> tuple[str, ...]:
         "--no-webui",
         "--no-webui-mcp-proxy",
     ]
+    if config.context_window > 0:
+        values[9:9] = ["--ctx-size", str(config.context_window)]
     if config.flash_attention:
         values.append("--flash-attn")
     return tuple(values)
@@ -109,7 +134,13 @@ def controlled_environment() -> dict[str, str]:
     }
 
 
-async def _drain(stream: asyncio.StreamReader | None, name: str, bound: int) -> StreamSummary:
+async def _drain(
+    stream: asyncio.StreamReader | None,
+    name: str,
+    bound: int,
+    tail: bytearray | None = None,
+    capture: asyncio.Event | None = None,
+) -> StreamSummary:
     total = 0
     if stream is not None:
         while True:
@@ -117,6 +148,10 @@ async def _drain(stream: asyncio.StreamReader | None, name: str, bound: int) -> 
             if not chunk:
                 break
             total += len(chunk)
+            if tail is not None and (capture is None or capture.is_set()):
+                tail.extend(chunk)
+                if len(tail) > _STARTUP_STDERR_TAIL_BYTES:
+                    del tail[:-_STARTUP_STDERR_TAIL_BYTES]
     return StreamSummary(name, min(total, bound), max(0, total - bound))
 
 
@@ -176,8 +211,17 @@ class LlamaCppProvider:
         stdout = asyncio.create_task(
             _drain(process.stdout, "stdout", specification.stream_capture_bytes)
         )
+        stderr_tail = bytearray()
+        stderr_capture = asyncio.Event()
+        stderr_capture.set()
         stderr = asyncio.create_task(
-            _drain(process.stderr, "stderr", specification.stream_capture_bytes)
+            _drain(
+                process.stderr,
+                "stderr",
+                specification.stream_capture_bytes,
+                stderr_tail,
+                stderr_capture,
+            )
         )
         from datetime import UTC, datetime
 
@@ -193,6 +237,8 @@ class LlamaCppProvider:
             format_utc(datetime.now(UTC)),
             stdout,
             stderr,
+            stderr_tail,
+            stderr_capture,
         )
 
     async def health(self, runtime: RuntimeHandle, timeout_seconds: int) -> RuntimeHealth:
@@ -246,6 +292,72 @@ class LlamaCppProvider:
         if not isinstance(payload, dict) or payload.get("status") != "ok":
             return RuntimeHealth(RuntimeState.ERROR, RuntimeHealthClass.UNHEALTHY, "health_invalid")
         return RuntimeHealth(RuntimeState.READY, RuntimeHealthClass.HEALTHY)
+
+    async def effective_context(self, runtime: RuntimeHandle, timeout_seconds: int) -> int:
+        """Read one bounded, authenticated local /props field after health is ready."""
+
+        if runtime.host != "127.0.0.1":
+            raise RuntimeStartupError("props_invalid")
+        writer: asyncio.StreamWriter | None = None
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                reader, writer = await asyncio.open_connection(runtime.host, runtime.port)
+                writer.write(
+                    (
+                        "GET /props HTTP/1.1\r\n"
+                        f"Host: {runtime.host}\r\nAuthorization: Bearer {runtime.api_key}\r\n"
+                        "Connection: close\r\n\r\n"
+                    ).encode("ascii")
+                )
+                await writer.drain()
+                response = await reader.read(_PROPS_RESPONSE_MAX_BYTES + 1)
+            if len(response) > _PROPS_RESPONSE_MAX_BYTES:
+                raise ValueError("oversized props response")
+            head, body = response.split(b"\r\n\r\n", 1)
+            status_parts = head.split(b"\r\n", 1)[0].split(b" ")
+            if len(status_parts) < 2 or status_parts[0] != b"HTTP/1.1" or status_parts[1] != b"200":
+                raise ValueError("invalid props status")
+            payload = json.loads(body, object_pairs_hook=_unique_json_object)
+            return _parse_effective_context(payload)
+        except TimeoutError as error:
+            raise RuntimeStartupError("startup_timeout") from error
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeStartupError("props_invalid") from error
+        finally:
+            if writer is not None:
+                writer.close()
+                with suppress(ConnectionError, OSError):
+                    await writer.wait_closed()
+
+    async def startup_failure_reason(self, runtime: RuntimeHandle, fallback: str) -> str:
+        """Classify a bounded ephemeral stderr tail; never return its contents."""
+
+        if fallback == "startup_timeout":
+            return fallback
+        if runtime.process.returncode is None:
+            return "process_exit"
+        with suppress(BaseException):
+            await runtime.stderr_task
+        try:
+            text = bytes(runtime.startup_stderr_tail).decode("utf-8", "replace").lower()
+            if any(
+                token in text for token in ("failed to load model", "missing tensor", "model load")
+            ):
+                return "model_load_failed"
+            if any(
+                token in text
+                for token in ("unknown argument", "invalid argument", "unrecognized option")
+            ):
+                return "argument_incompatible"
+            if any(
+                token in text
+                for token in ("out of memory", "cannot allocate memory", "cuda out of memory")
+            ):
+                return "resource_exhausted"
+            return "process_exit" if fallback not in _STARTUP_REASONS else fallback
+        finally:
+            runtime.startup_stderr_capture.clear()
+            runtime.startup_stderr_tail.clear()
 
     async def stop(self, runtime: RuntimeHandle, timeout_seconds: int) -> None:
         if runtime.process.returncode is None:

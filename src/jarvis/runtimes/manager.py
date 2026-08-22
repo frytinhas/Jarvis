@@ -65,6 +65,24 @@ from jarvis.storage.database import SQLiteDatabase
 
 StateCallback = Callable[[RuntimeSnapshot], Awaitable[None]]
 
+_SAFE_STARTUP_REASONS = frozenset(
+    {
+        "model_load_failed",
+        "argument_incompatible",
+        "resource_exhausted",
+        "startup_timeout",
+        "process_exit",
+    }
+)
+
+
+def _safe_startup_reason(reason: str) -> str:
+    if reason in _SAFE_STARTUP_REASONS:
+        return reason
+    if "timeout" in reason:
+        return "startup_timeout"
+    return "process_exit"
+
 
 class GenerationCoordinator(Protocol):
     async def quiesce(self, profile_id: ProfileId, *, cancel: bool) -> str: ...
@@ -351,6 +369,21 @@ class RuntimeManager:
                     )
                     readiness = await self._wait_ready(handle, config)
                     if readiness == "ready":
+                        # A configured zero is not a usable prompt budget.  The server has
+                        # completed authenticated readiness, so it is now safe to obtain its
+                        # model-derived value without retaining any other /props data.
+                        effective_context = (
+                            config.context_window
+                            if config.context_window > 0
+                            else await self._provider.effective_context(
+                                handle, config.network_timeout_seconds
+                            )
+                        )
+                        if (
+                            type(effective_context) is not int
+                            or not 1 <= effective_context <= 1_000_000
+                        ):
+                            raise RuntimeStartupError("effective_context_invalid")
                         now = self._clock.now()
                         snapshot = RuntimeSnapshot(
                             runtime_id,
@@ -359,8 +392,13 @@ class RuntimeManager:
                             RuntimeHealthClass.HEALTHY,
                             starting.started_at_utc,
                             format_utc(now),
+                            effective_context_window=effective_context,
                         )
                         placeholder.snapshot = snapshot
+                        # Raw startup stderr exists only while it can classify a failed start.
+                        # Stop the capture before exposing the ready runtime to chat.
+                        handle.startup_stderr_capture.clear()
+                        handle.startup_stderr_tail.clear()
                         if persist_ready:
                             await self._persist_ready(
                                 profile_id, record.model_id, runtime_id, revision, now
@@ -378,6 +416,10 @@ class RuntimeManager:
                         if readiness == "error"
                         else "startup_health_timeout"
                     )
+                    if readiness == "error":
+                        last_error = await self._provider.startup_failure_reason(
+                            handle, "process_exit"
+                        )
                     await self._provider.stop(handle, config.shutdown_timeout_seconds)
                     placeholder.handle = None
                     if readiness == "error":
@@ -401,7 +443,7 @@ class RuntimeManager:
                         os.close(api_key_fd)
                         api_key_fd = None
                 break
-            raise RuntimeStartupError(last_error)
+            raise RuntimeStartupError(_safe_startup_reason(last_error))
         except BaseException as error:
             ownership_error: RuntimeOwnershipError | None = (
                 error if isinstance(error, RuntimeOwnershipError) else None
@@ -465,6 +507,10 @@ class RuntimeManager:
                 self._last_snapshots[profile_id] = error_snapshot
             if isinstance(error, asyncio.CancelledError):
                 raise
+            if isinstance(reported, RuntimeStartupError):
+                raise RuntimeStartupError(
+                    _safe_startup_reason(str(reported.safe_details.get("reason", "process_exit")))
+                ) from None
             if isinstance(reported, RuntimeManagerError):
                 raise reported from None
             raise RuntimeStartupError("startup_failed") from reported
@@ -504,6 +550,26 @@ class RuntimeManager:
                     profile_id, active, health.reason_class or "health_failure"
                 )
             return active.snapshot
+
+    async def context_window(self, profile_id: ProfileId, configured: int) -> int:
+        """Return an explicit budget, or start and read the ready Auto runtime budget."""
+
+        if configured > 0:
+            return configured
+        if configured != 0:
+            raise RuntimeStartupError("effective_context_invalid")
+        with suppress(RuntimeAlreadyActiveError):
+            await self.start(profile_id)
+        async with self._profile_lock(profile_id):
+            active = self._active.get(profile_id)
+            if (
+                active is None
+                or active.snapshot.state not in {RuntimeState.READY, RuntimeState.BUSY}
+                or type(active.snapshot.effective_context_window) is not int
+                or active.snapshot.effective_context_window <= 0
+            ):
+                raise RuntimeStartupError("effective_context_unavailable")
+            return active.snapshot.effective_context_window
 
     async def stop(
         self, profile_id: ProfileId, *, on_state: StateCallback | None = None
@@ -721,6 +787,7 @@ class RuntimeManager:
                 RuntimeHealthClass.HEALTHY,
                 active.snapshot.started_at_utc,
                 active.snapshot.ready_at_utc,
+                effective_context_window=active.snapshot.effective_context_window,
             )
             await self._transition(profile_id, busy, RuntimeEventKind.BUSY, None)
             handle = active.handle
@@ -753,6 +820,7 @@ class RuntimeManager:
                             RuntimeHealthClass.HEALTHY,
                             current.snapshot.started_at_utc,
                             current.snapshot.ready_at_utc,
+                            effective_context_window=current.snapshot.effective_context_window,
                         )
                         await self._transition(profile_id, ready, RuntimeEventKind.READY, None)
 

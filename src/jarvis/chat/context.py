@@ -57,6 +57,8 @@ class ContextBuilder:
         user_request: str,
         context_window: int,
     ) -> BuiltContext:
+        if type(context_window) is not int or context_window <= 0:
+            raise ChatContextError("invalid_context_window")
         prefix = (
             self._contribution(
                 ContextProvenance.CORE_PROTOCOL, MessageRole.SYSTEM, CORE_PROTOCOL_TEXT

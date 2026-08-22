@@ -143,7 +143,8 @@ def test_setup_v1_configures_validates_and_does_not_consume_learning(tmp_path: P
             model_id = state["models"][0]["model_id"]  # type: ignore[index]
             await advance("select-model", model_id)
             assert str(state["state"]) == "needs-essential-settings"
-            await advance("essential-settings", {"reasoning": "low", "context_window": 4096})
+            assert state["associations"][0]["context_window"] == 0  # type: ignore[index]
+            await advance("essential-settings", {"reasoning": "low", "context_window": 0})
             assert str(state["state"]) == "validating"
             state = await _result(
                 client,

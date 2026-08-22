@@ -107,9 +107,10 @@ requires the base request stream and `model-registry-v1`. Profile operations
 `model_id` and expected profile-model revision. Installation operations
 `installation.runtime.policy.get/update` forbid a profile ID and expose a revision-checked capacity
 from 1 through 16 (default 2). Runtime lifecycle requests may emit pre-encoded
-`runtime.state_changed` events before their one terminal event. Safe snapshots contain only runtime
-and model IDs, state/health classes, and timestamps—never PID, port, path, argv, configuration,
-server output, or authentication material. Disconnect does not cancel accepted runtime work;
+`runtime.state_changed` events before their one terminal event. Safe snapshots contain runtime
+and model IDs, state/health classes, timestamps, and the positive effective context window after
+readiness—never PID, port, path, argv, configuration, server output, `/props` payload, or
+authentication material. Disconnect does not cancel accepted runtime work;
 explicit cancellation invokes cleanup.
 
 For shutdown, Core stores and drains the terminal `request.completed` event before entering

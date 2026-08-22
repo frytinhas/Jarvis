@@ -40,6 +40,7 @@ class FakeLLMProvider:
     chat_entered: asyncio.Event = field(default_factory=asyncio.Event)
     captured_requests: list[ProviderChatRequest] = field(default_factory=list)
     fail_chat_after: int | None = None
+    effective_context_window: int = 8192
 
     def __post_init__(self) -> None:
         self.start_gate.set()
@@ -94,6 +95,14 @@ class FakeLLMProvider:
         if runtime.runtime_id in self.unhealthy:
             return RuntimeHealth(RuntimeState.ERROR, RuntimeHealthClass.UNHEALTHY, "fake_crash")
         return RuntimeHealth(RuntimeState.READY, RuntimeHealthClass.HEALTHY)
+
+    async def effective_context(self, runtime: RuntimeHandle, timeout_seconds: int) -> int:
+        del runtime, timeout_seconds
+        return self.effective_context_window
+
+    async def startup_failure_reason(self, runtime: RuntimeHandle, fallback: str) -> str:
+        del runtime
+        return fallback
 
     async def stop(self, runtime: RuntimeHandle, timeout_seconds: int) -> None:
         del timeout_seconds

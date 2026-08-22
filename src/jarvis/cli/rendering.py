@@ -63,6 +63,18 @@ class StreamRenderer:
             code = error.get("code") if isinstance(error, dict) else "ipc.unknown_error"
             if code == "chat.cancelled":
                 self.presenter.write("Generation cancelled.")
+            elif code == "setup.runtime_validation_failed":
+                details = error.get("details") if isinstance(error, dict) else None
+                reason = details.get("reason") if isinstance(details, dict) else None
+                messages = {
+                    "model_load_failed": "The model could not be loaded by this runtime.",
+                    "argument_incompatible": "The local runtime rejected a managed argument.",
+                    "resource_exhausted": "The local runtime ran out of resources.",
+                    "startup_timeout": "The local runtime did not become ready in time.",
+                    "process_exit": "The local runtime exited while starting.",
+                }
+                message = messages.get(reason) if isinstance(reason, str) else None
+                self.presenter.write(message or "The local runtime could not be started.")
             else:
                 self.presenter.write(f"Error: {display_text(code)}")
             return

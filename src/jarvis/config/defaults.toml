@@ -1,5 +1,5 @@
 defaults_schema_version = 5
-product_defaults_version = 5
+product_defaults_version = 6
 
 [foundation_diagnostics]
 total_bytes = 268435456
@@ -35,7 +35,7 @@ move = "ask"
 
 [model_defaults]
 reasoning = "medium"
-context_window = 8192
+context_window = 0
 
 [model_defaults.runtime_config]
 temperature = 0.8

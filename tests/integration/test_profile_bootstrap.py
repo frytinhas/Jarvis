@@ -73,7 +73,7 @@ def test_jarvis_bootstrap_is_complete_idempotent_and_stable(tmp_path: Path) -> N
     assert {
         section: revision.defaults_version
         for section, revision in first.configuration.section_revisions.items()
-    } == dict.fromkeys(ConfigurationSection, 5)
+    } == dict.fromkeys(ConfigurationSection, 6)
     assert first.configuration.values.persona_text == (
         DefaultsRegistry.load_packaged().current().profile_defaults.persona_text
     )

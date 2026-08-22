@@ -118,13 +118,16 @@ class AgentEngine:
                     asyncio.to_thread(self._conversations.history, turn),
                     asyncio.to_thread(self._profiles.get_configuration, profile_id),
                 )
+                effective_context_window = await self._runtime_manager.context_window(
+                    profile_id, config.context_window
+                )
                 context = self._context.build(
                     persona=profile_configuration.values.persona_text,
                     profile_context=profile_configuration.values.profile_context_text,
                     user_configured=f"reasoning={config.reasoning}",
                     conversation=history,
                     user_request=content,
-                    context_window=config.context_window,
+                    context_window=effective_context_window,
                 )
                 provider_request = self._provider_request(turn, context.contributions, config)
                 await asyncio.to_thread(

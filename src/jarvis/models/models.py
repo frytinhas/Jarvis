@@ -47,7 +47,8 @@ class ModelAvailability(StrEnum):
 @dataclass(frozen=True, slots=True)
 class ModelRuntimeConfig:
     reasoning: str = "medium"
-    context_window: int = 8192
+    # Zero deliberately means that llama-server chooses the model's native context.
+    context_window: int = 0
     temperature: float = 0.8
     top_p: float = 0.95
     top_k: int = 40
@@ -69,7 +70,7 @@ class ModelRuntimeConfig:
             not isinstance(self.reasoning, str)
             or self.reasoning not in {"off", "low", "medium", "high", "max"}
             or type(self.context_window) is not int
-            or not 1 <= self.context_window <= 1_000_000
+            or not 0 <= self.context_window <= 1_000_000
         ):
             raise InvalidRuntimeConfigurationError("reasoning_or_context")
         if any(

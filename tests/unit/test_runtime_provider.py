@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from jarvis.llm.llama_cpp import build_argv, controlled_environment
+from jarvis.llm.llama_cpp import _parse_effective_context, build_argv, controlled_environment
 from jarvis.llm.provider import ExecutableIdentity, ProviderChatRequest, RuntimeSpecification
 from jarvis.models.models import ModelId, ModelRuntimeConfig
 from jarvis.profiles.models import ProfileId
@@ -54,9 +54,24 @@ def test_llama_argv_is_structured_loopback_offline_and_secret_free(tmp_path: Pat
     assert argv[argv.index("--host") + 1] == "127.0.0.1"
     assert "--offline" in argv and "--no-webui" in argv and "--no-webui-mcp-proxy" in argv
     assert specification.api_key not in argv
+    assert "--ctx-size" not in argv
     assert argv[argv.index("--api-key-file") + 1] == f"/proc/self/fd/{specification.api_key_fd}"
     assert argv[argv.index("--batch-size") + 1] == "2048"
     assert all("0.0.0.0" not in value and value != "::" for value in argv)
+
+
+def test_explicit_context_argv_and_effective_props_context_are_exact(tmp_path: Path) -> None:
+    specification = _specification(tmp_path, ModelRuntimeConfig(context_window=32768))
+    try:
+        argv = build_argv(specification)
+    finally:
+        os.close(specification.model_fd)
+        os.close(specification.api_key_fd)
+    assert argv[argv.index("--ctx-size") + 1] == "32768"
+    assert _parse_effective_context({"default_generation_settings": {"n_ctx": 4096}}) == 4096
+    for value in (True, 0, -1, 1_000_001, "4096", None):
+        with pytest.raises(ValueError):
+            _parse_effective_context({"default_generation_settings": {"n_ctx": value}})
 
 
 def test_non_loopback_and_extra_arguments_fail_before_spawn(tmp_path: Path) -> None:

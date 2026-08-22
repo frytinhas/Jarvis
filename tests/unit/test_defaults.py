@@ -6,6 +6,8 @@ import pytest
 
 from jarvis.config.defaults import DefaultsRegistry, transition_persisted_defaults
 from jarvis.foundation.errors import ConfigurationError
+from jarvis.models.errors import InvalidRuntimeConfigurationError
+from jarvis.models.models import ModelRuntimeConfig
 
 pytestmark = pytest.mark.unit
 
@@ -13,7 +15,7 @@ pytestmark = pytest.mark.unit
 def _valid_toml() -> str:
     return """
 defaults_schema_version = 5
-product_defaults_version = 5
+product_defaults_version = 6
 [foundation_diagnostics]
 total_bytes = 268435456
 file_bytes = 8388608
@@ -45,7 +47,7 @@ modify = "ask"
 move = "ask"
 [model_defaults]
 reasoning = "medium"
-context_window = 8192
+context_window = 0
 [model_defaults.runtime_config]
 temperature = 0.8
 top_p = 0.95
@@ -101,7 +103,8 @@ def test_packaged_defaults_are_deterministic_and_exact() -> None:
     second = DefaultsRegistry.load_packaged().current()
     assert first == second
     assert first.defaults_schema_version == 5
-    assert first.product_defaults_version == 5
+    assert first.product_defaults_version == 6
+    assert first.model_defaults.context_window == 0
     assert first.foundation_diagnostics.total_bytes == 256 * 1024 * 1024
     assert first.foundation_diagnostics.file_bytes == 8 * 1024 * 1024
     assert first.foundation_diagnostics.event_bytes == 64 * 1024
@@ -118,6 +121,18 @@ def test_defaults_snapshot_is_immutable() -> None:
     snapshot = DefaultsRegistry.load_packaged().current()
     with pytest.raises(FrozenInstanceError):
         snapshot.product_defaults_version = 2  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("value", [True, -1, 1_000_001])
+def test_context_window_auto_domain_rejects_invalid_values(value: object) -> None:
+    with pytest.raises(InvalidRuntimeConfigurationError):
+        ModelRuntimeConfig(context_window=value)  # type: ignore[arg-type]
+
+
+def test_defaults_transition_from_five_preserves_explicit_model_values() -> None:
+    assert transition_persisted_defaults(
+        {"context_window": 8192}, from_version=5, to_version=6
+    ) == {"context_window": 8192}
 
 
 @pytest.mark.parametrize(
@@ -139,7 +154,7 @@ def test_missing_unknown_and_invalid_values_fail_closed(source: str) -> None:
     "source",
     [
         _valid_toml().replace("defaults_schema_version = 5", "defaults_schema_version = 1"),
-        _valid_toml().replace("product_defaults_version = 5", "product_defaults_version = 1"),
+        _valid_toml().replace("product_defaults_version = 6", "product_defaults_version = 1"),
     ],
 )
 def test_unsupported_versions_fail_closed(source: str) -> None:

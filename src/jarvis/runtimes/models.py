@@ -91,6 +91,7 @@ class RuntimeSnapshot:
     started_at_utc: str | None = None
     ready_at_utc: str | None = None
     stopped_at_utc: str | None = None
+    effective_context_window: int | None = None
 
     def to_safe_mapping(self) -> dict[str, object]:
         return {
@@ -101,6 +102,7 @@ class RuntimeSnapshot:
             "started_at_utc": self.started_at_utc,
             "ready_at_utc": self.ready_at_utc,
             "stopped_at_utc": self.stopped_at_utc,
+            "effective_context_window": self.effective_context_window,
         }
 
 

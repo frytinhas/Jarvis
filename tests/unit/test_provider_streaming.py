@@ -26,6 +26,7 @@ from jarvis.llm.provider import (
 )
 from jarvis.models.models import ModelId
 from jarvis.profiles.models import ProfileId
+from jarvis.runtimes.errors import RuntimeStartupError
 from jarvis.runtimes.models import RuntimeHealthClass, RuntimeId, RuntimeState
 
 pytestmark = [pytest.mark.unit, pytest.mark.local_loopback]
@@ -454,5 +455,88 @@ def test_llama_provider_cancellation_closes_the_http_stream() -> None:
         finally:
             server.close()
             await server.wait_closed()
+
+    asyncio.run(run())
+
+
+def test_props_is_authenticated_duplicate_safe_and_timeout_is_not_process_exit() -> None:
+    async def run() -> None:
+        requests: list[bytes] = []
+
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            requests.append(await reader.readuntil(b"\r\n\r\n"))
+            writer.write(
+                _health_response(b"200 OK", {"default_generation_settings": {"n_ctx": 4096}})
+            )
+            await writer.drain()
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(handler, "127.0.0.1", 0)
+        runtime = _runtime(int(server.sockets[0].getsockname()[1]))
+        try:
+            assert await LlamaCppProvider().effective_context(runtime, 1) == 4096
+            assert requests == [
+                b"GET /props HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                b"Authorization: Bearer private-token\r\nConnection: close\r\n\r\n"
+            ]
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        async def stalled(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.readuntil(b"\r\n\r\n")
+            await asyncio.sleep(2)
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(stalled, "127.0.0.1", 0)
+        runtime = _runtime(int(server.sockets[0].getsockname()[1]))
+        try:
+            with pytest.raises(RuntimeStartupError) as caught:
+                await LlamaCppProvider().effective_context(runtime, 1)
+            assert caught.value.safe_details == {"reason": "startup_timeout"}
+        finally:
+            server.close()
+            await server.wait_closed()
+
+        async def duplicate(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"
+                b'{"default_generation_settings":{"n_ctx":4096,"n_ctx":8192}}'
+            )
+            await writer.drain()
+            writer.close()
+            with suppress(ConnectionError, OSError):
+                await writer.wait_closed()
+
+        server = await asyncio.start_server(duplicate, "127.0.0.1", 0)
+        runtime = _runtime(int(server.sockets[0].getsockname()[1]))
+        try:
+            with pytest.raises(RuntimeStartupError) as caught:
+                await LlamaCppProvider().effective_context(runtime, 1)
+            assert caught.value.safe_details == {"reason": "props_invalid"}
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    asyncio.run(run())
+
+
+def test_startup_stderr_tail_is_cleared_after_classification() -> None:
+    async def run() -> None:
+        runtime = _runtime(1)
+        runtime.process = cast(asyncio.subprocess.Process, SimpleNamespace(returncode=1))
+        runtime.startup_stderr_capture.set()
+        runtime.startup_stderr_tail.extend(b"missing tensor with a private path")
+        assert (
+            await LlamaCppProvider().startup_failure_reason(runtime, "process_exit")
+            == "model_load_failed"
+        )
+        assert runtime.startup_stderr_tail == bytearray()
+        assert not runtime.startup_stderr_capture.is_set()
 
     asyncio.run(run())

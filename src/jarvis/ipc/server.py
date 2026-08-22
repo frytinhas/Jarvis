@@ -801,6 +801,12 @@ class IpcServer:
                 )
             except (ValueError, ModelError) as error:
                 raise ipc_error("ipc.invalid_message", reason="invalid_model_config") from error
+            if self.runtime_manager is not None and self.runtime_manager.has_active(
+                context.request.profile_id
+            ):
+                from jarvis.runtimes.errors import RuntimeSwitchRequiredError
+
+                raise RuntimeSwitchRequiredError()
             await asyncio.to_thread(
                 self.model_registry.update_config,
                 context.request.profile_id,

@@ -320,9 +320,11 @@ class SimpleChatClient:
         elif name == "context":
             selected = await self._selected_model()
             config = _mapping(selected.get("config"), "model configuration")
-            self.presenter.write(
-                f"Context window: {display_text(config.get('context_window', 'unknown'))}"
-            )
+            context_window = config.get("context_window", "unknown")
+            if context_window == 0:
+                self.presenter.write("Context window: Auto (model default)")
+            else:
+                self.presenter.write(f"Context window: {display_text(context_window)} tokens")
         elif name == "status":
             await self._show_status()
         elif name == "server":
@@ -611,9 +613,9 @@ async def _complete_setup(
                 ).strip()
                 or "medium"
             )
-            context_text = presenter.prompt("Context window (default 8192)").strip() or "8192"
+            context_text = presenter.prompt("Context window (blank or 0 for Auto)").strip()
             try:
-                context_window = int(context_text)
+                context_window = 0 if not context_text else int(context_text)
             except ValueError as error:
                 raise ClientOperationError(
                     "setup.invalid_input", "error.setup.invalid_input"
