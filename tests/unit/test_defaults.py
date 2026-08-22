@@ -175,6 +175,29 @@ def test_transition_requires_an_explicit_supported_version_path() -> None:
         transition_persisted_defaults(original, from_version=5, to_version=1)
 
 
+@pytest.mark.parametrize(
+    ("from_version", "to_version"),
+    [
+        (True, 6),
+        (5, True),
+        (5.0, 6),
+        (5, 6.0),
+        ("5", 6),
+        (5, "6"),
+    ],
+)
+def test_transition_rejects_non_integer_provenance_versions(
+    from_version: object, to_version: object
+) -> None:
+    with pytest.raises(ConfigurationError) as caught:
+        transition_persisted_defaults(
+            {},
+            from_version=from_version,  # type: ignore[arg-type]
+            to_version=to_version,  # type: ignore[arg-type]
+        )
+    assert caught.value.code == "defaults.unsupported_version"
+
+
 def test_future_quota_categories_are_not_present_in_foundation_defaults() -> None:
     source = _valid_toml() + "\n[chat_diagnostics]\ntotal_bytes = 1\n"
     with pytest.raises(ConfigurationError) as caught:

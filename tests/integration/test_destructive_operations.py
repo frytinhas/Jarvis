@@ -96,6 +96,119 @@ def test_section_reset_changes_only_selected_section_and_consumes_intent(tmp_pat
         configs.confirm_reset(_confirm(preview))
 
 
+def test_m006c_section_provenance_survives_upgrade_until_explicit_reset(
+    tmp_path: Path,
+) -> None:
+    path, _clock, profiles, configs = _setup(tmp_path)
+    jarvis = profiles.ensure_jarvis()
+    customized = configs.update_configuration(
+        UpdateProfileConfiguration(
+            jarvis.profile.profile_id,
+            jarvis.profile.identity_revision,
+            jarvis.configuration.configuration_revision,
+            replace(jarvis.configuration.values, persona_text="Persisted M006C persona"),
+        )
+    )
+
+    # M006C persisted profile sections with product-default provenance v5.  This
+    # fixture changes only that legacy metadata, retaining the real schema and
+    # all user-owned values for the M006D read path.
+    with SQLiteDatabase(path) as database:
+        database.connection().execute(
+            "UPDATE profile_configuration_sections SET defaults_version = 5 WHERE profile_id = ?",
+            (str(jarvis.profile.profile_id),),
+        )
+
+    def persisted_profile_rows() -> tuple[
+        tuple[tuple[object, ...], ...],
+        tuple[tuple[object, ...], ...],
+        tuple[tuple[object, ...], ...],
+        tuple[tuple[object, ...], ...],
+    ]:
+        with SQLiteDatabase(path) as database:
+            connection = database.connection()
+            return (
+                tuple(
+                    connection.execute(
+                        """
+                        SELECT persona_text, profile_context_text, accent_color, foreground_color,
+                               background_color, visible_logging_mode, start_with_computer
+                        FROM profile_configurations WHERE profile_id = ?
+                        """,
+                        (str(jarvis.profile.profile_id),),
+                    ).fetchall()
+                ),
+                tuple(
+                    connection.execute(
+                        """
+                        SELECT section_name, defaults_version, section_revision
+                        FROM profile_configuration_sections WHERE profile_id = ?
+                        ORDER BY section_name
+                        """,
+                        (str(jarvis.profile.profile_id),),
+                    ).fetchall()
+                ),
+                tuple(
+                    connection.execute(
+                        """
+                        SELECT message_kind, ordinal, message_text FROM profile_messages
+                        WHERE profile_id = ? ORDER BY message_kind, ordinal
+                        """,
+                        (str(jarvis.profile.profile_id),),
+                    ).fetchall()
+                ),
+                tuple(
+                    connection.execute(
+                        """
+                        SELECT capability, decision FROM profile_permissions
+                        WHERE profile_id = ? ORDER BY capability
+                        """,
+                        (str(jarvis.profile.profile_id),),
+                    ).fetchall()
+                ),
+            )
+
+    persisted_before_upgrade = persisted_profile_rows()
+
+    upgraded = profiles.ensure_jarvis()
+    assert upgraded.configuration.values == customized.values
+    assert {
+        revision.defaults_version for revision in upgraded.configuration.section_revisions.values()
+    } == {5}
+    assert persisted_profile_rows() == persisted_before_upgrade
+
+    ordinary_update = configs.update_configuration(
+        UpdateProfileConfiguration(
+            jarvis.profile.profile_id,
+            upgraded.profile.identity_revision,
+            upgraded.configuration.configuration_revision,
+            replace(upgraded.configuration.values, persona_text="Updated legacy persona"),
+        )
+    )
+    assert {
+        revision.defaults_version for revision in ordinary_update.section_revisions.values()
+    } == {5}
+
+    reset = configs.confirm_reset(
+        _confirm(configs.preview_reset(jarvis.profile.profile_id, ResetScope.PERSONA))
+    )
+    assert reset.configuration.section_revisions[ConfigurationSection.PERSONA].defaults_version == 6
+    assert {
+        revision.defaults_version
+        for section, revision in reset.configuration.section_revisions.items()
+        if section is not ConfigurationSection.PERSONA
+    } == {5}
+
+    clone = profiles.create_profile(CreateProfile("Legacy Clone"))
+    assert {
+        section: revision.defaults_version
+        for section, revision in clone.configuration.section_revisions.items()
+    } == {
+        section: revision.defaults_version
+        for section, revision in reset.configuration.section_revisions.items()
+    }
+
+
 def test_whole_reset_uses_packaged_v2_defaults_never_current_jarvis(tmp_path: Path) -> None:
     _path, _clock, profiles, configs = _setup(tmp_path)
     jarvis = profiles.ensure_jarvis()

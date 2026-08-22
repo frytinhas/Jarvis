@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Mapping
 from datetime import datetime
 
+from jarvis.config.defaults import is_supported_persisted_defaults_version
 from jarvis.foundation.clock import format_utc, normalize_utc
 from jarvis.profiles.configuration import (
     PROFILE_CONFIG_SCHEMA_VERSION,
@@ -236,6 +237,11 @@ class ProfileConfigurationRepository:
     ) -> ProfileConfiguration:
         if frozenset(defaults_versions) != frozenset(ALL_CONFIGURATION_SECTIONS):
             raise ValueError("every configuration section needs a defaults version")
+        if any(
+            not is_supported_persisted_defaults_version(defaults_versions[section])
+            for section in ALL_CONFIGURATION_SECTIONS
+        ):
+            raise ValueError("unsupported section defaults version")
         timestamp = format_utc(timestamp_utc)
         self._connection.execute(
             """
@@ -342,6 +348,10 @@ class ProfileConfigurationRepository:
     ) -> bool:
         if not changed_sections:
             return True
+        if defaults_version is not None and not is_supported_persisted_defaults_version(
+            defaults_version
+        ):
+            raise ValueError("unsupported section defaults version")
         timestamp = format_utc(timestamp_utc)
         cursor = self._connection.execute(
             """
@@ -395,8 +405,7 @@ class ProfileConfigurationRepository:
                 ((str(profile_id), section.value) for section in changed_sections),
             )
         else:
-            if defaults_version <= 0:
-                raise ValueError("defaults version must be positive")
+            assert defaults_version is not None
             self._connection.executemany(
                 """
                 UPDATE profile_configuration_sections

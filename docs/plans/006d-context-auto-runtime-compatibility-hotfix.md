@@ -1,6 +1,6 @@
 # Milestone 006D — Context Auto and First-Run Runtime Compatibility Hotfix ExecPlan
 
-Status: IMPLEMENTED — verification complete  
+Status: IMPLEMENTED — persisted-profile compatibility regression verification complete
 Last updated: 2026-08-22 America/Sao_Paulo
 
 ## Purpose and user outcome
@@ -61,6 +61,7 @@ recorded in the progress log.
 | Bounded startup failure classification/presentation | DONE |
 | Focused and permanent regression tests | DONE |
 | Full, marker, lint, type, wheel, installed acceptance | DONE |
+| Persisted M006C profile-default provenance compatibility regression | DONE |
 
 Progress log: 2026-08-22 America/Sao_Paulo — verified clean branch `new-jarvis` at `4debfbf`;
 read AGENTS.md, ROADMAP.md, PLANS.md, architecture and M006C authority; inspected M004/M005/
@@ -108,6 +109,51 @@ defects. The stderr tail continued collecting after readiness; it now has an exp
 and is cleared/disabled after readiness and after classification. A timed-out `/props` request
 previously mapped to `process_exit`; it now retains `startup_timeout`. Authenticated loopback
 `/props`, duplicate-key rejection, timeout classification, and tail clearing have permanent tests.
+
+Progress log: 2026-08-22 America/Sao_Paulo — real installed M006C→M006D upgrade regression
+reported: persisted valid `profile_configuration_sections.defaults_version = 5` caused Core
+startup hydration to fail as `profile.invariant_violation` / `invalid_sections`. The root cause
+was `SectionRevision` incorrectly treating per-section default provenance as an equality check
+against the current packaged default version (6), rather than the version last explicitly applied
+to that section.
+
+Progress log: 2026-08-22 America/Sao_Paulo — corrected the persisted provenance contract without
+a migration or profile rewrite. A section now accepts only an integer historical version with an
+explicit transition-registry path to the current packaged version; this accepts supported v2–v6
+provenance, including M006C v5, and rejects zero, negative, malformed, future, and otherwise
+unsupported values. Repository insert/reset writes validate this before any mutation. Ordinary
+reads and configuration edits preserve provenance; explicit reset/default application alone moves
+the selected section to v6.
+
+Progress log: 2026-08-22 America/Sao_Paulo — added a disposable real-schema M006C-style fixture
+with populated values and v5 section rows. It proves bootstrap reads the same persisted rows
+unchanged, ordinary updates retain v5, a persona reset yields a valid mixed v6/v5 profile, clone
+preserves that section-level provenance, and future v7 write/read paths fail closed. Focused
+profile/default tests, Ruff, strict mypy, and `git diff --check` pass; full matrix verification is
+in progress.
+
+Progress log: 2026-08-22 America/Sao_Paulo — verification complete: focused profile/defaults
+upgrade regressions, including actual Core startup against a disposable v5 fixture (41); CPython
+3.12 marker suites: unit 325, integration 148, migration 47, security 85; full suite: 605 passed
+on CPython 3.12.13 and CPython 3.14.4 (each with four existing
+multiprocessing fork deprecation warnings). Full Ruff check and format check passed (170 files),
+strict mypy passed (170 source files), and `git diff --check` passed. Built a fresh wheel offline
+in disposable environments using cached build dependencies, installed it into a separate
+disposable venv, `pip check` passed, and `jarvis --help`, `jarvis-help`, `jarvis-config --help`,
+and `jarvis-manage --help` all succeeded from `/` with `PYTHONPATH` unset and disposable XDG roots.
+
+Progress log: 2026-08-22 America/Sao_Paulo — final independent adversarial review reproduced a
+provenance-validation defect in `transition_persisted_defaults`: Python tuple membership accepted
+`5.0 -> 6` and `5 -> 6.0` because integer and float keys compare equal. The registry now rejects
+every non-exact-integer endpoint before lookup; permanent tests cover bool, float and string
+endpoints. No persisted data was touched.
+
+Progress log: 2026-08-22 America/Sao_Paulo — post-fix independent verification passed: focused
+provenance/profile/destructive tests (95); marker suites on CPython 3.12 (unit 331, integration
+159, migration 47, security 85); full pytest (622) on CPython 3.12.13 and CPython 3.14.4; Ruff
+check and format (170 files); strict mypy (170 files); and `git diff --check`. Disposable raw-row
+probes confirm v1, zero, negative, bool, fractional float, future and text provenance fail closed.
+No SQL migration, bulk rewrite, or user-data mutation was introduced.
 
 ## Repository state and prerequisites
 

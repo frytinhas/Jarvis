@@ -64,6 +64,29 @@ _LOGGING_MODES: Final = frozenset(
     {"full", "server-essential", "essential", "essential-minimum", "none"}
 )
 
+# Product-default provenance is retained on each persisted profile configuration
+# section.  These are the explicit historical transitions that can lead to the
+# currently packaged defaults, not a range inferred from integer ordering.
+_SUPPORTED_PERSISTED_DEFAULTS_TRANSITIONS: Final = frozenset(
+    {
+        (2, 2),
+        (2, 3),
+        (2, 4),
+        (2, 5),
+        (2, 6),
+        (3, 3),
+        (3, 4),
+        (3, 5),
+        (3, 6),
+        (4, 4),
+        (4, 5),
+        (4, 6),
+        (5, 5),
+        (5, 6),
+        (6, 6),
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class DiagnosticDefaults:
@@ -473,26 +496,35 @@ def transition_persisted_defaults(
 ) -> Mapping[str, object]:
     """Preserve profile values across defaults revisions; model state has no v2 rows."""
 
-    if (from_version, to_version) in {
-        (2, 2),
-        (2, 3),
-        (2, 4),
-        (2, 5),
-        (2, 6),
-        (3, 3),
-        (3, 4),
-        (3, 5),
-        (3, 6),
-        (4, 4),
-        (4, 5),
-        (4, 6),
-        (5, 5),
-        (5, 6),
-        (6, 6),
-    }:
+    # The transition registry is also the authority for persisted section
+    # provenance.  Do not let Python's numeric equality admit floats or bools
+    # as registry keys (for example, ``5.0 == 5``).
+    if type(from_version) is not int or type(to_version) is not int:
+        raise ConfigurationError(
+            code="defaults.unsupported_version",
+            message_key="error.defaults.unsupported_version",
+            safe_details={"reason": "non_integer_version"},
+        )
+    if (from_version, to_version) in _SUPPORTED_PERSISTED_DEFAULTS_TRANSITIONS:
         return MappingProxyType(dict(values))
     raise ConfigurationError(
         code="defaults.unsupported_version",
         message_key="error.defaults.unsupported_version",
         safe_details={"from_version": from_version, "to_version": to_version},
+    )
+
+
+def is_supported_persisted_defaults_version(version: object) -> bool:
+    """Return whether a section provenance can transition to packaged defaults.
+
+    A stored version records which product defaults were last explicitly applied
+    to that section.  It is deliberately independent of the currently packaged
+    version, so ordinary reads and user edits do not rewrite historical
+    provenance.  The transition registry remains the single authority for
+    accepting historical values.
+    """
+
+    return (
+        type(version) is int
+        and (version, CURRENT_PRODUCT_DEFAULTS_VERSION) in _SUPPORTED_PERSISTED_DEFAULTS_TRANSITIONS
     )

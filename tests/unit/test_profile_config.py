@@ -78,7 +78,21 @@ def test_extreme_persona_is_rejected_before_utf8_materialization() -> None:
     assert caught.value.safe_details == {"field": "persona_text", "reason": "too_many_bytes"}
 
 
-@pytest.mark.parametrize("version", [1, 7])
-def test_profile_sections_reject_nonexistent_or_future_defaults_versions(version: int) -> None:
+@pytest.mark.parametrize("version", [2, 3, 4, 5, 6])
+def test_profile_sections_accept_supported_historical_defaults_provenance(version: int) -> None:
+    revision = SectionRevision(ConfigurationSection.PERSONA, version, 1)
+    assert revision.defaults_version == version
+
+
+@pytest.mark.parametrize("version", [True, 0, 1, -1, 7, 6.0])
+def test_profile_sections_reject_unsupported_or_invalid_defaults_provenance(
+    version: object,
+) -> None:
     with pytest.raises(ValueError, match="unsupported section defaults version"):
-        SectionRevision(ConfigurationSection.PERSONA, version, 1)
+        SectionRevision(ConfigurationSection.PERSONA, version, 1)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("revision", [True, 0, -1, 1.0])
+def test_profile_sections_require_a_positive_integer_revision(revision: object) -> None:
+    with pytest.raises(ValueError, match="section revision must be positive"):
+        SectionRevision(ConfigurationSection.PERSONA, 6, revision)  # type: ignore[arg-type]

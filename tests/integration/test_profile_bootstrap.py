@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -8,15 +9,17 @@ from uuid import UUID
 import pytest
 
 from jarvis.config.defaults import DefaultsRegistry
+from jarvis.core.runtime import CoreResources
 from jarvis.foundation.bootstrap import initialize_foundation
 from jarvis.foundation.clock import FakeClock
+from jarvis.profiles.configuration import UpdateProfileConfiguration
 from jarvis.profiles.errors import ProfileInvariantError
 from jarvis.profiles.models import (
     ConfigurationSection,
     DeterministicProfileIdGenerator,
     ProfileId,
 )
-from jarvis.profiles.service import ProfileService
+from jarvis.profiles.service import ProfileConfigService, ProfileService
 from jarvis.storage.database import SQLiteDatabase
 from jarvis.storage.migrations import MigrationRunner
 
@@ -126,6 +129,41 @@ def test_profile_bootstrap_failure_never_publishes_initialization_marker(tmp_pat
         initialize_foundation(env, clock=_clock())
     marker = Path(env["XDG_STATE_HOME"]) / "jarvis-cli" / "foundation-state.json"
     assert not marker.exists()
+
+
+def test_core_start_hydrates_persisted_m006c_v5_sections_without_rewrite(
+    isolated_xdg_environment: dict[str, Path],
+) -> None:
+    path = isolated_xdg_environment["data"] / "jarvis-cli" / "jarvis.sqlite3"
+    path.parent.mkdir(mode=0o700)
+    _migrate(path)
+    profiles = ProfileService(
+        path,
+        clock=_clock(),
+        profile_ids=DeterministicProfileIdGenerator([JARVIS_UUID]),
+    )
+    jarvis = profiles.ensure_jarvis()
+    customized = ProfileConfigService(path, clock=_clock()).update_configuration(
+        UpdateProfileConfiguration(
+            jarvis.profile.profile_id,
+            jarvis.profile.identity_revision,
+            jarvis.configuration.configuration_revision,
+            replace(jarvis.configuration.values, persona_text="M006C persisted profile value"),
+        )
+    )
+    with SQLiteDatabase(path) as database:
+        database.connection().execute(
+            "UPDATE profile_configuration_sections SET defaults_version = 5 WHERE profile_id = ?",
+            (str(jarvis.profile.profile_id),),
+        )
+
+    with CoreResources.start(clock=_clock()) as resources:
+        hydrated = resources.profiles.ensure_jarvis()
+        assert hydrated.configuration.values == customized.values
+        assert {
+            revision.defaults_version
+            for revision in hydrated.configuration.section_revisions.values()
+        } == {5}
 
 
 def test_concurrent_profile_bootstrap_publishes_one_stable_identity(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
-from jarvis.config.defaults import CURRENT_PRODUCT_DEFAULTS_VERSION, ProfileDefaults
+from jarvis.config.defaults import ProfileDefaults, is_supported_persisted_defaults_version
 from jarvis.profiles.errors import ProfileConfigurationError
 from jarvis.profiles.models import (
     ALL_CAPABILITIES,
@@ -210,9 +210,9 @@ class SectionRevision:
     revision: int
 
     def __post_init__(self) -> None:
-        if self.defaults_version != CURRENT_PRODUCT_DEFAULTS_VERSION:
+        if not is_supported_persisted_defaults_version(self.defaults_version):
             raise ValueError("unsupported section defaults version")
-        if self.revision <= 0:
+        if type(self.revision) is not int or self.revision <= 0:
             raise ValueError("section revision must be positive")
 
 

@@ -16,9 +16,12 @@ from jarvis.profiles.models import (
     CreateProfile,
     DeterministicProfileIdGenerator,
     PermissionDecision,
+    ProfileId,
+    ProfileKind,
     RenameProfile,
     VisibleLoggingMode,
 )
+from jarvis.profiles.repository import ProfileConfigurationRepository, ProfileRepository
 from jarvis.profiles.service import ProfileConfigService, ProfileService
 from jarvis.storage.database import SQLiteDatabase
 from jarvis.storage.migrations import MigrationRunner
@@ -92,6 +95,64 @@ def test_exact_configuration_noop_does_not_increment_any_revision(tmp_path: Path
         )
     )
     assert unchanged == jarvis.configuration
+
+
+@pytest.mark.parametrize("defaults_version", [True, 0, 1, -1, 5.0, 7])
+def test_configuration_repository_rejects_invalid_defaults_provenance_before_update(
+    tmp_path: Path, defaults_version: object
+) -> None:
+    profiles, _configurations = _services(tmp_path)
+    jarvis = profiles.ensure_jarvis()
+    path = tmp_path / "data" / "jarvis-cli" / "jarvis.sqlite3"
+    with SQLiteDatabase(path) as database:
+        repository = ProfileConfigurationRepository(database.connection())
+        with pytest.raises(ValueError, match="unsupported section defaults version"):
+            repository.update(
+                profile_id=jarvis.profile.profile_id,
+                expected_configuration_revision=jarvis.configuration.configuration_revision,
+                values=replace(jarvis.configuration.values, persona_text="Never written"),
+                changed_sections=frozenset({ConfigurationSection.PERSONA}),
+                timestamp_utc=datetime(2026, 8, 11, 12, tzinfo=UTC),
+                defaults_version=defaults_version,  # type: ignore[arg-type]
+            )
+        assert repository.get(jarvis.profile.profile_id) == jarvis.configuration
+
+
+@pytest.mark.parametrize("defaults_version", [True, 0, 1, -1, 5.0, 7])
+def test_configuration_repository_rejects_invalid_defaults_provenance_before_insert(
+    tmp_path: Path, defaults_version: object
+) -> None:
+    profiles, _configurations = _services(tmp_path)
+    jarvis = profiles.ensure_jarvis()
+    path = tmp_path / "data" / "jarvis-cli" / "jarvis.sqlite3"
+    profile_id = ProfileId(UUID("10000000-0000-4000-8000-000000000099"))
+    with SQLiteDatabase(path) as database:
+        connection = database.connection()
+        ProfileRepository(connection).insert(
+            profile_id=profile_id,
+            kind=ProfileKind.STANDARD,
+            display_name="Unconfigured",
+            command_alias="unconfigured",
+            timestamp_utc=datetime(2026, 8, 11, 12, tzinfo=UTC),
+        )
+        defaults_versions: dict[ConfigurationSection, object] = dict.fromkeys(
+            ConfigurationSection, 6
+        )
+        defaults_versions[ConfigurationSection.PERSONA] = defaults_version
+        with pytest.raises(ValueError, match="unsupported section defaults version"):
+            ProfileConfigurationRepository(connection).insert(
+                profile_id=profile_id,
+                values=jarvis.configuration.values,
+                defaults_versions=defaults_versions,  # type: ignore[arg-type]
+                timestamp_utc=datetime(2026, 8, 11, 12, tzinfo=UTC),
+            )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM profile_configurations WHERE profile_id = ?", (str(profile_id),)
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM profile_configuration_sections WHERE profile_id = ?",
+            (str(profile_id),),
+        ).fetchone() == (0,)
 
 
 def test_updates_require_both_identity_and_configuration_revisions(tmp_path: Path) -> None:
