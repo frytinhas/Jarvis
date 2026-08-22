@@ -625,9 +625,13 @@ testable development/package-level invocation mechanism: `python -m jarvis.cli` 
 default profile and `python -m jarvis.cli --profile-alias <alias> [request]` resolves a logical
 alias through Core. This is not final user PATH exposure. Milestone 006B owns the
 assistant-facing CLI semantics.
-Milestone 019A owns final user-local executable exposure, including PATH integration and physical
-alias lifecycle. Earlier milestones must not temporarily assign configuration semantics to
-`jarvis` or a profile command.
+Milestone 006C owns the permanent production user-local installation foundation and first exposes
+the canonical physical `jarvis` command. It also exposes the fixed management/configuration/help
+commands appropriate to that milestone through collision-safe user-local dispatchers. Logical
+profile selection remains available as `jarvis --profile-alias <alias>` through Core resolution.
+Milestone 019A owns dynamic physical profile-command exposure and its complete alias lifecycle.
+Earlier milestones must not temporarily assign configuration semantics to `jarvis` or a profile
+command.
 
 Example profile:
 
@@ -676,9 +680,11 @@ M003 must not create executables, launchers, symlinks, wrappers, filesystem alia
 PATH entries. M006B may provide a development/package-level invocation mechanism so its CLI MVP is
 runnable and testable before installation: `python -m jarvis.cli` for Jarvis and
 `python -m jarvis.cli --profile-alias <alias> [request]` for a logical alias. It must not claim
-final PATH installation or dynamic physical profile-command management. M019A owns the final
-strategy, external executable collision handling, reconciliation and repair, rename/delete cleanup,
-and uninstall behavior.
+production PATH installation or dynamic physical profile-command management. M006C exposes only
+the canonical `jarvis` command and the fixed Jarvis commands appropriate to that milestone; it must
+detect collisions and must never overwrite or claim an unrelated existing executable or PATH
+entry. M019A owns dynamic physical profile aliases, their external collision handling,
+materialization, reconciliation and repair, rename/delete cleanup, and uninstall cleanup.
 
 Conceptually:
 
@@ -1606,7 +1612,12 @@ Do not rely on only a process-name search.
 
 Stale runtime artifacts must be detectable and recoverable.
 
-Exactly one Jarvis Core owner may coordinate a given user's XDG state at a time. Core startup must use atomic ownership of its lock and Unix socket and must distinguish a live owner from stale artifacts.
+Exactly one Jarvis Core owner may coordinate a given user's XDG state at a time. Core startup must
+use atomic ownership of its Core lock and must distinguish a live owner from stale artifacts. In
+the production installed topology, `systemd --user` owns the listening Unix socket and passes the
+inherited listening descriptor to `jarvisd`; Core must validate and adopt that descriptor without
+unlinking or rebinding its path. A self-bound foreground socket may remain for development and
+tests, but socket ownership must be unambiguous within either mode.
 
 Runtime recovery and process actions must bind identity using more than a PID or process name. Use runtime IDs plus appropriate process evidence such as PID start time, executable identity, owned endpoint and health response. Jarvis must never terminate an unrelated process because a PID was reused or a stale record was trusted.
 
@@ -1639,17 +1650,19 @@ Runtime startup, health checks and autostart do not consume first-run learning s
 
 ---
 
-# 61. User-Level Autostart
+# 61. User-Level Core Activation and Autostart
 
-Autostart must be installed as user-level behavior.
+Production Core activation uses true `systemd --user` socket activation. The user service manager
+creates and listens on the user-only Core Unix socket, starts exactly one `jarvisd` on demand, and
+passes the listening descriptor to it. Installed `jarvisd` runs in the foreground under the service
+lifecycle; launchers must not background-spawn `jarvisd` or implement an ad-hoc `jarvisd &` model.
+Clients use a deterministic connection/readiness contract and report typed activation failures.
 
-Prefer:
+This on-demand Core activation is distinct from per-profile `Start with computer`. Activating Core
+for IPC must not itself start profile model runtimes at login. Per-profile model autostart remains
+desired state reconciled later by the one authoritative Core.
 
-```text
-systemd --user
-```
-
-Do not require root merely to start Jarvis with the user's session.
+Do not require root merely to activate Jarvis or start opted-in profiles with the user's session.
 
 ---
 
@@ -1662,6 +1675,17 @@ The installation must not become a machine-wide system installation by default.
 Jarvis configuration, profiles and data belong only to that user.
 
 Different Linux users must have isolated Jarvis installations and profile data.
+
+The production application runs from a Jarvis-managed private virtual environment under its
+user-local installation root. Normal use must not depend on a source checkout, require activation
+of a development environment, depend on `pipx`, install into the user's global or system Python
+environment, or mutate global Python. Stable user-local dispatchers invoke the private installed
+environment reproducibly.
+
+Application files, command dispatchers, systemd-user assets, XDG configuration/data/state/cache,
+and XDG runtime artifacts have distinct ownership and lifecycle rules. The initial production
+installation identity and manifest must be sufficient for safe validation and repair and must be
+extensible to the final installer rather than replaced by another installation architecture.
 
 ---
 
@@ -1696,6 +1720,10 @@ This includes:
 - source files belonging to the active installation;
 - installed Python package files;
 - installed executables;
+- the Jarvis-managed production environment;
+- command dispatchers;
+- systemd-user service and socket assets;
+- installed-file identity and manifest records;
 - runtime code;
 - active configuration implementation files;
 - update infrastructure.
@@ -1758,6 +1786,11 @@ jarvis-update
 may apply application updates.
 
 Jarvis conversational tools cannot invoke an internal self-patch path that bypasses this boundary.
+
+Milestone 019B owns release query/download, compatibility validation, integrity and cryptographic
+authenticity, the signing/trust technology decision, exclusive updater authority, rollback, and
+post-update validation. The M006C installation foundation must not implement or acquire any of
+those updater responsibilities.
 
 ---
 
@@ -2830,6 +2863,12 @@ Destructive cleanup requires confirmation.
 
 The TUI is installed as part of Jarvis-CLI but remains architecturally independent from the simple CLI presentation.
 
+Milestone 006C introduces the permanent physical `jarvis` dispatcher with the simple interactive
+CLI as its initial bare-command target. After Milestone 016 passes its documented stability gate,
+the same dispatcher opens the TUI for bare interactive use. Argument-bearing requests remain
+non-TUI one-shots, and the simple CLI remains an independent fallback. This presentation change
+does not replace the installation architecture or create a second Core/agent brain.
+
 Recommended stack:
 
 ```text
@@ -3029,6 +3068,15 @@ jarvisd
 
 through user-level systemd.
 
+The production installation uses systemd-user socket activation. systemd owns the listening Unix
+socket and passes the inherited descriptor to `jarvisd`; `jarvisd` validates its socket type,
+address, ownership/access properties, and activation contract before adopting it. It must not
+unlink or rebind the systemd-owned socket. A self-bound foreground mode may remain for isolated
+development and testing, but it is not the installed lifecycle model.
+
+`jarvisd` is service-lifecycle infrastructure, not a normal user workflow or a substitute for the
+canonical `jarvis` client command.
+
 Responsibilities:
 
 - IPC;
@@ -3052,9 +3100,22 @@ There is exactly one user-level Core owner for a user's Jarvis XDG state. Multip
 
 Installation is scoped to the current Linux user.
 
-Do not require root for normal installation when avoidable.
+Normal installation and operation must not require root.
 
 Do not place mutable user profile data into system-global directories.
+
+The canonical physical `jarvis` command is introduced by Milestone 006C. Bare invocation initially
+opens the simple CLI and an argument-bearing invocation remains a one-shot. Installed dispatchers
+must be collision-safe and must not silently replace an unrelated executable or PATH entry.
+Dynamic physical profile aliases remain deferred to Milestone 019A.
+
+If a normal invocation targets a profile without a usable selected model/runtime configuration,
+the client must offer or enter a minimal understandable setup flow instead of exposing a cryptic
+raw error. Setup presentation uses typed Core/service IPC contracts to configure `llama-server`,
+model search directories, refresh discovery, select a Jarvis-profile model, configure essential
+reasoning/context/runtime settings where required, validate readiness, and continue into chat after
+success. Clients and installers must not duplicate scanning/runtime/configuration logic or directly
+mutate repositories or SQLite. Cancellation and failures are typed and understandable.
 
 ---
 
@@ -3184,6 +3245,8 @@ IPC serialization
 timeouts
 update boundary
 single-Core ownership and stale socket recovery
+systemd inherited-socket validation and single-owner activation
+fixed installed-command collision and replacement safety
 per-profile FIFO generation serialization
 model switch during active generation
 profile reset/delete with active runtime
@@ -3338,6 +3401,25 @@ streaming and client commands over IPC
 
 ---
 
+## Phase 5A — User-local Installation and Core Activation
+
+Implement:
+
+```text
+Jarvis-managed private production environment
+collision-safe fixed user-local command dispatch
+canonical jarvis command
+systemd-user socket activation for one Core
+inherited listening-socket validation and adoption
+minimal installation identity, manifest and repair foundation
+Core-driven first-run setup and readiness validation
+```
+
+Do not add dynamic physical profile aliases, per-profile model autostart, or updater authority in
+this phase.
+
+---
+
 ## Phase 6 — Learning
 
 Implement:
@@ -3448,7 +3530,7 @@ update checking
 diagnostics
 repair
 installation health
-then one-Core per-profile autostart
+then per-profile model-autostart desired-state reconciliation through the existing one Core
 ```
 
 ---
@@ -3458,11 +3540,10 @@ then one-Core per-profile autostart
 Implement:
 
 ```text
-installer
-uninstaller
+complete and harden the existing user-local installer architecture
+final installer and uninstaller/purge
 jarvis-clear
 desktop entry
-systemd user services
 release packaging
 then separate authenticated jarvis-update
 ```
@@ -3519,6 +3600,10 @@ NEW PROFILES CLONE CONFIGURATION FROM JARVIS, NOT ITS HISTORY
 
 WHEN PHYSICALLY EXPOSED, PROFILE COMMANDS ARE DIRECT EXECUTABLE NAMES
 
+THE CANONICAL PHYSICAL JARVIS COMMAND EXISTS FROM M006C
+
+DYNAMIC PHYSICAL PROFILE ALIASES REMAIN M019A-OWNED
+
 PROFILE COMMAND NAMES ARE NORMALIZED TO LOWERCASE ASCII WITH HYPHENS
 
 ONE ACTIVE MODEL SERVER MAXIMUM PER PROFILE
@@ -3564,6 +3649,16 @@ A SEPARATE DEVELOPMENT CLONE MAY BE EDITED NORMALLY
 UPDATE CHECKING DEFAULTS TO ENABLED
 
 INSTALLATION IS USER-LOCAL
+
+THE PRODUCTION APPLICATION USES A JARVIS-MANAGED PRIVATE USER-LOCAL ENVIRONMENT
+
+NORMAL INSTALLED USE DOES NOT DEPEND ON A SOURCE CHECKOUT OR MUTATE GLOBAL PYTHON
+
+PRODUCTION CORE ACTIVATION USES A SYSTEMD-USER-OWNED SOCKET AND ONE CORE
+
+CORE ACTIVATION DOES NOT IMPLY PER-PROFILE MODEL AUTOSTART
+
+FIRST-RUN SETUP USES CORE/SERVICE IPC RATHER THAN CLIENT DATABASE ACCESS
 
 CONFIGURATION IS PROFILE-FIRST
 

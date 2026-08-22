@@ -16,7 +16,15 @@ The LLM plans and converses. It does not own OS authority. Core validates propos
 
 The simple CLI and rich TUI are presentation clients. They render streams, collect approval decisions, issue slash/configuration commands, and show human-facing errors and logging events. They do not run an agent loop, access the database directly, manage model processes, or execute tools.
 
-Client dispatch depends on invocation mode and TUI maturity. Before the rich TUI is stable, bare `jarvis` and bare profile aliases open the simple interactive CLI. After the TUI passes its stability gate, those bare commands open the TUI by default. Invocations containing a natural-language request remain non-TUI one-shot commands in both phases. The simple interactive CLI remains an independent client and fallback; a future explicit option such as `--simple` may select it after the TUI becomes the default.
+Client dispatch depends on invocation mode and TUI maturity. M006C introduces the permanent
+physical `jarvis` dispatcher; before the rich TUI is stable, bare `jarvis` opens the simple
+interactive CLI. After the TUI passes its M016 stability gate, the same dispatcher opens the TUI
+by default without replacing the installation architecture. Invocations containing a
+natural-language request remain non-TUI one-shot commands in both phases. The simple interactive
+CLI remains an independent client and fallback; a future explicit option such as `--simple` may
+select it after the TUI becomes the default. Dynamic bare profile commands do not exist until
+M019A materializes them, after which they follow the same interactive-versus-one-shot dispatch
+rule.
 
 Clients connect to Jarvis Core over a user-only Unix domain socket using bounded, structured, versioned serialization (never pickle). Core/IPC exists before any real configuration or chat client; no client ever receives a temporary direct repository/database path. Operations and payloads are client-neutral, and version plus capability negotiation lets different client types degrade explicitly.
 
@@ -30,11 +38,29 @@ the next Core chat submission as a new session without deleting history, and `/l
 the dedicated human diagnostic-summary result. The presenter has no repository, SQLite, provider,
 or RuntimeManager imports.
 
+M006C installs this presenter in a Jarvis-managed private production virtual environment and
+exposes it as canonical `jarvis`, along with the fixed management/configuration/help dispatchers
+appropriate to that milestone. Normal installed use is independent of the source checkout and an
+activated development environment, does not depend on `pipx`, and neither installs into nor mutates
+global/system Python. Fixed dispatchers are collision-safe and never overwrite or claim unrelated
+executables or PATH entries.
+
 This same boundary is the compatibility point for future Voice and Jarvis Desktop App clients. Those future products are not part of the current implementation roadmap and must reuse Core rather than create separate agent brains.
 
 ## Jarvis Core (`jarvisd`)
 
-Core owns all product state and orchestration: profiles, configuration, models, runtimes, sessions, the Agent Engine, context construction, memory, policy, tools, persistence, logging, audit, and runtime coordination. Exactly one Core process owns a user's Jarvis XDG state, lock and socket at a time; multiple clients and profile runtimes share it. It exposes typed application operations over IPC and emits meaningful state events; it does not own CLI/TUI rendering.
+Core owns all product state and orchestration: profiles, configuration, models, runtimes, sessions, the Agent Engine, context construction, memory, policy, tools, persistence, logging, audit, and runtime coordination. Exactly one Core process owns a user's Jarvis XDG state and Core lock at a time; multiple clients and profile runtimes share it. In production, systemd owns the listening socket while the single Core owns accepted IPC work and all application services. Core exposes typed application operations over IPC and emits meaningful state events; it does not own CLI/TUI rendering.
+
+M006C establishes true systemd-user socket activation for installed use. systemd creates and
+listens on the user-only XDG-runtime Unix socket, activates one foreground `jarvisd`, and passes the
+listening descriptor to it. Core validates the inherited descriptor's activation contract, socket
+type, expected address and ownership/access properties before adoption; it neither unlinks nor
+rebinds the systemd-owned path. A self-bound foreground Core mode may remain for development and
+isolated tests. The two modes never compete for socket ownership. Client connection/readiness is
+deterministic and reports typed activation failures; launchers never implement `jarvisd &` or a
+second Core lifecycle. The socket/service assets live in the user systemd unit search path and are
+owned and tracked by the installation manifest; `jarvisd` is infrastructure, not a normal user
+workflow.
 
 Core is the trust boundary between untrusted/model-proposed content and host capabilities. Subsystems communicate through typed contracts and typed errors rather than reaching through layers to mutate each other’s storage.
 
@@ -44,7 +70,7 @@ A profile is the primary user-facing identity and isolation boundary. Stable int
 
 The permanent `jarvis` profile always exists, cannot be renamed at the command level or deleted, and is the configuration template for new profiles. Cloning copies an explicit allowlist of Jarvis's current configuration. Model selection/settings join that allowlist only after the Model Registry exists; existing profiles are not backfilled. Conversations, private model notes, memories, learning history/state, chat logs, and diagnostic session history always start empty. A missing inherited model is unavailable and never silently replaced.
 
-Creation and reset have different sources: creation clones Jarvis's current configurable state, while reset restores centrally defined, versioned product defaults. Reset and deletion run through one destructive-operation coordinator that previews exact categories, quiesces or explicitly cancels profile sessions/generations/runtimes, invokes every registered profile-owned store, and never reports partial cleanup as success. M003 changes only the persistent logical alias with the profile transaction; M019A coordinates any physical command cleanup. Profile reset removes owned chat diagnostics while retaining a sanitized audit record of the reset.
+Creation and reset have different sources: creation clones Jarvis's current configurable state, while reset restores centrally defined, versioned product defaults. Reset and deletion run through one destructive-operation coordinator that previews exact categories, quiesces or explicitly cancels profile sessions/generations/runtimes, invokes every registered profile-owned store, and never reports partial cleanup as success. M003 changes only the persistent logical alias with the profile transaction; M019A coordinates dynamic physical profile-command cleanup once those aliases exist. Profile reset removes owned chat diagnostics while retaining a sanitized audit record of the reset.
 
 Settings that logically affect a profile remain profile-owned. Settings that describe the installation—model search directories, llama.cpp path, installed commands, Core management, update source/checking, health, and repair—belong to installation management. A minimum management contract for model directories and the runtime path exists before model runtime configuration; the full `jarvis-manage` client comes later. Defaults are centralized, versioned, and resettable at setting, section, and profile levels.
 
@@ -52,7 +78,7 @@ Settings that logically affect a profile remain profile-owned. Settings that des
 
 Every non-default profile has a deterministic lowercase ASCII/hyphen logical alias derived from its display name. M001 persists it, and M003 resolves it through Core to a stable `profile_id`; aliases never become ownership keys.
 
-M003 creates no profile command executable, launcher, symlink, wrapper, filesystem registry, or PATH entry, and performs no external PATH collision check. M006B supplies the runnable/testable development/package mechanism: `python -m jarvis.cli` for the default profile and `python -m jarvis.cli --profile-alias <alias> [request]` after Core resolution. It is not final user PATH exposure. M019A owns final user-local executable exposure, external collision handling, physical command reconciliation/repair, rename/delete cleanup, and uninstall behavior. Reserved command names and logical alias collisions are rejected by the profile service. Help through a physically exposed `jarvis` or profile alias is client-side and does not start a model.
+M003 creates no profile command executable, launcher, symlink, wrapper, filesystem registry, or PATH entry, and performs no external PATH collision check. M006B supplies the runnable/testable development/package mechanism: `python -m jarvis.cli` for the default profile and `python -m jarvis.cli --profile-alias <alias> [request]` after Core resolution. M006C then exposes the canonical physical `jarvis` and other fixed commands appropriate to its production foundation, with collision safety for each fixed dispatcher; logical profiles remain available through `jarvis --profile-alias <alias>`. M019A owns only dynamic physical profile-command materialization, external alias collisions, alias reconciliation/repair, rename/delete cleanup, and uninstall cleanup. Reserved command names and logical alias collisions remain enforced by the profile service. Help through a physically exposed `jarvis` or later profile alias is client-side and does not start a model.
 
 ## Persistence and local storage
 
@@ -201,15 +227,39 @@ Desktop support is Wayland-oriented and adapter-based. It prefers desktop entrie
 
 ## Installation management and protected installation
 
-`jarvis-config` is profile-first and owns ordinary profile configuration. Installation management owns model directories, llama.cpp path, Core/systemd-user state, update settings/checks, health, repair, version and diagnostics. M019A additionally owns final physical profile-command exposure and its lifecycle. A minimum management surface for model directories/runtime path exists before runtime work; full `jarvis-manage` arrives later without changing ownership.
+M006C is the first permanent production slice of the user-local installation architecture. Jarvis
+owns a private virtual environment beneath its user-local installation root; stable user-local
+dispatchers invoke that environment without a source-tree dependency or global Python mutation.
+Application files, fixed dispatchers, systemd-user assets, XDG configuration/data/state/cache,
+and XDG runtime state have distinct ownership and lifecycle. M006C establishes enough installed
+identity, manifest and repair semantics for M019A to consume, preserve and extend rather than
+introducing a replacement installer architecture. Every fixed dispatcher installed by M006C,
+including canonical `jarvis`, is collision-safe.
 
-Autostart uses exactly one user-level `jarvisd` owner. Per-profile `Start with computer` is profile-owned desired state reconciled by that Core, or by a thin activation request to it—not a separate Core/runtime manager per profile. The last valid selected model is used; a missing model is reported without substitution. Duplicate login activation is idempotent and does not consume first-run learning state.
+`jarvis-config` is profile-first and owns ordinary profile configuration. Installation management owns model directories, llama.cpp path, Core/systemd-user state, update settings/checks, health, repair, version and diagnostics. M019A additionally owns dynamic physical profile-command exposure and its lifecycle. A minimum management surface for model directories/runtime path exists before runtime work; full `jarvis-manage` later expands repair and health over the M006C foundation without changing ownership.
+
+An unconfigured ordinary `jarvis` invocation does not expose a cryptic raw
+`model.not_selected` failure. A minimal guided presenter calls typed Core/service IPC operations to
+locate/configure `llama-server`, manage model search directories, refresh GGUF discovery, select a
+model for the Jarvis profile, configure essential reasoning/context/runtime settings where needed,
+and validate readiness before continuing into chat. Model scanning, runtime management,
+configuration persistence and SQLite remain owned by their existing Core services; neither the
+client nor installer duplicates or directly mutates them. Setup cancellation and failures are
+typed and understandable.
+
+Core activation and profile model autostart are separate. M006C's socket activation starts one Core
+on demand for IPC and does not start model runtimes merely because the user session begins. M018B
+later adds per-profile `Start with computer` as profile-owned desired state reconciled by that same
+Core, or by a thin activation request to it—not a separate Core, socket, service topology or
+runtime manager per profile. The last valid selected model is used; a missing model is reported
+without substitution. Duplicate login reconciliation is idempotent and does not consume first-run
+learning state.
 
 The active installed code and update infrastructure are immutable to the Agent/Tool Broker. Canonical installation identity and path checks form a real policy boundary for all mutating tools, including link/race defenses. A separate development clone that is not the active installation is an ordinary user project and may be edited subject to normal policy.
 
 Only the separately invoked `jarvis-update` executable may acquire authority to replace installed application files. Core exposes no update-application IPC operation, and conversational execution cannot reach updater or protected lifecycle authority. Update checking is a separate installation-scoped narrow network operation, not a profile INTERNET tool; it is transparent, enabled by default, exchanges only minimal version/repository information, and cannot install anything.
 
-Before application, the updater must verify integrity and cryptographic authenticity rooted in trusted information already available to the installed Jarvis. A checksum delivered beside the artifact from the same source is insufficient. The Milestone 019 family must select and document the exact signing technology and trust-material lifecycle during 019B; this architecture does not select one prematurely. The updater validates compatibility/migrations, preserves data, validates after application and fails recoverably. Normal installation and services are user-local and avoid root. Uninstalling binaries preserves user data unless the user separately confirms purge.
+Before application, the updater must verify integrity and cryptographic authenticity rooted in trusted information already available to the installed Jarvis. A checksum delivered beside the artifact from the same source is insufficient. M019B alone selects and documents the exact signing technology and trust-material lifecycle; M006C contains no release query/download, compatibility, integrity/authenticity, update application, rollback or post-update authority. The updater validates compatibility/migrations, preserves data, validates after application and fails recoverably. Normal installation and services are user-local and root-free. M019A completes release packaging and the installer/uninstaller over the M006C foundation; uninstalling binaries preserves user data unless the user separately confirms purge.
 
 ## Remaining decision gates
 
@@ -234,6 +284,7 @@ Only two product/technical decisions remain open in the current planning documen
 | Capability execution | Tool Broker/adapters | Self-authorization or unrestricted model access |
 | Operational evidence | Logging/audit services | Conversational memory |
 | Installation checks/management | Management service | Profile INTERNET policy or update application |
-| Installation mutation | Installer/uninstaller/separate `jarvis-update` | Core IPC, ordinary profile preferences, or in-chat self-update |
+| User-local installation/activation foundation | M006C installer, fixed dispatchers and systemd-user assets | Dynamic profile aliases, profile model autostart, or updater authority |
+| Installation mutation | M006C/M019A installer lifecycle, M019A uninstaller, separate M019B `jarvis-update` | Core IPC, ordinary profile preferences, or in-chat self-update |
 
 These boundaries preserve the central invariant: power is delivered as typed, validated, policy-authorized, bounded, structured, and audited capabilities—not as unrestricted LLM access to the host.
